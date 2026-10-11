@@ -53,15 +53,9 @@ Customise these options as per README.txt.  Please read README.txt before contin
 //#define REQUIRE_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL
 #define REQUIRED_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL 80
 
-// Update with your Wifi details
-#define WIFI_SSID		"Stardust"
-#define WIFI_PASSWORD	""
-
-// Update with your MQTT Broker details
-#define MQTT_SERVER	"192.168.1.135"
-#define MQTT_PORT	1883
-#define MQTT_USERNAME	"Alpha"			// Empty string for none.
-#define MQTT_PASSWORD	"Inverter1"
+// WiFi and MQTT broker details live in Secrets.h, which git ignores.
+// Copy Secrets.example.h to Secrets.h and fill it in.
+#include "Secrets.h"
 
 
 // The device name is used as the MQTT base topic and presence on the network.

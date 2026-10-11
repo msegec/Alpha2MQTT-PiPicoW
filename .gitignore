@@ -361,3 +361,5 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Local WiFi and MQTT credentials
+Alpha2MQTT/Secrets.h

@@ -952,7 +952,8 @@ void mqttReconnect()
 		delay(100);
 
 		// Attempt to connect
-		if (_mqtt.connect(DEVICE_NAME, MQTT_USERNAME, MQTT_PASSWORD))
+		// An empty MQTT_USERNAME means connect without credentials
+		if (strlen(MQTT_USERNAME) == 0 ? _mqtt.connect(DEVICE_NAME) : _mqtt.connect(DEVICE_NAME, MQTT_USERNAME, MQTT_PASSWORD))
 		{
 			Serial.println("Connected MQTT");
 
