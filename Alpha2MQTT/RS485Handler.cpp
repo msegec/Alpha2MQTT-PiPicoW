@@ -31,6 +31,11 @@ RS485Handler::RS485Handler()
 #elif defined MP_ESP32
 	_RS485Serial = new HardwareSerial(2); // Serial 2 PIN16=RXgreen, pin17=TXwhite
 	_RS485Serial->begin(DEFAULT_BAUD_RATE, SERIAL_8N1, 16, 17);
+#elif defined MP_PICOW
+	_RS485Serial = &Serial1; // UART0 is a core-owned global, so it is borrowed, not allocated
+	_RS485Serial->setRX(RX_PIN);
+	_RS485Serial->setTX(TX_PIN);
+	_RS485Serial->begin(DEFAULT_BAUD_RATE, SERIAL_8N1);
 #endif
 	
 }
@@ -43,7 +48,9 @@ Disconnections, clean-up and what not
 RS485Handler::~RS485Handler()
 {
 	_RS485Serial->end();
+#if !defined MP_PICOW
 	delete _RS485Serial;
+#endif
 	_RS485Serial = NULL;
 }
 

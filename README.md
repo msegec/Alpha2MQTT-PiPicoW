@@ -635,6 +635,25 @@ TX to RX2 (GPIO16)
 EN to GPIO33 (for devices with an EN flow control pin)
 DR+RE to GPIO33 (for devices with DR and RE flow control pins)
 
+If you are using a Raspberry Pi Pico W, select `MP_PICOW` in Definitions.h and use these pin mappings:
+
+MAX3485 to Pico W
+VCC to 3V3 OUT (pin 36)
+GND to GND (pin 38)
+RXD to GP0 (pin 1, UART0 TX)
+TXD to GP1 (pin 2, UART0 RX)
+EN or DR+RE to GP2 (pin 4) (only for devices with flow control pins)
+
+Display to Pico W
+SDA to GP4 (pin 6)
+SCL to GP5 (pin 7)
+
+Build with [arduino-pico](https://github.com/earlephilhower/arduino-pico) 6.2.0. The Wemos OLED library needs `pgmspace.h` included first on this core:
+```
+arduino-cli compile --fqbn rp2040:rp2040:rpipicow --build-property "compiler.cpp.extra_flags=-include pgmspace.h" Alpha2MQTT
+```
+Hold BOOTSEL while plugging in the Pico W, then copy the `.uf2` file onto the RPI-RP2 drive.
+
 
 Here's how it looks when completed.  I ended up using an RJ45 socket and soldered the appropriate pair directly to the MAX3845 RX and TX pins so that I could simply plug/unplug the ethernet cable, without needing to unscrew/screw terminals on the MAX3845 every time.
 

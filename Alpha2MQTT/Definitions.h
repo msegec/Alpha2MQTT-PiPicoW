@@ -15,20 +15,21 @@ Customise these options as per README.txt.  Please read README.txt before contin
 #define _Definitions_h
 
 #if defined(ARDUINO) && ARDUINO >= 100
-	#include "arduino.h"
+	#include "Arduino.h"
 #else
 	#include "WProgram.h"
 #endif
 
 
-// Compiling for ESP8266 or ESP32?
+// Compiling for ESP8266, ESP32 or Raspberry Pi Pico W?
 //#define MP_ESP32
-#define MP_ESP8266
-#if (!defined MP_ESP8266) && (!defined MP_ESP32)
+//#define MP_ESP8266
+#define MP_PICOW
+#if (!defined MP_ESP8266) && (!defined MP_ESP32) && (!defined MP_PICOW)
 #error You must specify the microprocessor in use
 #endif
 
-#if (defined MP_ESP8266) && (defined MP_ESP32)
+#if ((defined MP_ESP8266) + (defined MP_ESP32) + (defined MP_PICOW)) > 1
 #error You must only select one microprocessor from the list
 #endif
 

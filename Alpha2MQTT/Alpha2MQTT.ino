@@ -18,7 +18,7 @@ First, go and customise options at the top of Definitions.h!
 #include <Arduino.h>
 #if defined MP_ESP8266
 #include <ESP8266WiFi.h>
-#elif defined MP_ESP32
+#elif defined MP_ESP32 || defined MP_PICOW
 #include <WiFi.h>
 #endif
 #include <PubSubClient.h>
@@ -577,7 +577,11 @@ void loop()
 #ifdef FORCE_RESTART
 	if (checkTimer(&autoReboot, FORCE_RESTART_HOURS * 60 * 60 * 1000))
 	{
+#if defined MP_PICOW
+		rp2040.reboot();
+#else
 		ESP.restart();
+#endif
 	}
 #endif
 

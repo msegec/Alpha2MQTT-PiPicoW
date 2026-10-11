@@ -14,7 +14,7 @@ Handles Modbus requests and responses in a tidy class separate from main program
 #define _RS485Handler_h
 
 #if defined(ARDUINO) && ARDUINO >= 100
-	#include "arduino.h"
+	#include "Arduino.h"
 #else
 	#include "WProgram.h"
 #endif
@@ -42,6 +42,10 @@ Handles Modbus requests and responses in a tidy class separate from main program
 #define SERIAL_COMMUNICATION_CONTROL_PIN 33	// Transmission set pin
 #define RX_PIN 16							// Serial Receive pin
 #define TX_PIN 17							// Serial Transmit pin
+#elif defined MP_PICOW
+#define SERIAL_COMMUNICATION_CONTROL_PIN 2	// GP2, transmission set pin
+#define RX_PIN 1							// GP1, UART0 RX
+#define TX_PIN 0							// GP0, UART0 TX
 #endif
 
 class RS485Handler
@@ -52,6 +56,8 @@ class RS485Handler
 		SoftwareSerial* _RS485Serial;
 #elif defined MP_ESP32
 		HardwareSerial* _RS485Serial;
+#elif defined MP_PICOW
+		SerialUART* _RS485Serial;
 #endif
 
 		char* _debugOutput;
