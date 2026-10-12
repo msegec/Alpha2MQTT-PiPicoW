@@ -75,13 +75,6 @@ Dispatch Power (W) (32000 Offset, < 32000 charge, > 32000 discharge)
 Dispatch SOC (%)
 Dispatch Time (S)
 
-PV1 Power (+/-) (W) - Hybrid Inverters Only
-PV2 Power (+/-) (W) - Hybrid Inverters Only
-PV3 Power (+/-) (W) - Hybrid Inverters Only
-PV4 Power (+/-) (W) - Hybrid Inverters Only
-PV5 Power (+/-) (W) - Hybrid Inverters Only
-PV6 Power (+/-) (W) - Hybrid Inverters Only
-
 Total Solar Power (+/-) (W) - Sum of PV Power (CT gathered) and Hybrid PV Power gathered
 ```
 
@@ -90,14 +83,20 @@ Total Solar Power (+/-) (W) - Sum of PV Power (CT gathered) and Hybrid PV Power 
 Grid Voltage (Phase A) (V)
 PV Voltage (Phase A) (V)
 Inverter Voltage (Phase A) (V)
-```
 
-#### Every five minutes:
-```
 Battery Total Charge (kWh)
 Battery Total Discharge (kWh)
 Battery Total Charged From Grid (kWh)
+Total System PV Energy Generated (kWh)
+Total Energy Fed To Grid (kWh)
+Total Energy Consumed From Grid (kWh)
+Total PV Energy Generated (kWh)
+Total PV Energy Consumed (kWh)
 ```
+
+The energy totals report every minute so the Home Assistant Energy dashboard stays current. The five minute and one day schedules are empty by default and publish nothing until you add registers to them.
+
+PV1 to PV6 power (REG_INVERTER_HOME_R_PV1_POWER_1 onwards) are left out because they exist on hybrid inverters only. On a hybrid inverter, add them back to the ten second schedule.
 
 #### Every one hour:
 ```
@@ -106,15 +105,6 @@ PV Frequency (Hz)
 Inverter Frequency (Hz)
 System Fault (description as per documentation)
 Battery Fault (description as per documentation)
-```
-
-#### Every one day:
-```
-Total System PV Energy Generated (kWh)
-Total Energy Fed To Grid (kWh)
-Total Energy Consumed From Grid (kWh)
-Total PV Energy Generated (kWh)
-Total PV Energy Consumed (kWh)
 ```
 
 You can customise the schedules by modifying Alpha2MQTT.ino.  Search for 'Schedules' and add or remove registers as you see fit from each schedule.  The list of supported registers begins on line 85 in Definitions.h.  A register name which contains _R_ is read only, one which contains _RW_ is read/write, and one which contains _W_ is write only.

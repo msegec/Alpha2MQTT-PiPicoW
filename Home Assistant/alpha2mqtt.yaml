@@ -221,84 +221,6 @@ mqtt:
         name: "Alpha2MQTT"
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
-    - name: "PV1 Power"
-      unique_id: alpha2mqtt_inverter_home_r_pv1_power_1
-      state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_INVERTER_HOME_R_PV1_POWER_1 | default(None) }}"
-      unit_of_measurement: "W"
-      device_class: power
-      state_class: measurement
-      expire_after: 60
-      device:
-        identifiers: ["alpha2mqtt"]
-        name: "Alpha2MQTT"
-        manufacturer: "AlphaESS"
-        model: "Alpha2MQTT"
-    - name: "PV2 Power"
-      unique_id: alpha2mqtt_inverter_home_r_pv2_power_1
-      state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_INVERTER_HOME_R_PV2_POWER_1 | default(None) }}"
-      unit_of_measurement: "W"
-      device_class: power
-      state_class: measurement
-      expire_after: 60
-      device:
-        identifiers: ["alpha2mqtt"]
-        name: "Alpha2MQTT"
-        manufacturer: "AlphaESS"
-        model: "Alpha2MQTT"
-    - name: "PV3 Power"
-      unique_id: alpha2mqtt_inverter_home_r_pv3_power_1
-      state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_INVERTER_HOME_R_PV3_POWER_1 | default(None) }}"
-      unit_of_measurement: "W"
-      device_class: power
-      state_class: measurement
-      expire_after: 60
-      device:
-        identifiers: ["alpha2mqtt"]
-        name: "Alpha2MQTT"
-        manufacturer: "AlphaESS"
-        model: "Alpha2MQTT"
-    - name: "PV4 Power"
-      unique_id: alpha2mqtt_inverter_home_r_pv4_power_1
-      state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_INVERTER_HOME_R_PV4_POWER_1 | default(None) }}"
-      unit_of_measurement: "W"
-      device_class: power
-      state_class: measurement
-      expire_after: 60
-      device:
-        identifiers: ["alpha2mqtt"]
-        name: "Alpha2MQTT"
-        manufacturer: "AlphaESS"
-        model: "Alpha2MQTT"
-    - name: "PV5 Power"
-      unique_id: alpha2mqtt_inverter_home_r_pv5_power_1
-      state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_INVERTER_HOME_R_PV5_POWER_1 | default(None) }}"
-      unit_of_measurement: "W"
-      device_class: power
-      state_class: measurement
-      expire_after: 60
-      device:
-        identifiers: ["alpha2mqtt"]
-        name: "Alpha2MQTT"
-        manufacturer: "AlphaESS"
-        model: "Alpha2MQTT"
-    - name: "PV6 Power"
-      unique_id: alpha2mqtt_inverter_home_r_pv6_power_1
-      state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_INVERTER_HOME_R_PV6_POWER_1 | default(None) }}"
-      unit_of_measurement: "W"
-      device_class: power
-      state_class: measurement
-      expire_after: 60
-      device:
-        identifiers: ["alpha2mqtt"]
-        name: "Alpha2MQTT"
-        manufacturer: "AlphaESS"
-        model: "Alpha2MQTT"
     - name: "Solar Power"
       unique_id: alpha2mqtt_custom_total_solar_power
       state_topic: "Alpha2MQTT/state/second/ten"
@@ -353,12 +275,12 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "Battery Charge Energy"
       unique_id: alpha2mqtt_battery_home_r_battery_charge_energy_1
-      state_topic: "Alpha2MQTT/state/minute/five"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_CHARGE_ENERGY_1 | default(None) }}"
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
-      expire_after: 1200
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
@@ -366,12 +288,12 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "Battery Discharge Energy"
       unique_id: alpha2mqtt_battery_home_r_battery_discharge_energy_1
-      state_topic: "Alpha2MQTT/state/minute/five"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_DISCHARGE_ENERGY_1 | default(None) }}"
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
-      expire_after: 1200
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
@@ -379,12 +301,12 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "Battery Charge From Grid Energy"
       unique_id: alpha2mqtt_battery_home_r_battery_energy_charge_from_grid_1
-      state_topic: "Alpha2MQTT/state/minute/five"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_ENERGY_CHARGE_FROM_GRID_1 | default(None) }}"
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
-      expire_after: 1200
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
@@ -451,12 +373,12 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "Total PV Energy"
       unique_id: alpha2mqtt_system_op_r_system_total_pv_energy_1
-      state_topic: "Alpha2MQTT/state/day/one"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_SYSTEM_OP_R_SYSTEM_TOTAL_PV_ENERGY_1 | default(None) }}"
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
-      expire_after: 259200
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
@@ -464,12 +386,12 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "Grid Export Energy"
       unique_id: alpha2mqtt_grid_meter_r_total_energy_feed_to_grid_1
-      state_topic: "Alpha2MQTT/state/day/one"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_GRID_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1 | default(None) }}"
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
-      expire_after: 259200
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
@@ -477,12 +399,12 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "Grid Import Energy"
       unique_id: alpha2mqtt_grid_meter_r_total_energy_consumed_from_grid_1
-      state_topic: "Alpha2MQTT/state/day/one"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_GRID_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1 | default(None) }}"
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
-      expire_after: 259200
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
@@ -490,12 +412,12 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "PV Meter Export Energy"
       unique_id: alpha2mqtt_pv_meter_r_total_energy_feed_to_grid_1
-      state_topic: "Alpha2MQTT/state/day/one"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_PV_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1 | default(None) }}"
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
-      expire_after: 259200
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
@@ -503,12 +425,12 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "PV Meter Import Energy"
       unique_id: alpha2mqtt_pv_meter_r_total_energy_consumed_from_grid_1
-      state_topic: "Alpha2MQTT/state/day/one"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_PV_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1 | default(None) }}"
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
-      expire_after: 259200
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
