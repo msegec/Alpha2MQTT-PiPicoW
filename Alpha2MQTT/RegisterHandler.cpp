@@ -4019,8 +4019,8 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 		{
 			// Type: Unsigned Short
 			// 0.4%/bit, 95=SOC of 38%
-			// Reduce it back to a percent
-			sprintf(rs->dataValueFormatted, "%u", rs->unsignedShortValue * DISPATCH_SOC_MULTIPLIER);
+			// Reduce it back to a percent. Integer maths: %u given a float prints 0.
+			sprintf(rs->dataValueFormatted, "%u", (rs->unsignedShortValue * 4 + 5) / 10);
 			break;
 		}
 		case REG_DISPATCH_RW_DISPATCH_TIME_1:
