@@ -21,6 +21,10 @@ First, go and customise options at the top of Definitions.h!
 #elif defined MP_ESP32 || defined MP_PICOW
 #include <WiFi.h>
 #endif
+#if defined MP_PICOW
+#include <hardware/adc.h>
+#include <pico/cyw43_arch.h>
+#endif
 #include <PubSubClient.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -1090,6 +1094,9 @@ void sendData()
 	{
 		numberOfRegisters = sizeof(_mqttOneMinuteStatusRegisters) / sizeof(struct mqttState);
 		sendDataFromAppropriateArray(_mqttOneMinuteStatusRegisters, numberOfRegisters, DEVICE_NAME MQTT_MES_STATE_MINUTE_ONE);
+#if defined MP_PICOW
+		sendDeviceState();
+#endif
 	}
 
 	// Update all parameters and send to MQTT.
@@ -1113,6 +1120,42 @@ void sendData()
 		sendDataFromAppropriateArray(_mqttOneDayStatusRegisters, numberOfRegisters, DEVICE_NAME MQTT_MES_STATE_DAY_ONE);
 	}
 }
+
+#if defined MP_PICOW
+/*
+sendDeviceState
+
+Publishes the Pico W supply: VSYS in millivolts and whether USB power is present.
+VSYS is read through a 1:3 divider on GPIO29, which the WiFi chip also uses as its SPI clock,
+so the read holds the CYW43 lock and hands the pin back. The driver reclaims it on its next transfer.
+*/
+void sendDeviceState()
+{
+	uint32_t total = 0;
+	uint32_t vsysMillivolts;
+	bool usbPower;
+	char stateAddition[64];
+
+	cyw43_thread_enter();
+	adc_init();
+	adc_gpio_init(PICO_VSYS_PIN);
+	adc_select_input(PICO_VSYS_PIN - ADC_BASE_PIN);
+	for (int i = 0; i < 16; i++)
+	{
+		total += adc_read();
+	}
+	cyw43_thread_exit();
+
+	// 16 samples of 12 bits against a 3.3 V reference, times 3 for the divider
+	vsysMillivolts = (total * 3300UL * 3UL) / (16UL * 4096UL);
+	usbPower = cyw43_arch_gpio_get(CYW43_WL_GPIO_VBUS_PIN);
+
+	emptyPayload();
+	sprintf(stateAddition, "{\r\n    \"vsys_mv\": %lu,\r\n    \"usb_power\": %s\r\n}", (unsigned long)vsysMillivolts, usbPower ? "true" : "false");
+	addToPayload(stateAddition);
+	sendMqtt(DEVICE_NAME MQTT_MES_STATE_DEVICE);
+}
+#endif
 
 void sendDataFromAppropriateArray(mqttState* registerArray, int numberOfRegisters, char* topic)
 {

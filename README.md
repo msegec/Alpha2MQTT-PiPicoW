@@ -49,6 +49,8 @@ Alpha2MQTT/state/hour/one
 Alpha2MQTT/state/day/one
 ```
 
+On a Pico W, Alpha2MQTT also publishes its own supply every minute to `Alpha2MQTT/state/device`: VSYS in millivolts and whether USB power is present, for example `{"vsys_mv": 4870, "usb_power": false}`. Use it to watch a battery feeding VSYS.
+
 Each of the schedules can be customised to report a number* / any combination of register values.  Alpha2MQTT has been developed this way to give flexibility.  For example, there is probably no need to report grid voltage every ten seconds, instead once every five minutes and in doing so we are limiting network traffic over MQTT and onward processing in software such as Home Assistant.
 
 

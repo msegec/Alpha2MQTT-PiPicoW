@@ -466,6 +466,34 @@ mqtt:
         name: "Alpha2MQTT"
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
+    # Pico W only: its own supply, published every minute
+    - name: "Pico VSYS"
+      unique_id: alpha2mqtt_pico_vsys
+      state_topic: "Alpha2MQTT/state/device"
+      value_template: "{{ (value_json.vsys_mv / 1000) | round(2) if value_json.vsys_mv is defined else None }}"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+  binary_sensor:
+    - name: "Pico USB Power"
+      unique_id: alpha2mqtt_pico_usb_power
+      state_topic: "Alpha2MQTT/state/device"
+      value_template: "{{ 'ON' if value_json.usb_power else 'OFF' }}"
+      device_class: plug
+      entity_category: diagnostic
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
 
 script:
   alpha2mqtt_set_charge:
