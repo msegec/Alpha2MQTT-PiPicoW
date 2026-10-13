@@ -538,25 +538,23 @@ void RS485Handler::calcCRC(uint8_t frame[], byte actualFrameSize)
 /*
 checkForData
 
-Returns true if there is some data in the serial buffer, otherwise false
+Returns true if there is some data in the serial buffer, otherwise false.
+Polls every millisecond so a reply is picked up as it lands, rather than on the next 50ms step.
+The timeout is unchanged at RS485_TRIES x 50ms.
 */
 bool RS485Handler::checkForData()
 {
-	int tries = 0;
+	unsigned long start = millis();
 
-	
-	while ((!_RS485Serial->available()) && (tries++ < RS485_TRIES))
+	while (!_RS485Serial->available())
 	{
-		delay(50);
+		if (millis() - start >= RS485_TRIES * 50UL)
+		{
+			Serial.println("Timeout waiting for RS485 response.  Likely no more data coming.");
+			return false;
+		}
+		delay(1);
 	}
 
-	if (tries >= RS485_TRIES)
-	{
-		Serial.println("Timeout waiting for RS485 response.  Likely no more data coming.");
-		return false;
-	}
-	else
-	{
-		return true;
-	}
+	return true;
 }
