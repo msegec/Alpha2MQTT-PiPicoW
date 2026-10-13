@@ -16,6 +16,7 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.util import dt as dt_util
 
 from .regulator import FIXED, HOLD, REGULATE, RELEASE, Command, Policy, Regulator, estimate_grid
+from .steplog import StepLog, file_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,7 +57,10 @@ def _number(hass: HomeAssistant, entity_id: str | None) -> float | None:
 class Controller:
     def __init__(self, hass: HomeAssistant, config: dict, entry_id: str) -> None:
         self.hass = hass
-        self.device_info = DeviceInfo(identifiers={(DOMAIN, entry_id)}, name="Alpha2MQTT battery controller")
+        base = config.get(CONF_BASE_TOPIC, DEFAULT_BASE_TOPIC)
+        # A second controller, such as a shadow on a topic nothing acts on, gets its own entity ids.
+        name = "Alpha2MQTT battery controller" if base == DEFAULT_BASE_TOPIC else f"Alpha2MQTT battery controller ({base})"
+        self.device_info = DeviceInfo(identifiers={(DOMAIN, entry_id)}, name=name)
         self.config = config
         self.regulator = Regulator()
         self.enabled = False
@@ -73,6 +77,7 @@ class Controller:
         self._sent_times: deque[float] = deque()
         self._unsubs: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
+        self._steplog: StepLog | None = None
 
     @property
     def status(self) -> str:
@@ -94,6 +99,8 @@ class Controller:
         if not await mqtt.async_wait_for_mqtt_client(self.hass):
             _LOGGER.error("MQTT is not available, the battery controller will not run")
             return
+        self._steplog = await self.hass.async_add_executor_job(
+            StepLog, self.hass.config.path(DOMAIN, file_name(base)))
         self._unsubs.append(await mqtt.async_subscribe(
             self.hass, cfg.get(CONF_STATE_TOPIC, DEFAULT_STATE_TOPIC), self._on_state))
         self._unsubs.append(await mqtt.async_subscribe(self.hass, f"{base}/response/set/+", self._on_response))
@@ -110,6 +117,9 @@ class Controller:
         await self.async_set_enabled(False)
         while self._unsubs:
             self._unsubs.pop()()
+        if self._steplog is not None:
+            steplog, self._steplog = self._steplog, None
+            await self.hass.async_add_executor_job(steplog.close)
 
     async def async_set_enabled(self, enabled: bool) -> None:
         if not enabled and self.enabled:
@@ -211,7 +221,19 @@ class Controller:
             cmd = self.regulator.step(time.monotonic(), self._policy(), self._inputs_ok())
             if cmd is not None:
                 self.hass.async_create_task(self._publish(cmd))
+            if self._steplog is not None:
+                self._log_step(cmd)
         self._notify()
+
+    def _log_step(self, cmd: Command | None) -> None:
+        r = self.regulator
+        watts = {k: None if v is None else round(v, 1) for k, v in (
+            ("grid_w", r.grid_w), ("battery_w", r.battery_w), ("load_w", r.load_w), ("error_w", r.error_w),
+            ("integral_w", r.integral_w), ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w))}
+        self._steplog.write({
+            "t": round(time.time(), 2), "status": r.status, **watts,
+            "sent": None if cmd is None else {"kind": cmd.kind, "watts": cmd.watts, "soc": cmd.soc},
+        })
 
     async def _publish(self, cmd: Command) -> None:
         self._cmd_seq += 1
