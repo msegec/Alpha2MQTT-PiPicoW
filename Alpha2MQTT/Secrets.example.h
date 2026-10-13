@@ -12,4 +12,9 @@
 #define MQTT_USERNAME	""				// Empty string to connect without credentials.
 #define MQTT_PASSWORD	""
 
+// Over the air updates (Pico W). Anyone who knows this can replace the firmware, so make it
+// long and random, for example: python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+// scripts/ota-upload reads it from here at run time.
+#define OTA_PASSWORD	"change-me"
+
 #endif

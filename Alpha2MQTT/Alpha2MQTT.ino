@@ -25,6 +25,11 @@ First, go and customise options at the top of Definitions.h!
 #if defined MP_PICOW
 #include <hardware/adc.h>
 #include <pico/cyw43_arch.h>
+#include <ArduinoOTA.h>
+#ifndef OTA_PASSWORD
+#error Set OTA_PASSWORD in Secrets.h, see Secrets.example.h
+#endif
+static_assert(sizeof(OTA_PASSWORD) > 1, "OTA_PASSWORD must not be empty, or anyone on the network can flash the Pico");
 #endif
 #include <PubSubClient.h>
 #include <SPI.h>
@@ -439,6 +444,14 @@ void setup()
 	// Configure WIFI
 	setupWifi();
 
+#if defined MP_PICOW
+	// Start OTA before anything that can stall on the inverter, so a bad build can always be replaced.
+	// The image is staged in LittleFS, so build with a filesystem, see README.md.
+	ArduinoOTA.setHostname(DEVICE_NAME);
+	ArduinoOTA.setPassword(OTA_PASSWORD);
+	ArduinoOTA.begin();
+#endif
+
 	// Configure MQTT to the address and port specified above
 	_mqtt.setServer(MQTT_SERVER, MQTT_PORT);
 #ifdef DEBUG
@@ -524,7 +537,7 @@ void setup()
 			updateOLED(false, "Test Baud", baudRateString, response.displayMessage);
 
 			// Delay a while before trying the next
-			delay(1000);
+			waitServicingOta(1000);
 		}
 		else
 		{
@@ -562,6 +575,11 @@ void loop()
 	{
 		setupWifi();
 	}
+
+#if defined MP_PICOW
+	// Takes over and reboots if an upload has been accepted. Only ever called between RS485 requests.
+	ArduinoOTA.handle();
+#endif
 
 	// make sure mqtt is still connected
 	if ((!_mqtt.connected()) || !_mqtt.loop())
@@ -658,6 +676,25 @@ bool checkTimer(unsigned long *lastRun, unsigned long interval)
 	}
 
 	return false;
+}
+
+/*
+waitServicingOta
+
+A delay that still answers OTA uploads, for the long waits in setup and while reconnecting.
+espota.py gives up if the Pico takes more than 10 seconds to start an accepted upload.
+*/
+void waitServicingOta(unsigned long ms)
+{
+	unsigned long start = millis();
+
+	while (millis() - start < ms)
+	{
+#if defined MP_PICOW
+		ArduinoOTA.handle();
+#endif
+		delay(10);
+	}
 }
 
 /*
@@ -814,7 +851,7 @@ modbusRequestAndResponseStatusValues getSerialNumber()
 		updateOLED(false, "Alpha sys", "not known", "");
 	}
 
-	delay(4000);
+	waitServicingOta(4000);
 
 	//Flash the LED
 	digitalWrite(LED_BUILTIN, LOW);
@@ -994,7 +1031,7 @@ void mqttReconnect()
 #endif
 
 		// Wait 5 seconds before retrying
-		delay(5000);
+		waitServicingOta(5000);
 	}
 }
 

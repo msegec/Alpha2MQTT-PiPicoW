@@ -640,11 +640,17 @@ Display to Pico W
 SDA to GP4 (pin 6)
 SCL to GP5 (pin 7)
 
-Build with [arduino-pico](https://github.com/earlephilhower/arduino-pico) 6.2.0. The Wemos OLED library needs `pgmspace.h` included first on this core:
+Build with [arduino-pico](https://github.com/earlephilhower/arduino-pico) 6.2.0 and the 1 MB sketch, 1 MB filesystem flash split. OTA updates stage the new image in that filesystem. The Wemos OLED library needs `pgmspace.h` included first on this core:
 ```
-arduino-cli compile --fqbn rp2040:rp2040:rpipicow --build-property "compiler.cpp.extra_flags=-include pgmspace.h" Alpha2MQTT
+arduino-cli compile --fqbn rp2040:rp2040:rpipicow:flash=2097152_1048576 --build-property "compiler.cpp.extra_flags=-include pgmspace.h" --output-dir out Alpha2MQTT
 ```
-Hold BOOTSEL while plugging in the Pico W, then copy the `.uf2` file onto the RPI-RP2 drive.
+The first time, and whenever the flash split changes, flash over USB: hold BOOTSEL while plugging in the Pico W, then copy `out/Alpha2MQTT.ino.uf2` onto the RPI-RP2 drive.
+
+After that, update over WiFi. Set `OTA_PASSWORD` in Secrets.h, then run:
+```
+scripts/ota-upload              # or: scripts/ota-upload 192.0.2.20
+```
+It builds with the settings above and uploads to `alpha2mqtt.local` (the device name) with the core's `espota.py`, reading the password from Secrets.h. The Pico stops polling while it receives the image, then reboots into the new firmware. A dispatch already running on the inverter carries on until its duration runs out.
 
 
 Here's how it looks when completed.  I ended up using an RJ45 socket and soldered the appropriate pair directly to the MAX3845 RX and TX pins so that I could simply plug/unplug the ethernet cable, without needing to unscrew/screw terminals on the MAX3845 every time.
@@ -664,6 +670,7 @@ Configure Alpha2MQTT by opening up Definitions.h and verifying/customising the f
 - Copy Secrets.example.h to Secrets.h. Git ignores Secrets.h, so your credentials stay out of commits.
 - In Secrets.h set your WiFi name and password, MQTT broker server and port (default 1883).
 - Set your MQTT username and password in Secrets.h if you use security (you should), or leave the username blank to connect without credentials.
+- On a Pico W, set OTA_PASSWORD in Secrets.h to a long random string. It guards firmware uploads over WiFi.
 - Set your Alpha2MQTT device name on line 43.  This is the device name presented on your network and is also how MQTT topics begin.  This document assumes Alpha2MQTT.
 - Set your AlphaESS inverter's slave id on line 46.  By default this is 0x55 and shouldn't need changing unless you've changed it via Modbus or via inverters which have an integrated display.  Don't change it.
 - Set your maximum payload size on line 54.  ESP8266's work well with 4096 bytes which is enough for 70 to 80 registers on any schedule or request.

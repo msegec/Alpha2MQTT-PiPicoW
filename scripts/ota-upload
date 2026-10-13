@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Build Alpha2MQTT for the Pico W and upload it over WiFi with the core's espota.py.
+#
+# Usage: scripts/ota-upload [host]
+#   host  the Pico's IP address or mDNS name, default alpha2mqtt.local
+#
+# Reads OTA_PASSWORD from Alpha2MQTT/Secrets.h at run time and never prints it.
+# Set ARDUINO_CLI if arduino-cli is not on PATH.
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/.." && pwd)
+host=${1:-alpha2mqtt.local}
+cli=${ARDUINO_CLI:-arduino-cli}
+fqbn=rp2040:rp2040:rpipicow:flash=2097152_1048576
+espota=${ARDUINO_DATA:-$HOME/.arduino15}/packages/rp2040/hardware/rp2040/6.2.0/tools/espota.py
+
+password=$(sed -n 's/^[[:space:]]*#define[[:space:]]\{1,\}OTA_PASSWORD[[:space:]]\{1,\}"\([^"]*\)".*/\1/p' "$repo/Alpha2MQTT/Secrets.h")
+if [ -z "$password" ]; then
+	echo "OTA_PASSWORD not found in Alpha2MQTT/Secrets.h" >&2
+	exit 1
+fi
+
+out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
+
+"$cli" compile --fqbn "$fqbn" --build-property "compiler.cpp.extra_flags=-include pgmspace.h" --output-dir "$out" "$repo/Alpha2MQTT"
+python3 "$espota" -i "$host" -p 2040 -a "$password" -f "$out/Alpha2MQTT.ino.bin" -r
