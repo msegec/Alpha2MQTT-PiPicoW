@@ -1,0 +1,24 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "A controller for this state topic already exists."
+    },
+    "step": {
+      "user": {
+        "title": "Alpha2MQTT battery controller",
+        "description": "The controller holds grid power near a target by choosing dispatch watts. The policy entity decides what is allowed.",
+        "data": {
+          "state_topic": "State topic (Alpha2MQTT/state/fast after the fast firmware)",
+          "base_topic": "Base topic",
+          "policy_entity": "Policy sensor (state charge, discharge, hold or normal; attribute soc_target)",
+          "grid_scale": "Grid clamp scale",
+          "grid_scale_entity": "Grid clamp scale entity (overrides the scale)",
+          "correction_entity": "Grid correction entity, W added to the scaled clamp",
+          "load_entity": "Fast load entity for feed forward",
+          "max_charge_entity": "Maximum charge rate entity",
+          "max_discharge_entity": "Maximum discharge rate entity"
+        }
+      }
+    }
+  }
+}
