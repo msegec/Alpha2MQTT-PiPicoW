@@ -55,6 +55,10 @@ int _maxPayloadSize;
 //char _mqttPayload[MAX_MQTT_PAYLOAD_SIZE] = "";
 char* _mqttPayload;
 
+// Incoming commands are handled between the reads of a schedule, while _mqttPayload holds
+// that schedule's half built payload, so they build their responses here instead.
+char* _commandPayload;
+
 // OLED variables
 char _oledOperatingIndicator = '*';
 char _oledLine2[OLED_CHARACTER_WIDTH] = "";
@@ -477,6 +481,7 @@ void setup()
 			// Example, 2048, if declared as 2048 is positions 0 to 2047, and position 2047 needs to be zero.  2047 usable chars in payload.
 			_mqttPayload = new char[_maxPayloadSize];
 			emptyPayload();
+			_commandPayload = new char[_maxPayloadSize];
 
 			break;
 		}
@@ -695,6 +700,20 @@ void waitServicingOta(unsigned long ms)
 #endif
 		delay(10);
 	}
+}
+
+/*
+serviceBetweenReads
+
+Called between the register reads of a schedule, so a long schedule does not hold up OTA or incoming commands.
+The RS485 bus is idle here, so a command can use it. Its response goes to _commandPayload, see mqttCallback.
+*/
+void serviceBetweenReads()
+{
+#if defined MP_PICOW
+	ArduinoOTA.handle();
+#endif
+	_mqtt.loop();
 }
 
 /*
@@ -1229,6 +1248,11 @@ void sendDataFromAppropriateArray(mqttState* registerArray, int numberOfRegister
 				// If the response to addStateInfo is payload exceeded get out, We will permit failing registers to carry on and try the next one.
 				break;
 			}
+
+			if (l < numberOfRegisters - 1)
+			{
+				serviceBetweenReads();
+			}
 		}
 		if (resultAddedToPayload != modbusRequestAndResponseStatusValues::payloadExceededCapacity)
 		{
@@ -1315,6 +1339,10 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 
 	// For getting back out of flash
 	mqttState singleRegister;
+
+	// Build the response in our own buffer, a schedule may be part way through the main one
+	char* interruptedPayload = _mqttPayload;
+	_mqttPayload = _commandPayload;
 
 	// Start by clearing out the payload
 	emptyPayload();
@@ -1995,6 +2023,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	}
 
 	emptyPayload();
+	_mqttPayload = interruptedPayload;
 	return;
 }
 
