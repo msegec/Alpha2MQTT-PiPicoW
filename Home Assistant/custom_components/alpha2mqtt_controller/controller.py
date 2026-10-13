@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
@@ -69,12 +70,19 @@ class Controller:
         self.last_seq: int | None = None
         self.ack: dict = {}
         self._sent_mono: dict[int, float] = {}
+        self._sent_times: deque[float] = deque()
         self._unsubs: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
 
     @property
     def status(self) -> str:
         return self.regulator.status if self.enabled else "disabled"
+
+    @property
+    def commands_last_hour(self) -> int:
+        while self._sent_times and time.monotonic() - self._sent_times[0] > 3600:
+            self._sent_times.popleft()
+        return len(self._sent_times)
 
     def add_listener(self, update: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(update)
@@ -217,6 +225,7 @@ class Controller:
         await mqtt.async_publish(self.hass, f"{base}/request/set/{cmd.kind}", json.dumps(payload, separators=(",", ":")))
         self.last_command, self.last_sent, self.last_seq = cmd, dt_util.utcnow(), seq
         self._sent_mono = {seq: time.monotonic()}
+        self._sent_times.append(time.monotonic())
         self._notify()
 
     @callback

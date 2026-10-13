@@ -30,6 +30,7 @@ SENSORS = [
         "integral": _round(c.regulator.integral_w),
         "feed_forward": _round(c.regulator.ff_w),
     }),
+    ("commands", "Commands in the last hour", False, lambda c: c.commands_last_hour, None),
     ("last_command", "Last command", False, _last_command, lambda c: {
         "soc": c.last_command.soc if c.last_command else None,
         "seq": c.last_seq,
