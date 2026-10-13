@@ -84,11 +84,6 @@ Customise these options as per README.txt.  Please read README.txt before contin
 // x 50mS to wait for RS485 input chars.  300ms as per Modbus documentation, but I got timeouts on that.  However 400ms works without issue
 #define RS485_TRIES 8 // 16
 
-// I beg to differ on this, I'd say it's more 0.396 based on my tests
-// However make it easily customisable here
-#define DISPATCH_SOC_MULTIPLIER 0.4
-
-
 // A user informed me that their router leverages leases on network connections which can't be disabled.
 // I.e. when lease expires, WiFi doesn't drop but data stops.
 // If FORCE_RESTART is defined, then the system will auto-reboot every X many hours as configured in FORCE_RESTART_HOURS

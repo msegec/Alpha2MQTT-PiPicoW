@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Build and run the firmware host tests with the system g++.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
+g++ -std=c++17 -Wall -Wextra -Werror -I"$here/../../Alpha2MQTT" "$here/test_dispatch.cpp" -o "$out/test_dispatch"
+"$out/test_dispatch"

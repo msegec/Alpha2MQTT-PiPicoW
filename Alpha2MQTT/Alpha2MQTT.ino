@@ -15,6 +15,7 @@ First, go and customise options at the top of Definitions.h!
 #include "RegisterHandler.h"
 #include "RS485Handler.h"
 #include "Definitions.h"
+#include "Dispatch.h"
 #include <Arduino.h>
 #if defined MP_ESP8266
 #include <ESP8266WiFi.h>
@@ -1218,6 +1219,12 @@ mqttCallback()
 */
 void mqttCallback(char* topic, byte* message, unsigned int length)
 {
+	// Reject oversized payloads before they reach the fixed buffer below
+	if (!requestPayloadFits(length))
+	{
+		return;
+	}
+
 	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
 	modbusRequestAndResponse response;
 	modbusRequestAndResponseStatusValues resultDispatch = modbusRequestAndResponseStatusValues::preProcessing;
@@ -1265,7 +1272,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	// Bytes are received back as base ten, 0-255, so four chars to account for null terminator
 	char rawByteForPayload[4] = "";
 	char rawDataForPayload[100] = "";
-	char mqttIncomingPayload[128] = ""; // Should be enough to cover request JSON.
+	char mqttIncomingPayload[MQTT_REQUEST_PAYLOAD_MAX + 1] = "";
 
 	mqttSubscriptions subScription = mqttSubscriptions::unknown;
 
@@ -1732,7 +1739,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				// Adjust
 				// Charge < 32000, discharge > 32000
 				chargeDischargeWattsConverted = 32000 + (chargeDischargeWattsConverted * multiplier);
-				batterySocPercentConverted = batterySocPercentConverted / DISPATCH_SOC_MULTIPLIER;
+				batterySocPercentConverted = dispatchSocFromPercent(batterySocPercentConverted);
 
 #ifdef DEBUG
 				sprintf(_debugOutput, "And adjusted values for watts and socPercent are %d and %d respectively", chargeDischargeWattsConverted, batterySocPercentConverted);
