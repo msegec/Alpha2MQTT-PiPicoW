@@ -42,6 +42,7 @@ It is only available in German however Google offers PDF translation which I hav
 ## States
 To receive information from any of the repeating schedules, subscribe your MQTT client to:
 ```
+Alpha2MQTT/state/fast
 Alpha2MQTT/state/second/ten
 Alpha2MQTT/state/minute/one
 Alpha2MQTT/state/minute/five
@@ -50,6 +51,21 @@ Alpha2MQTT/state/day/one
 ```
 
 On a Pico W, Alpha2MQTT also publishes its own supply every minute to `Alpha2MQTT/state/device`: VSYS in millivolts and whether USB power is present, for example `{"vsys_mv": 4870, "usb_power": false}`. Use it to watch a battery feeding VSYS.
+
+`Alpha2MQTT/state/fast` is for a controller such as a Home Assistant automation. Every second Alpha2MQTT reads grid power, PV meter power, battery power, SOC and dispatch start back to back and publishes them straight away, with the same keys as the ten second schedule plus three of its own:
+```
+{
+    "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1": -120,
+    "REG_PV_METER_R_TOTAL_ACTIVE_POWER_1": 2310,
+    "REG_BATTERY_HOME_R_BATTERY_POWER": -1950,
+    "REG_BATTERY_HOME_R_SOC": 64.40,
+    "REG_DISPATCH_RW_DISPATCH_START": "Stop",
+    "seq": 5123,
+    "ms": 5123456,
+    "read_ms": 142
+}
+```
+seq counts up by one per message and restarts at 1 after a reboot. ms is the Pico's millis() when the reads started and read_ms is how long they took. A register that fails to read is left out of that message. The other schedules run between fast cycles, so they no longer hold the fast state up.
 
 Each of the schedules can be customised to report a number* / any combination of register values.  Alpha2MQTT has been developed this way to give flexibility.  For example, there is probably no need to report grid voltage every ten seconds, instead once every five minutes and in doing so we are limiting network traffic over MQTT and onward processing in software such as Home Assistant.
 
@@ -380,7 +396,8 @@ With the following JSON
 {
     "watts": 2500,
     "socPercent": 100,
-    "duration": 14400
+    "duration": 14400,
+    "seq": 42
 }
 ```
 where
@@ -390,6 +407,8 @@ watts is the power at which you want to charge the batteries with.  You can spec
 socPercent is where you want charging to stop.  If you want to stop charging at 80% as you believe the weather tomorrow will do the rest, set this to 80.  Otherwise, usually it'll be 100.
 
 duration is how long in seconds to put the inverter in this mode.  Charging from the grid uses 'Dispatch' mode where an external device ala Alpha2MQTT can, for a specified time period, instruct what it does, however I believe for safety Alpha require you to specify how long it'll be in dispatch mode so it can always end up back in the inverter's control.  As such, just put a duration in seconds for how long usually it takes to charge the battery.  If you set to 14400 (4 hours) that'll cover off most domestic systems.  Ultimately it's a calculation based on kWh of battery capacity divided by the rate you want to charge plus some tolerance, say 5%.  For my 11.47kWh B3 which can charge at circa 3000W I am going to be utilising 3000 as the watts and duration as (11000 / 2800 (allowing for usable capacity / actual max charge)) + 5% for 3.92 hours + 5% = 4.125 hours = 15000 seconds.  After the 15000 seconds control will be released and the battery will be able to discharge to the load of the house.  You can alternatively write 0 to register 0x0880 to turn off dispatch mode manually using Write Data Register when you have read an SOC of 100 via register 0x0102 using the Read Handled Register functionality of Alpha2MQTT via some periodically driven automated process in Node Red or Home Assistant.
+
+seq is optional, on this and the other set requests.  Alpha2MQTT returns it in the response, with ms, its millis() when the writes finished, so a controller can match each response to its request and time the round trip.  Without it the response carries a seq of 0.  The five writes behind charge and discharge are spaced 400 ms apart, so expect the response about two seconds after the request, with the fast state paused meanwhile.
 
 
 Alpha2MQTT will do the rest and will return the response via the following topic which you can subscribe to:
@@ -401,7 +420,9 @@ An example response for the above request could be:
 ```
 {
     "responseStatus": "setChargeSuccess",
-    "failureDetail": ""
+    "failureDetail": "",
+    "seq": 42,
+    "ms": 5123456
 }
 ```
 where
@@ -443,7 +464,9 @@ An example response for the above request could be:
 ```
 {
     "responseStatus": "setDishargeSuccess",
-    "failureDetail": ""
+    "failureDetail": "",
+    "seq": 0,
+    "ms": 5123456
 }
 ```
 where
@@ -479,7 +502,9 @@ An example response for the above request could be:
 ```
 {
     "responseStatus": "setNormalSuccess",
-    "failureDetail": ""
+    "failureDetail": "",
+    "seq": 0,
+    "ms": 5123456
 }
 ```
 where

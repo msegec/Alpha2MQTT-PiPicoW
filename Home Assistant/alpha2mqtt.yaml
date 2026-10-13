@@ -466,6 +466,61 @@ mqtt:
         name: "Alpha2MQTT"
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
+    # Fast state for a control loop, published every second. No state_class, the ten second
+    # sensors above keep the long term statistics. To keep the database small, exclude them:
+    #   recorder:
+    #     exclude:
+    #       entity_globs: ["sensor.alpha2mqtt_*_fast"]
+    # An automation can trigger on the topic itself and read trigger.payload_json.seq to spot gaps.
+    - name: "Grid Power Fast"
+      unique_id: alpha2mqtt_fast_grid_power
+      state_topic: "Alpha2MQTT/state/fast"
+      value_template: "{{ value_json.REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1 | default(None) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      expire_after: 10
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "PV Meter Power Fast"
+      unique_id: alpha2mqtt_fast_pv_meter_power
+      state_topic: "Alpha2MQTT/state/fast"
+      value_template: "{{ value_json.REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 | default(None) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      expire_after: 10
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Power Fast"
+      unique_id: alpha2mqtt_fast_battery_power
+      state_topic: "Alpha2MQTT/state/fast"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_POWER | default(None) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      expire_after: 10
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Read Time Fast"
+      unique_id: alpha2mqtt_fast_read_time
+      state_topic: "Alpha2MQTT/state/fast"
+      value_template: "{{ value_json.read_ms | default(None) }}"
+      unit_of_measurement: "ms"
+      device_class: duration
+      entity_category: diagnostic
+      expire_after: 10
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
     # Pico W only: its own supply, published every minute
     - name: "Pico VSYS"
       unique_id: alpha2mqtt_pico_vsys
