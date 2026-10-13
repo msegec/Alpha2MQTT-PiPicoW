@@ -1345,6 +1345,22 @@ void sendDataFromAppropriateArray(mqttState* registerArray, int numberOfRegister
 
 
 /*
+closeSetResponse
+
+Ends a set/charge, set/discharge or set/normal response with the request's seq, 0 if it sent none,
+and the millis() when the writes finished, so the sender can match the response and time the round trip.
+*/
+modbusRequestAndResponseStatusValues closeSetResponse(char* seq)
+{
+	char stateAddition[64];
+
+	sprintf(stateAddition, ",\r\n    \"seq\": %lu,\r\n    \"ms\": %lu\r\n}", strtoul(seq, NULL, 10), millis());
+	return addToPayload(stateAddition);
+}
+
+
+
+/*
 mqttCallback()
 
 // This function is executed when an MQTT message arrives on a topic that we are subscribed to.
@@ -1388,6 +1404,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	char socPercent[32] = "";
 	char startPos[32] = "";
 	char endPos[32] = "";
+	char seq[32] = "";		// Optional on set commands, echoed back so the sender can match the response
 
 	// Convert incoming values into native data types for sending
 	uint16_t registerAddressConverted;
@@ -1655,6 +1672,10 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 #endif
 					strcpy(endPos, pairValueClean);
 				}
+				else if (strcmp(pairNameClean, "seq") == 0)
+				{
+					strcpy(seq, pairValueClean);
+				}
 			}
 		}
 	}
@@ -1887,7 +1908,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_START, &responseDispatch);
 				if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 				{
-					sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"\r\n}", responseDispatch.statusMqttMessage);
+					sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"", responseDispatch.statusMqttMessage);
 				}
 				else
 				{
@@ -1897,7 +1918,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, chargeDischargeWattsConverted, &responseDispatch);
 					if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 					{
-						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_ACTIVE_POWER_1\"\r\n}", responseDispatch.statusMqttMessage);
+						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_ACTIVE_POWER_1\"", responseDispatch.statusMqttMessage);
 					}
 					else
 					{
@@ -1907,7 +1928,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 						resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_TIME_1, durationSecondsConverted, &responseDispatch);
 						if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 						{
-							sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_TIME_1\"\r\n}", responseDispatch.statusMqttMessage);
+							sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_TIME_1\"", responseDispatch.statusMqttMessage);
 						}
 						else
 						{
@@ -1917,7 +1938,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 							resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_SOC, batterySocPercentConverted, &responseDispatch);
 							if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 							{
-								sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_SOC\"\r\n}", responseDispatch.statusMqttMessage);
+								sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_SOC\"", responseDispatch.statusMqttMessage);
 							}
 							else
 							{
@@ -1927,18 +1948,18 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 								resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_MODE, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, &responseDispatch);
 								if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 								{
-									sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_MODE\"\r\n}", responseDispatch.statusMqttMessage);
+									sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_MODE\"", responseDispatch.statusMqttMessage);
 								}
 								else
 								{
 									if (subScription == mqttSubscriptions::setCharge)
 									{
-										sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"\r\n}", MODBUS_REQUEST_AND_RESPONSE_SET_CHARGE_SUCCESS_MQTT_DESC);
+										sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_CHARGE_SUCCESS_MQTT_DESC);
 										result = modbusRequestAndResponseStatusValues::setChargeSuccess;
 									}
 									else
 									{
-										sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"\r\n}", MODBUS_REQUEST_AND_RESPONSE_SET_DISCHARGE_SUCCESS_MQTT_DESC);
+										sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_DISCHARGE_SUCCESS_MQTT_DESC);
 										result = modbusRequestAndResponseStatusValues::setDischargeSuccess;
 									}
 									
@@ -1948,7 +1969,12 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					}
 				}
 			}
-			resultAddToPayload = addToPayload(stateAddition);
+			// Empty if the request was invalid, the standard response below covers that
+			if (*stateAddition)
+			{
+				resultAddToPayload = addToPayload(stateAddition);
+				resultAddToPayload = closeSetResponse(seq);
+			}
 		}
 
 		else if (subScription == mqttSubscriptions::setNormal)
@@ -1959,14 +1985,15 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 			resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_STOP, &responseDispatch);
 			if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 			{
-				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"\r\n}", responseDispatch.statusMqttMessage);
+				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"", responseDispatch.statusMqttMessage);
 			}
 			else
 			{
-				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"\r\n}", MODBUS_REQUEST_AND_RESPONSE_SET_NORMAL_SUCCESS_MQTT_DESC);
+				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_NORMAL_SUCCESS_MQTT_DESC);
 			}
 			result = modbusRequestAndResponseStatusValues::setNormalSuccess;
 			resultAddToPayload = addToPayload(stateAddition);
+			resultAddToPayload = closeSetResponse(seq);
 		}
 
 	}
