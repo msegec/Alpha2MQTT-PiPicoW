@@ -59,6 +59,9 @@ char* _mqttPayload;
 // that schedule's half built payload, so they build their responses here instead.
 char* _commandPayload;
 
+// The fast state can also be sent between the reads of a slow schedule, so it gets its own too.
+char* _fastPayload;
+
 // OLED variables
 char _oledOperatingIndicator = '*';
 char _oledLine2[OLED_CHARACTER_WIDTH] = "";
@@ -77,6 +80,19 @@ char _debugOutput[100];
 
 
 // Schedules
+/*
+The registers a controller needs, read back to back every STATUS_INTERVAL_FAST so each sample is coherent.
+Keep this list short, every register costs one RS485 transaction per cycle.
+*/
+static struct mqttState _mqttFastStatusRegisters[] PROGMEM =
+{
+	{ REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1, "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1" },					// Total Grid Power (+/-)
+	{ REG_PV_METER_R_TOTAL_ACTIVE_POWER_1, "REG_PV_METER_R_TOTAL_ACTIVE_POWER_1" },						// Total PV Power (+/-)
+	{ REG_BATTERY_HOME_R_BATTERY_POWER, "REG_BATTERY_HOME_R_BATTERY_POWER" },							// Battery Power
+	{ REG_BATTERY_HOME_R_SOC, "REG_BATTERY_HOME_R_SOC" },												// State Of Charge
+	{ REG_DISPATCH_RW_DISPATCH_START, "REG_DISPATCH_RW_DISPATCH_START" }								// Dispatch running or not
+};
+
 /*
 Add any number of handled registers in this list and they will be
 read and returned every 10 seconds.
@@ -388,6 +404,7 @@ static struct mqttState _mqttAllHandledRegisters[] PROGMEM =
 
 // These timers are used in the main loop.
 #define RUNSTATE_INTERVAL 5000
+#define STATUS_INTERVAL_FAST 1000
 #define STATUS_INTERVAL_TEN_SECONDS 10000
 #define STATUS_INTERVAL_ONE_MINUTE 60000
 #define STATUS_INTERVAL_FIVE_MINUTE 300000
@@ -482,6 +499,7 @@ void setup()
 			_mqttPayload = new char[_maxPayloadSize];
 			emptyPayload();
 			_commandPayload = new char[_maxPayloadSize];
+			_fastPayload = new char[_maxPayloadSize];
 
 			break;
 		}
@@ -591,6 +609,9 @@ void loop()
 	{
 		mqttReconnect();
 	}
+
+	// Read and transmit the controller registers
+	sendFastState();
 
 	// Check and display the runstate on the display
 	updateRunstate();
@@ -705,8 +726,8 @@ void waitServicingOta(unsigned long ms)
 /*
 serviceBetweenReads
 
-Called between the register reads of a schedule, so a long schedule does not hold up OTA or incoming commands.
-The RS485 bus is idle here, so a command can use it. Its response goes to _commandPayload, see mqttCallback.
+Called between the register reads of a schedule, so a long schedule does not hold up OTA, incoming commands
+or the fast state. The RS485 bus is idle here, so they can use it. Each builds its payload in its own buffer.
 */
 void serviceBetweenReads()
 {
@@ -714,6 +735,7 @@ void serviceBetweenReads()
 	ArduinoOTA.handle();
 #endif
 	_mqtt.loop();
+	sendFastState();
 }
 
 /*
@@ -1213,6 +1235,55 @@ void sendDeviceState()
 	sendMqtt(DEVICE_NAME MQTT_MES_STATE_DEVICE);
 }
 #endif
+
+/*
+sendFastState
+
+Reads the fast registers back to back and publishes them straight away, once every STATUS_INTERVAL_FAST.
+seq counts up by one per message from boot, ms is millis() when the reads started and read_ms is how long they took,
+so a controller can spot gaps, restarts and the real cycle time. Registers that fail to read are left out.
+*/
+void sendFastState()
+{
+	static unsigned long lastRun = 0;
+	static unsigned long seq = 0;
+	unsigned long started;
+	char stateAddition[96];
+	char* interruptedPayload;
+	mqttState singleRegister;
+	modbusRequestAndResponseStatusValues resultAddedToPayload;
+	int numberOfRegisters = sizeof(_mqttFastStatusRegisters) / sizeof(struct mqttState);
+
+	if (!checkTimer(&lastRun, STATUS_INTERVAL_FAST))
+	{
+		return;
+	}
+
+	// A slow schedule may be part way through the main payload
+	interruptedPayload = _mqttPayload;
+	_mqttPayload = _fastPayload;
+	emptyPayload();
+
+	started = millis();
+	resultAddedToPayload = addToPayload("{\r\n");
+	for (int l = 0; l < numberOfRegisters && resultAddedToPayload == modbusRequestAndResponseStatusValues::addedToPayload; l++)
+	{
+		memcpy_P(&singleRegister.registerAddress, &_mqttFastStatusRegisters[l].registerAddress, 2);
+		strcpy_P(singleRegister.mqttName, _mqttFastStatusRegisters[l].mqttName);
+
+		// Always a comma, the stamp below closes the object
+		addStateInfo(singleRegister.registerAddress, singleRegister.mqttName, true, resultAddedToPayload);
+	}
+
+	if (resultAddedToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
+	{
+		sprintf(stateAddition, "    \"seq\": %lu,\r\n    \"ms\": %lu,\r\n    \"read_ms\": %lu\r\n}", ++seq, started, millis() - started);
+		addToPayload(stateAddition);
+	}
+
+	sendMqtt(DEVICE_NAME MQTT_MES_STATE_FAST);
+	_mqttPayload = interruptedPayload;
+}
 
 void sendDataFromAppropriateArray(mqttState* registerArray, int numberOfRegisters, char* topic)
 {

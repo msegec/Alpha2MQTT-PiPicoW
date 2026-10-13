@@ -828,6 +828,7 @@ enum mqttSubscriptions
 #define MQTT_SUB_RESPONSE_READ_HANDLED_REGISTER_ALL "/response/read/register/handled/all"
 
 
+#define MQTT_MES_STATE_FAST "/state/fast"
 #define MQTT_MES_STATE_SECOND_TEN "/state/second/ten"
 #define MQTT_MES_STATE_MINUTE_ONE "/state/minute/one"
 #define MQTT_MES_STATE_MINUTE_FIVE "/state/minute/five"
