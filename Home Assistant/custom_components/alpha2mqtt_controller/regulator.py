@@ -191,8 +191,13 @@ class Regulator:
             else:
                 self._direction, self._t_direction = d, t
 
-        step_max = s.slew_w_per_s * dt if self.sent is not None else float("inf")
-        self.output_w = self.output_w + _clip(u - self.output_w, -step_max, step_max)
+        # Slew counts from the last command sent, over the time since it went out. Steps come several
+        # a second, so a per-step limit split a load step across two commands a Min gap apart.
+        if self.sent is None:
+            self.output_w = u
+        else:
+            step_max = s.slew_w_per_s * (t - self._t_sent)
+            self.output_w = _clip(u, self.sent.signed_w - step_max, self.sent.signed_w + step_max)
         return self._maybe_send(t, policy)
 
     def _command(self, policy: Policy) -> Command:

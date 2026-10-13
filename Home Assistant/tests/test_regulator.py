@@ -81,6 +81,25 @@ def test_slew_limits_each_step():
     assert reg.step(4, DISCHARGE).watts == 800
 
 
+def test_load_step_goes_out_in_one_command():
+    # Steps arrive a fraction of a second apart; the step must not be cut to the slew of that fraction.
+    reg = make(slew_w_per_s=2000, min_interval_s=3)
+    reg.update_grid(0, 20, 2800)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(10, 20, 2800)
+    reg.step(10, DISCHARGE)
+    reg.update_grid(10.3, -2080, 2800)
+    assert reg.step(10.3, DISCHARGE).watts == 720  # 2800 less the 2100 W error, less the 20 W deadband
+
+
+def test_slew_counts_from_the_last_command():
+    reg = make(slew_w_per_s=500, min_interval_s=0, write_threshold_w=10)
+    reg.update_grid(0, 20, 0)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(1, 2020, 0)
+    assert reg.step(1, DISCHARGE).watts == 500
+
+
 def test_no_flapping_between_charge_and_discharge():
     reg = make(flip_hysteresis_w=150, flip_dwell_s=60, min_interval_s=0)
     reg.update_grid(0, 520, 0)
