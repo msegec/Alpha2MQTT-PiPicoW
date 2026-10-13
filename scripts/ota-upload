@@ -6,6 +6,7 @@
 #
 # Reads OTA_PASSWORD from Alpha2MQTT/Secrets.h at run time and never prints it.
 # Set ARDUINO_CLI if arduino-cli is not on PATH.
+# Set OTA_HOST_PORT to fix the TCP port the Pico connects back to, so a firewall can allow it.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -24,4 +25,4 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
 "$cli" compile --fqbn "$fqbn" --build-property "compiler.cpp.extra_flags=-include pgmspace.h" --output-dir "$out" "$repo/Alpha2MQTT"
-python3 "$espota" -i "$host" -p 2040 -a "$password" -f "$out/Alpha2MQTT.ino.bin" -r
+python3 "$espota" -i "$host" -p 2040 ${OTA_HOST_PORT:+-P "$OTA_HOST_PORT"} -a "$password" -f "$out/Alpha2MQTT.ino.bin" -r
