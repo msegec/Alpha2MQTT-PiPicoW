@@ -14,7 +14,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .regulator import HOLD, REGULATE, RELEASE, Command, Policy, Regulator
+from .regulator import FIXED, HOLD, REGULATE, RELEASE, Command, Policy, Regulator, estimate_grid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ DOMAIN = "alpha2mqtt_controller"
 CONF_STATE_TOPIC = "state_topic"
 CONF_BASE_TOPIC = "base_topic"
 CONF_POLICY_ENTITY = "policy_entity"
+CONF_GRID_SOURCE = "grid_source"
 CONF_GRID_SCALE = "grid_scale"
 CONF_GRID_SCALE_ENTITY = "grid_scale_entity"
 CONF_CORRECTION_ENTITY = "correction_entity"
@@ -34,6 +35,8 @@ DEFAULT_STATE_TOPIC = "Alpha2MQTT/state/second/ten"
 DEFAULT_BASE_TOPIC = "Alpha2MQTT"
 DEFAULT_POLICY_ENTITY = "sensor.battery_auto_action"
 DEFAULT_MAX_W = 3000.0
+# clamp: scale x grid clamp + correction. estimate: correction - battery, for a clamp that cannot see the house.
+GRID_SOURCES = ["clamp", "estimate"]
 
 GRID_KEY = "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1"
 BATTERY_KEY = "REG_BATTERY_HOME_R_BATTERY_POWER"
@@ -110,9 +113,12 @@ class Controller:
         self._notify()
 
     def _grid_estimate(self) -> float | None:
-        """Grid power as the utility meter would see it: scaled grid clamp plus an optional correction."""
+        """Grid power as the utility meter would see it, from the clamp or from the correction alone."""
         if self._raw_grid is None:
             return None
+        if self.config.get(CONF_GRID_SOURCE) == "estimate":
+            correction = _number(self.hass, self.config.get(CONF_CORRECTION_ENTITY))
+            return None if correction is None else estimate_grid(correction, self._battery_w)
         scale = _number(self.hass, self.config.get(CONF_GRID_SCALE_ENTITY))
         if scale is None:
             if self.config.get(CONF_GRID_SCALE_ENTITY):
@@ -123,7 +129,7 @@ class Controller:
             correction = _number(self.hass, self.config[CONF_CORRECTION_ENTITY])
             if correction is None:
                 return None
-        return scale * self._raw_grid + correction
+        return estimate_grid(correction, self._battery_w, self._raw_grid, scale)
 
     def _inputs_ok(self) -> bool:
         return self._grid_estimate() is not None
@@ -140,6 +146,15 @@ class Controller:
             soc = int(float(state.attributes.get("soc_target")))
         except (TypeError, ValueError):
             return Policy(RELEASE)
+        if str(state.attributes.get("fixed")).lower() == "true":
+            # A manual override: the policy's watts, not regulation.
+            try:
+                watts = float(state.attributes.get("watts"))
+            except (TypeError, ValueError):
+                return Policy(RELEASE)
+            if state.state == "charge":
+                return Policy(FIXED, fixed_w=-watts, charge_soc=soc)
+            return Policy(FIXED, fixed_w=watts, discharge_soc=soc)
         if state.state == "charge":
             cap = _number(self.hass, self.config.get(CONF_MAX_CHARGE_ENTITY))
             return Policy(REGULATE, max_charge_w=DEFAULT_MAX_W if cap is None else cap, charge_soc=soc)

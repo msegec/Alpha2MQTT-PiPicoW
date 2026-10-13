@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 RELEASE = "release"  # no dispatch, the inverter runs itself
 HOLD = "hold"  # dispatch at 0 W
+FIXED = "fixed"  # dispatch at fixed_w, a manual override
 REGULATE = "regulate"
 
 
@@ -24,6 +25,7 @@ class Policy:
     max_discharge_w: float = 0.0
     charge_soc: int = 100
     discharge_soc: int = 10
+    fixed_w: float = 0.0  # FIXED only, positive is discharge
 
 
 @dataclass
@@ -56,6 +58,18 @@ class Command:
     @property
     def signed_w(self) -> int:
         return self.watts if self.kind == "discharge" else -self.watts
+
+
+def estimate_grid(correction_w: float, battery_w: float, clamp_w: float | None = None,
+                  scale: float | None = None) -> float:
+    """Grid power the meter would see, positive on import.
+
+    With a scale, the clamp is trusted: scale x clamp + correction. Without one, correction is the
+    house's demand net of solar, and the battery reading from the same sample is taken off it.
+    """
+    if scale is None:
+        return correction_w - battery_w
+    return scale * clamp_w + correction_w
 
 
 def _clip(x: float, lo: float, hi: float) -> float:
@@ -126,20 +140,21 @@ class Regulator:
         s = self.settings
         dt = 0.0 if self._t_step is None else max(0.0, t - self._t_step)
         self._t_step = t
-        live = inputs_ok and self._t_fresh is not None and t - self._t_fresh <= s.stale_after_s
-        if not live:
-            # Stop commanding. The lease runs out and the inverter takes back control.
-            self.status = "stale"
-            self._mode = RELEASE
-            self._restart()
-            return None
         if policy.mode == RELEASE:
+            # Needs no reading, so it goes out even when the inputs are stale.
             self.status = "released"
             self._mode = RELEASE
             self._restart()
             self.output_w = 0.0
             if self.lease_active(t):
                 return self._send(t, Command("normal"))
+            return None
+        live = inputs_ok and self._t_fresh is not None and t - self._t_fresh <= s.stale_after_s
+        if not live:
+            # Stop commanding. The lease runs out and the inverter takes back control.
+            self.status = "stale"
+            self._mode = RELEASE
+            self._restart()
             return None
 
         if self._mode == RELEASE:
@@ -150,12 +165,11 @@ class Regulator:
 
         e = self._error(self.grid_w)
         self.error_w = self.grid_w - s.target_w
-        if policy.mode == HOLD:
-            self.status = "hold"
+        if policy.mode in (HOLD, FIXED):
+            self.status = policy.mode
             self._restart()
             self.ff_w = 0.0
-            request = 0.0
-            lo = hi = 0.0
+            request = lo = hi = policy.fixed_w
         else:
             self.status = "regulating"
             have_load = self.load_w is not None and self._load_ref is not None
@@ -172,7 +186,7 @@ class Regulator:
         # Charge and discharge only swap after a clear margin and a minimum time in one direction.
         d = _sign(u) if abs(u) >= 1 else 0
         if d and d != self._direction:
-            if self._direction and (abs(u) < s.flip_hysteresis_w or t - self._t_direction < s.flip_dwell_s):
+            if policy.mode == REGULATE and self._direction and (abs(u) < s.flip_hysteresis_w or t - self._t_direction < s.flip_dwell_s):
                 u = 0.0
             else:
                 self._direction, self._t_direction = d, t

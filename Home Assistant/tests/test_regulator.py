@@ -218,3 +218,36 @@ def test_closed_loop_settles_on_target_despite_inverter_error():
         if cmd is not None:
             applied = cmd.signed_w
     assert abs(load - battery - 20) <= 20 + 10
+
+
+def test_release_goes_out_even_when_stale():
+    # Turning the controller off, or "Inverter only", must not wait for the lease when readings stop.
+    reg = make(stale_after_s=30)
+    reg.update_grid(0, 20, 800)
+    reg.step(0, DISCHARGE)
+    assert reg.step(60, DISCHARGE) is None
+    assert reg.step(61, R.Policy(R.RELEASE)) == R.Command("normal")
+
+
+def test_fixed_override_sends_its_watts_whatever_the_grid():
+    reg = make()
+    reg.update_grid(0, -1500, 0)  # exporting, regulation would charge
+    force = R.Policy(R.FIXED, fixed_w=2000, discharge_soc=20)
+    assert reg.step(0, force) == R.Command("discharge", 2000, 20, 120)
+    assert reg.status == "fixed"
+
+
+def test_fixed_override_flips_without_waiting_for_the_dwell():
+    reg = make(min_interval_s=0)
+    reg.update_grid(0, 520, 0)
+    assert reg.step(0, BOTH).kind == "discharge"
+    force = R.Policy(R.FIXED, fixed_w=-1500, charge_soc=100)
+    assert reg.step(1, force) == R.Command("charge", 1500, 100, 120)
+
+
+def test_estimate_takes_the_same_sample_battery_off_the_net_demand():
+    # House 650 W, solar 1250 W: net demand -600 W. Battery power is positive on discharge.
+    assert R.estimate_grid(-600, -580) == pytest.approx(-20)  # charging 580 W still exports 20 W
+    assert R.estimate_grid(-600, -620) == pytest.approx(20)  # charging 620 W imports 20 W
+    assert R.estimate_grid(225, 200) == pytest.approx(25)  # night: 200 W out against a 225 W house
+    assert R.estimate_grid(100, 0, clamp_w=-16, scale=10.8) == pytest.approx(-72.8)
