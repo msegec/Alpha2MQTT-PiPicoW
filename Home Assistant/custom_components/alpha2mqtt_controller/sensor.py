@@ -1,10 +1,11 @@
-"""What the controller sees and does. Updated on every regulator step, so keep them out of the recorder."""
+"""What the controller sees and does. Updated on every regulator step. States are recorded; the per-step
+attributes are not, so each step adds one small row rather than a new attributes row."""
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfPower
+from homeassistant.const import MATCH_ALL, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -47,6 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddEnt
 class ControllerSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
+    _unrecorded_attributes = frozenset({MATCH_ALL})
 
     def __init__(self, entry: ConfigEntry, key, name, power, value, attributes) -> None:
         self._controller = entry.runtime_data
@@ -57,6 +59,7 @@ class ControllerSensor(SensorEntity):
         if power:
             self._attr_device_class = SensorDeviceClass.POWER
             self._attr_native_unit_of_measurement = UnitOfPower.WATT
+            self._attr_state_class = SensorStateClass.MEASUREMENT
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(self._controller.add_listener(self._update))
