@@ -175,7 +175,13 @@ class Controller:
             return Policy(FIXED, fixed_w=watts, discharge_soc=soc)
         if state.state == "charge":
             cap = _number(self.hass, self.config.get(CONF_MAX_CHARGE_ENTITY))
-            return Policy(REGULATE, max_charge_w=DEFAULT_MAX_W if cap is None else cap, charge_soc=soc)
+            # The policy's grid_offset moves the grid target while charging: + tops up from the grid.
+            try:
+                offset = float(state.attributes.get("grid_offset", 0))
+            except (TypeError, ValueError):
+                offset = 0.0
+            return Policy(REGULATE, max_charge_w=DEFAULT_MAX_W if cap is None else cap, charge_soc=soc,
+                          target_offset_w=offset)
         cap = _number(self.hass, self.config.get(CONF_MAX_DISCHARGE_ENTITY))
         return Policy(REGULATE, max_discharge_w=DEFAULT_MAX_W if cap is None else cap, discharge_soc=soc)
 

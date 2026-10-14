@@ -26,6 +26,7 @@ class Policy:
     charge_soc: int = 100
     discharge_soc: int = 10
     fixed_w: float = 0.0  # FIXED only, positive is discharge
+    target_offset_w: float = 0.0  # added to the grid target, positive draws more from the grid
 
 
 @dataclass
@@ -97,6 +98,7 @@ class Regulator:
         self._t_direction = float("-inf")
         self._t_sent = float("-inf")
         self.integral_w = 0.0
+        self._offset_w = 0.0
         self.error_w = 0.0
         self.ff_w = 0.0
         self.request_w = 0.0
@@ -119,7 +121,7 @@ class Regulator:
         self._load_ref = self.load_w
 
     def _error(self, grid_w: float) -> float:
-        e = grid_w - self.settings.target_w
+        e = grid_w - self.settings.target_w - self._offset_w
         return _sign(e) * max(abs(e) - self.settings.deadband_w, 0.0)
 
     def update_load(self, t: float, load_w: float) -> None:
@@ -162,9 +164,10 @@ class Regulator:
             self.output_w = self.battery_w
             self._direction = _sign(self.battery_w)
         self._mode = policy.mode
+        self._offset_w = policy.target_offset_w
 
         e = self._error(self.grid_w)
-        self.error_w = self.grid_w - s.target_w
+        self.error_w = self.grid_w - s.target_w - self._offset_w
         if policy.mode in (HOLD, FIXED):
             self.status = policy.mode
             self._restart()

@@ -10,7 +10,7 @@
         "data": {
           "state_topic": "State topic (Alpha2MQTT/state/fast after the fast firmware)",
           "base_topic": "Base topic",
-          "policy_entity": "Policy sensor (state charge, discharge, hold or normal; attribute soc_target)",
+          "policy_entity": "Policy sensor (state charge, discharge, hold or normal; attribute soc_target, optional grid_offset)",
           "grid_source": "Grid power from",
           "grid_scale": "Grid clamp scale",
           "grid_scale_entity": "Grid clamp scale entity (overrides the scale)",

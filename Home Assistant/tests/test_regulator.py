@@ -270,3 +270,12 @@ def test_estimate_takes_the_same_sample_battery_off_the_net_demand():
     assert R.estimate_grid(-600, -620) == pytest.approx(20)  # charging 620 W imports 20 W
     assert R.estimate_grid(225, 200) == pytest.approx(25)  # night: 200 W out against a 225 W house
     assert R.estimate_grid(100, 0, clamp_w=-16, scale=10.8) == pytest.approx(-72.8)
+
+
+@pytest.mark.parametrize("offset, watts", [(100, 1100), (-100, 900), (0, 1000)])
+def test_policy_offset_moves_the_grid_target(offset, watts):
+    reg = make(target_w=0, deadband_w=0)
+    reg.update_grid(0, grid_w=0, battery_w=-1000)
+    cmd = reg.step(0, replace(CHARGE, target_offset_w=offset))
+    assert (cmd.kind, cmd.watts) == ("charge", watts)
+    assert reg.error_w == -offset
