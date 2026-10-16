@@ -41,4 +41,3 @@ Documentation and tests
 	  regulate with limits and an SOC target). Pure Python core in regulator.py, step log in JSONL.
 	  Tests in Home Assistant/tests (python3 -m pytest).
 	- tests/firmware/run: host tests for the pure helpers in Dispatch.h.
-	- CLAUDE.md: agent guide with the public boundary and live hardware rules.
