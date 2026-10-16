@@ -403,7 +403,7 @@ Customise these options as per README.txt.  Please read README.txt before contin
 
 // Timing
 #define REG_TIMING_RW_TIME_PERIOD_CONTROL_FLAG										0x084F	// <<TIME PERIOD CONTROL FLAG LOOKUP>>	// 2 Bytes		// Unsigned Short
-#define REG_TIMING_RW_UPS_RESERVE_SOC												0x0850	// 0.1/bit per the protocol, 1 %/bit on some units (a 20 % floor reads 20)	// 2 Bytes		// Unsigned Short
+#define REG_TIMING_RW_UPS_RESERVE_SOC												0x0850	// 0.1/bit per the protocol, 1 %/bit on some units (a 20 % floor reads 20); a SMILE-B3 acknowledges writes and keeps the old value	// 2 Bytes		// Unsigned Short
 #define REG_TIMING_RW_TIME_DISCHARGE_START_TIME_1									0x0851	// 1H/bit								// 2 Bytes		// Unsigned Short
 #define REG_TIMING_RW_TIME_DISCHARGE_STOP_TIME_1									0x0852	// 1H/bit								// 2 Bytes		// Unsigned Short
 #define REG_TIMING_RW_TIME_DISCHARGE_START_TIME_2									0x0853	// 1H/bit								// 2 Bytes		// Unsigned Short

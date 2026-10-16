@@ -276,7 +276,7 @@ In reality, you will probably only ever get the following back:
 In raw data, the Alpha documentation says byte one is the high byte of the register address, byte two is the low byte of the register address, byte three is the high byte of the value and byte four is the low byte of the value.
 Again, for me, this function does nothing and I only provide the above as guidance as to how it should work.  Instead, I recommend just using Write Raw Data Register as documented below.
 
-The same applies to the inverter's own discharge floor, register `0x0850`. An inverter that ignores Write Raw Single Register gives no reply, so the Pico reports `noResponse` after its timeout and the floor stays as it was. Write it as a two byte Write Raw Data Register instead. Some units hold whole percent in this register, so `20` is a 20 % floor, even though the protocol document says 0.1 % per bit. Read it back first to learn which your inverter does.
+The same applies to the inverter's own discharge floor, register `0x0850`. An inverter that ignores Write Raw Single Register gives no reply, so the Pico reports `noResponse` after its timeout and the floor stays as it was. Write it as a two byte Write Raw Data Register instead. Some units hold whole percent in this register, so `20` is a 20 % floor, even though the protocol document says 0.1 % per bit. Read it back first to learn which your inverter does. Then read it back after the write as well: a SMILE-B3 on EMS 1.03.78 answers a Write Raw Data Register to any of the `0x084F` to `0x0859` settings with `writeDataRegisterSuccess` and keeps the old value, while the same write to the dispatch block `0x0880` to `0x0887` is applied. On such a unit the floor can only be held through dispatch.
 
 
 ### Write Raw Data Register
