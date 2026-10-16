@@ -118,6 +118,15 @@ def test_no_flapping_between_charge_and_discharge():
     assert reg.step(61, BOTH).kind == "charge"
 
 
+def test_default_dwell_turns_round_on_a_load_edge():
+    # An air fryer element cycles every 40 s or so: the default dwell must not hold the battery at zero.
+    reg = make(min_interval_s=0)
+    reg.update_grid(0, -1000, 0)
+    assert reg.step(0, BOTH).kind == "charge"
+    reg.update_grid(6, 2000, -1000)
+    assert reg.step(6, BOTH).kind == "discharge"
+
+
 def test_flip_needs_margin_even_after_dwell():
     reg = make(flip_hysteresis_w=150, deadband_w=0)
     reg.update_grid(0, 520, 0)

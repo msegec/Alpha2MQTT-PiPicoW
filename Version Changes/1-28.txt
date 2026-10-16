@@ -38,6 +38,8 @@ Documentation and tests
 	- Home Assistant/alpha2mqtt.yaml: MQTT sensor package for every state topic.
 	- Home Assistant/custom_components/alpha2mqtt_controller: a custom integration that regulates the
 	  battery against the grid reading in state/fast, driven by a policy entity (release, hold, fixed or
-	  regulate with limits and an SOC target). Pure Python core in regulator.py, step log in JSONL.
-	  Tests in Home Assistant/tests (python3 -m pytest).
+	  regulate with limits and an SOC target). A policy with both: true also allows the other direction,
+	  to other_soc, so a load edge turns the battery round in the next step instead of at the policy's
+	  next decision. Charge and discharge swap after a 150 W margin and 5 s in one direction. Pure
+	  Python core in regulator.py, step log in JSONL. Tests in Home Assistant/tests (python3 -m pytest).
 	- tests/firmware/run: host tests for the pure helpers in Dispatch.h.

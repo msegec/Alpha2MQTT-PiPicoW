@@ -173,17 +173,28 @@ class Controller:
             if state.state == "charge":
                 return Policy(FIXED, fixed_w=-watts, charge_soc=soc)
             return Policy(FIXED, fixed_w=watts, discharge_soc=soc)
+        charge_cap = _number(self.hass, self.config.get(CONF_MAX_CHARGE_ENTITY))
+        discharge_cap = _number(self.hass, self.config.get(CONF_MAX_DISCHARGE_ENTITY))
+        charge_cap = DEFAULT_MAX_W if charge_cap is None else charge_cap
+        discharge_cap = DEFAULT_MAX_W if discharge_cap is None else discharge_cap
+        # With both, the policy also allows the other direction, so a load edge turns the battery round
+        # here, in the next step, instead of waiting for the policy's next decision. other_soc is that
+        # direction's limit.
+        both = str(state.attributes.get("both")).lower() == "true"
+        try:
+            other_soc = int(float(state.attributes.get("other_soc")))
+        except (TypeError, ValueError):
+            both = False
         if state.state == "charge":
-            cap = _number(self.hass, self.config.get(CONF_MAX_CHARGE_ENTITY))
             # The policy's grid_offset moves the grid target while charging: + tops up from the grid.
             try:
                 offset = float(state.attributes.get("grid_offset", 0))
             except (TypeError, ValueError):
                 offset = 0.0
-            return Policy(REGULATE, max_charge_w=DEFAULT_MAX_W if cap is None else cap, charge_soc=soc,
-                          target_offset_w=offset)
-        cap = _number(self.hass, self.config.get(CONF_MAX_DISCHARGE_ENTITY))
-        return Policy(REGULATE, max_discharge_w=DEFAULT_MAX_W if cap is None else cap, discharge_soc=soc)
+            return Policy(REGULATE, max_charge_w=charge_cap, charge_soc=soc, target_offset_w=offset,
+                          max_discharge_w=discharge_cap if both else 0.0, discharge_soc=other_soc if both else 10)
+        return Policy(REGULATE, max_discharge_w=discharge_cap, discharge_soc=soc,
+                      max_charge_w=charge_cap if both else 0.0, charge_soc=other_soc if both else 100)
 
     @callback
     def _on_state(self, msg) -> None:

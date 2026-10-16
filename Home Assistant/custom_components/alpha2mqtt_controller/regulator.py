@@ -45,7 +45,7 @@ class Settings:
     keepalive_s: float = 40.0
     duration_s: int = 120  # dispatch lease, the inverter returns to normal after it
     flip_hysteresis_w: float = 150.0
-    flip_dwell_s: float = 60.0
+    flip_dwell_s: float = 5.0  # long enough to ignore noise, short enough to turn round on a load edge
     stale_after_s: float = 30.0
 
 
