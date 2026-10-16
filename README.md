@@ -4,7 +4,7 @@
 _**NEW!** For a complete accompanying guide to integrating your Alpha2MQTT with Home Assistant on a Raspberry Pi or Virtual Machine, check [here](https://github.com/dxoverdy/Integrating-Alpha2MQTT-with-Home-Assistant)._
 
 ### About this fork
-This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) that runs on a Raspberry Pi Pico W and is driven by a Home Assistant controller. It contains everything upstream has as of June 2024, plus:
+This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) that runs on a Raspberry Pi Pico W and is driven by a Home Assistant controller. Fork version 1.28, 17 October 2026, on top of upstream v1.27 (June 2024). The changes are listed in [Version Changes/1-28.txt](Version%20Changes/1-28.txt) and summarised here:
 
 - **Pico W build target.** `MP_PICOW` in Definitions.h, UART0 on GP0 and GP1, the display on GP4 and GP5, built with arduino-pico 6.2.0. ESP8266 and ESP32 still build. See [Steps](#steps).
 - **Credentials in Secrets.h.** WiFi, MQTT and the OTA password live in a gitignored `Secrets.h`, copied from `Secrets.example.h`, instead of Definitions.h. An empty MQTT username connects without credentials.
@@ -836,7 +836,7 @@ Battery SOC (%)
 ### CRC Errors
 If a message is read from the inverter that fails the CRC checksum, line 4 will display one of "BAD-CRC-UR" or "BAD-CRC-HB".  This could be caused by a loose or bad RS485 wire or by unsupported features. A few of these is normal, a lot could indicate a problem.
 
-During WiFi Connection and MQTT Connection phases, line 4 shows the Alpha2MQTT software version.  Check that you have the latest version at https://github.com/dxoverdy/Alpha2MQTT
+During WiFi Connection and MQTT Connection phases, line 4 shows the Alpha2MQTT software version.  This fork shows v1.28. Check that you have the latest version at https://github.com/msegec/Alpha2MQTT-PiPicoW, or upstream at https://github.com/dxoverdy/Alpha2MQTT
 
 ### Alpha2MQTTs Around The World
 If you have your own Alpha2MQTT, be sure to send me a picture of it in action so I can add it to this page!
