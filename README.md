@@ -3,6 +3,25 @@
 
 _**NEW!** For a complete accompanying guide to integrating your Alpha2MQTT with Home Assistant on a Raspberry Pi or Virtual Machine, check [here](https://github.com/dxoverdy/Integrating-Alpha2MQTT-with-Home-Assistant)._
 
+### About this fork
+This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) that runs on a Raspberry Pi Pico W and is driven by a Home Assistant controller. It contains everything upstream has as of June 2024, plus:
+
+- **Pico W build target.** `MP_PICOW` in Definitions.h, UART0 on GP0 and GP1, the display on GP4 and GP5, built with arduino-pico 6.2.0. ESP8266 and ESP32 still build. See [Steps](#steps).
+- **Credentials in Secrets.h.** WiFi, MQTT and the OTA password live in a gitignored `Secrets.h`, copied from `Secrets.example.h`, instead of Definitions.h. An empty MQTT username connects without credentials.
+- **Over the air updates.** Password protected ArduinoOTA on the Pico W, with `scripts/ota-upload` to build and send a new image over WiFi. USB is only needed for the first flash.
+- **A fast state every second.** `Alpha2MQTT/state/fast` carries grid power, PV power, battery power, SOC and dispatch start with a sequence number and timing, for a closed loop controller. See [States](#states).
+- **Set responses carry a seq and ms.** `set/charge`, `set/discharge` and `set/normal` accept an optional `seq` and echo it with the Pico's millis(), so a controller can match replies to requests.
+- **Device supply every minute.** `Alpha2MQTT/state/device` reports VSYS and whether USB power is present.
+- **Schedules tuned for a battery only inverter.** Energy totals move from daily to every minute so the Home Assistant Energy dashboard stays current, and the hybrid only PV1 to PV6 reads are dropped from the ten second schedule. The five minute and daily schedules are empty by default.
+- **Dispatch SOC as a percent.** `socPercent` is converted with the register's 0.4 % per bit scale and rounded up, so a charge reaches at least the target and a discharge stops at or above it, and the response reports the percent rather than 0.
+- **Responsive while busy.** MQTT and OTA are serviced between the register reads of a schedule, RS485 replies are polled every millisecond, and requests over 127 bytes are rejected rather than truncated.
+- **Modbus exceptions reported.** A five byte exception reply is reported as a slave error instead of a timeout.
+- **SMILE-B3 settings writes.** The settings block `0x084F` to `0x0859` only takes a write while the matching bit of the time period control flag is set. The rule and the write sequence are under [Write Raw Data Register](#write-raw-data-register).
+- **Home Assistant package.** `Home Assistant/alpha2mqtt.yaml` defines MQTT sensors for every state topic, ready for the Energy dashboard, in place of the upstream dashboard guide.
+- **Host tests.** `tests/firmware/run` builds the pure dispatch helpers in `Dispatch.h` with the system compiler and checks them without hardware.
+
+Commands, topics and JSON are otherwise unchanged from upstream, so its documentation below applies.
+
 ### Supported devices are:
 ```
 SMILE5,
@@ -25,7 +44,7 @@ It allows full remote control of the inverter (i.e. forcibly charge the battery 
 
 Communication with Alpha2MQTT is via MQTT and can be driven by home integration solutions such as [Home Assistant](https://www.home-assistant.io/), [Node-Red](https://nodered.org/) and anything else which is MQTT compatible.
 
-It's designed to run on an ESP8266 or ESP32 microcontroller (it was developed on a Wemos D1 mini) with a TTL to RS485 module such as the MAX3485.
+It's designed to run on an ESP8266, ESP32 or Raspberry Pi Pico W microcontroller (upstream was developed on a Wemos D1 mini, this fork on a Pico W) with a TTL to RS485 module such as the MAX3485.
 
 Alpha2MQTT honours 1.23 AlphaESS Modbus documentation:
 
@@ -689,7 +708,7 @@ If you are not comfortable soldering, appreciating the rather insignificant cost
 
 # Flashing
 ## Configuration
-Download the source files into a folder called Alpha2MQTT.  The source files needed are Alpha2MQTT.ino, Definitions.h, Secrets.example.h, RegisterHandler.cpp, RegisterHandler.h, RS485Handler.cpp, RS485Handler.h.
+Download the source files into a folder called Alpha2MQTT.  The source files needed are Alpha2MQTT.ino, Definitions.h, Dispatch.h, Secrets.example.h, RegisterHandler.cpp, RegisterHandler.h, RS485Handler.cpp, RS485Handler.h.
 
 Configure Alpha2MQTT by opening up Definitions.h and verifying/customising the following definitions for your need:
 ```
