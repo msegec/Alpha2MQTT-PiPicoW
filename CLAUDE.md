@@ -22,6 +22,9 @@ time.
 
 - Host tests: `tests/firmware/run`. Pure logic the firmware shares with the
   tests goes in headers like `Alpha2MQTT/Dispatch.h`, with no Arduino types.
+- Controller tests: `python3 -m pytest "Home Assistant/tests"`. The regulator core in
+  `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` has no Home Assistant
+  imports; Home Assistant glue stays in `controller.py`.
 - Firmware: the `arduino-cli compile` line in `README.md`. It needs
   `-include pgmspace.h`. Send build output to a private temp dir: the binary
   embeds the WiFi and MQTT credentials.

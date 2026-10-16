@@ -36,5 +36,9 @@ Documentation and tests
 	  block 0x084F to 0x0859 only takes a write while the matching bit of the time period control
 	  flag 0x084F is set (bit 1 for 0x0850 to 0x0854, bit 0 for 0x0855 to 0x0859).
 	- Home Assistant/alpha2mqtt.yaml: MQTT sensor package for every state topic.
+	- Home Assistant/custom_components/alpha2mqtt_controller: a custom integration that regulates the
+	  battery against the grid reading in state/fast, driven by a policy entity (release, hold, fixed or
+	  regulate with limits and an SOC target). Pure Python core in regulator.py, step log in JSONL.
+	  Tests in Home Assistant/tests (python3 -m pytest).
 	- tests/firmware/run: host tests for the pure helpers in Dispatch.h.
 	- CLAUDE.md: agent guide with the public boundary and live hardware rules.
