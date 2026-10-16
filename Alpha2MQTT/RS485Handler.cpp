@@ -401,7 +401,14 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(modbusRequestA
 			if (resp->functionCode != MODBUS_FN_READDATAREGISTER && resp->functionCode != MODBUS_FN_WRITEDATAREGISTER && resp->functionCode != MODBUS_FN_WRITESINGLEREGISTER)
 			{
 				// This is the fix for not knowing how many bytes an error code is on a slave error
-				if (inByteNumZeroIndexed > MIN_FRAME_SIZE_ZERO_INDEXED)
+				if (timedOut && inByteNumZeroIndexed == MIN_FRAME_SIZE_ZERO_INDEXED + 1)
+				{
+					// A standard five byte exception reply: the optional second code byte never came,
+					// so the frame is complete as received and the CRC covers five bytes.
+					timedOut = false;
+					resp->dataSize = 1;
+				}
+				else if (inByteNumZeroIndexed > MIN_FRAME_SIZE_ZERO_INDEXED)
 				{
 					// We got an extra byte
 					resp->dataSize = 2;
