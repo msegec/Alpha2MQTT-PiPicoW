@@ -18,6 +18,10 @@ HOLD = "hold"  # dispatch at 0 W
 FIXED = "fixed"  # dispatch at fixed_w, a manual override
 REGULATE = "regulate"
 
+# A dispatch is five register writes, about 1.8 s. Closer than this, a command queues behind the last
+# one's writes, so even an acked command waits this long.
+MIN_SEND_GAP_S = 2.0
+
 
 @dataclass(frozen=True)
 class Policy:
@@ -42,7 +46,7 @@ class Settings:
     smoothing_s: float = 0.0  # low pass on the request, 0 chases every load step
     slew_w_per_s: float = 2000.0
     write_threshold_w: float = 50.0
-    min_interval_s: float = 3.0  # one command costs about 2 s of RS485 writes
+    min_interval_s: float = 3.0  # one command costs about 2 s of RS485 writes; an acked import cut goes sooner
     keepalive_s: float = 40.0
     duration_s: int = 120  # dispatch lease, the inverter returns to normal after it
     flip_hysteresis_w: float = 150.0
@@ -98,6 +102,7 @@ class Regulator:
         self._direction = 0
         self._t_direction = float("-inf")
         self._t_sent = float("-inf")
+        self._t_ack: float | None = None
         self.integral_w = 0.0
         self._offset_w = 0.0
         self.error_w = 0.0
@@ -134,6 +139,10 @@ class Regulator:
 
     def lease_active(self, t: float) -> bool:
         return self.sent is not None and self.sent.kind != "normal" and t < self._t_sent + self.sent.duration
+
+    def ack(self, t: float) -> None:
+        """Alpha2MQTT wrote the last command."""
+        self._t_ack = t
 
     def unsend(self) -> None:
         """The last command never reached the inverter: send again once the minimum gap is up."""
@@ -232,7 +241,7 @@ class Regulator:
         cmd = self._command(policy)
         last = self.sent
         since = t - self._t_sent
-        if since < s.min_interval_s:
+        if since < s.min_interval_s and not self._may_send_early(since, cmd):
             return None  # also after a release or a failed publish, so a flapping policy cannot hammer the inverter
         if last is None or not self.lease_active(t) or since >= s.keepalive_s:
             return self._send(t, cmd)
@@ -242,6 +251,13 @@ class Regulator:
             return self._send(t, cmd)
         return None
 
+    def _may_send_early(self, since: float, cmd: Command) -> bool:
+        """The last command is written and a sample since shows the battery there: an import cut need not wait."""
+        last = self.sent
+        return (since >= MIN_SEND_GAP_S and last is not None and last.kind != "normal"
+                and self._t_ack is not None and self._t_fresh is not None and self._t_fresh > self._t_ack
+                and cmd.signed_w > last.signed_w)
+
     def _send(self, t: float, cmd: Command) -> Command:
-        self.sent, self._t_sent = cmd, t
+        self.sent, self._t_sent, self._t_ack = cmd, t, None
         return cmd

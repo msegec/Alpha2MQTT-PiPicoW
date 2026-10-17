@@ -354,3 +354,70 @@ def test_a_failed_publish_is_retried():
     reg.unsend()
     assert reg.step(1, DISCHARGE) is None  # still inside the minimum gap
     assert reg.step(3, DISCHARGE) == first
+
+
+def _acked_dip(reg, ack=True, fresh=True, grid_w=1020):
+    """Discharging 500 W on target, the write is acked at 1.8 s, then a sample at 1.9 s."""
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    if ack:
+        reg.ack(1.8)
+    reg.update_grid(1.9, grid_w, 500, fresh=fresh)
+
+
+def test_acked_import_reducing_move_goes_before_the_min_interval():
+    reg = make(min_interval_s=3)
+    _acked_dip(reg)
+    assert reg.step(1.95, DISCHARGE) is None  # inside the floor
+    assert reg.step(2.0, DISCHARGE).watts == 1480
+
+
+@pytest.mark.parametrize("ack, fresh, grid_w", [
+    (False, True, 1020),  # no ack
+    (True, False, 1020),  # no sample since the ack
+    (True, True, -980),  # exporting: less discharge waits the full interval
+])
+def test_early_send_needs_ack_fresh_sample_and_an_import_reducing_move(ack, fresh, grid_w):
+    reg = make(min_interval_s=3)
+    _acked_dip(reg, ack, fresh, grid_w)
+    assert reg.step(2.5, DISCHARGE) is None
+    assert reg.step(3, DISCHARGE) is not None
+
+
+def test_an_ack_counts_for_the_last_command_only():
+    reg = make(min_interval_s=3)
+    _acked_dip(reg)
+    reg.step(2.0, DISCHARGE)  # sent, not acked yet
+    reg.update_grid(3.5, 1520, 1480)
+    assert reg.step(4.0, DISCHARGE) is None
+    assert reg.step(5.0, DISCHARGE) is not None
+
+
+def test_acked_moves_still_wait_for_the_write_threshold_and_keepalive():
+    reg = make(min_interval_s=3, write_threshold_w=50, keepalive_s=40)
+    _acked_dip(reg, grid_w=65)  # 25 W after the deadband
+    for t in range(2, 40):
+        reg.update_grid(t, 65, 500)
+        assert reg.step(t, DISCHARGE) is None
+    reg.update_grid(40, 65, 500)
+    assert reg.step(40, DISCHARGE) is not None
+
+
+def test_acked_release_still_holds_the_min_interval():
+    reg = make(min_interval_s=3)
+    reg.update_grid(0, 1020, 500)
+    reg.step(0, DISCHARGE)
+    assert reg.step(0.5, R.Policy(R.RELEASE)) == R.Command("normal")
+    reg.ack(2.3)
+    reg.update_grid(2.4, 1020, 0)
+    assert reg.step(2.5, DISCHARGE) is None
+    assert reg.step(3.5, DISCHARGE) is not None
+
+
+def test_acked_hold_stays_at_zero():
+    reg = make(min_interval_s=3)
+    reg.update_grid(0, 1020, 500)
+    assert reg.step(0, HOLD) == R.Command("charge", 0, 100, 120)
+    reg.ack(1.8)
+    reg.update_grid(1.9, 1020, 0)
+    assert reg.step(2.5, HOLD) is None

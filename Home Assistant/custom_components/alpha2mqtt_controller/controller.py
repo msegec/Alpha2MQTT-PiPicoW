@@ -343,8 +343,12 @@ class Controller:
             "ack_detail": data.get("failureDetail"),
             "ack_after_ms": None if sent is None else round((time.monotonic() - sent) * 1000),
         }
-        if "success" not in str(data.get("responseStatus")).lower():
+        ok = "success" in str(data.get("responseStatus")).lower()
+        if not ok:
             _LOGGER.warning("Alpha2MQTT refused %s: %s", msg.topic, msg.payload)
+        elif seq is not None and seq == self.last_seq and self.regulator.sent is self.last_command:
+            # Only the newest command's write counts, and not once the regulator has chosen another.
+            self.regulator.ack(time.monotonic())
         self._notify()
 
     def _notify(self) -> None:
