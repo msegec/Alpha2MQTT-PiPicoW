@@ -8,7 +8,7 @@
         "title": "Alpha2MQTT battery controller",
         "description": "The controller holds grid power near a target by choosing dispatch watts. The policy entity decides what is allowed.",
         "data": {
-          "state_topic": "State topic (Alpha2MQTT/state/fast after the fast firmware)",
+          "state_topic": "State topic (Alpha2MQTT/state/second/ten before the fast firmware)",
           "base_topic": "Base topic",
           "policy_entity": "Policy sensor (state charge, discharge, hold or normal; attribute soc_target, optional grid_offset)",
           "grid_source": "Grid power from",

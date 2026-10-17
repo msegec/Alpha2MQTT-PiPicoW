@@ -34,7 +34,7 @@ CONF_LOAD_ENTITY = "load_entity"
 CONF_MAX_CHARGE_ENTITY = "max_charge_entity"
 CONF_MAX_DISCHARGE_ENTITY = "max_discharge_entity"
 
-DEFAULT_STATE_TOPIC = "Alpha2MQTT/state/second/ten"
+DEFAULT_STATE_TOPIC = "Alpha2MQTT/state/fast"  # every second; older firmware has only state/second/ten
 DEFAULT_BASE_TOPIC = "Alpha2MQTT"
 DEFAULT_POLICY_ENTITY = "sensor.battery_auto_action"
 DEFAULT_MAX_W = 3000.0

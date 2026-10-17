@@ -81,3 +81,16 @@ def restored_min_interval(value):
 def test_min_interval_restores_in_half_seconds_from_2_s():
     assert restored_min_interval(2.5) == 2.5
     assert restored_min_interval(1.0) == 2  # saved under the old 1 s minimum
+
+
+def subscribed_state_topic(config):
+    mqtt = sys.modules["homeassistant.components"].mqtt
+    mqtt.async_subscribe = AsyncMock()
+    hass = MagicMock(async_add_executor_job=AsyncMock())
+    asyncio.run(C.Controller(hass, config, "entry").async_start())
+    return mqtt.async_subscribe.call_args_list[0].args[1]
+
+
+def test_state_topic_defaults_to_the_fast_state_and_keeps_an_explicit_one():
+    assert subscribed_state_topic({}) == "Alpha2MQTT/state/fast"
+    assert subscribed_state_topic({"state_topic": "Alpha2MQTT/state/second/ten"}) == "Alpha2MQTT/state/second/ten"
