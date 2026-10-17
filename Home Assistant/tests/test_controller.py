@@ -1,4 +1,4 @@
-"""Tests for the controller's response handling. Home Assistant is stubbed, so it is not needed."""
+"""Tests for the Home Assistant glue. Home Assistant is stubbed, so it is not needed."""
 
 import asyncio
 import importlib
@@ -8,9 +8,18 @@ import types
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-for _name in ("homeassistant", "homeassistant.components", "homeassistant.core", "homeassistant.helpers",
-              "homeassistant.helpers.device_registry", "homeassistant.helpers.event", "homeassistant.util"):
+for _name in ("homeassistant", "homeassistant.components", "homeassistant.config_entries", "homeassistant.core",
+              "homeassistant.helpers", "homeassistant.helpers.device_registry", "homeassistant.helpers.entity_platform",
+              "homeassistant.helpers.event", "homeassistant.util"):
     sys.modules.setdefault(_name, MagicMock())
+
+
+class _RestoreNumber:
+    async def async_added_to_hass(self):
+        pass
+
+
+sys.modules["homeassistant.components.number"] = types.SimpleNamespace(NumberMode=MagicMock(), RestoreNumber=_RestoreNumber)
 sys.modules["homeassistant.core"].callback = lambda f: f
 sys.modules["homeassistant.components"].mqtt.async_publish = AsyncMock()
 
@@ -18,6 +27,7 @@ _pkg = types.ModuleType("a2m_controller")
 _pkg.__path__ = [str(Path(__file__).parents[1] / "custom_components" / "alpha2mqtt_controller")]
 sys.modules["a2m_controller"] = _pkg
 C = importlib.import_module("a2m_controller.controller")
+N = importlib.import_module("a2m_controller.number")
 R = sys.modules["a2m_controller.regulator"]
 DISCHARGE = R.Policy(R.REGULATE, max_discharge_w=3000, discharge_soc=20)
 
@@ -58,3 +68,16 @@ def test_no_ack_once_a_newer_command_is_pending():
     assert c.regulator.step(3, DISCHARGE) is not None
     respond(c, 1, "setDishargeSuccess")
     c.regulator.ack.assert_not_called()
+
+
+def restored_min_interval(value):
+    entry = MagicMock(entry_id="entry", runtime_data=C.Controller(MagicMock(), {}, "entry"))
+    number = N.TuningNumber(entry, *next(n for n in N.NUMBERS if n[0] == "min_interval_s"))
+    number.async_get_last_number_data = AsyncMock(return_value=MagicMock(native_value=value))
+    asyncio.run(number.async_added_to_hass())
+    return entry.runtime_data.regulator.settings.min_interval_s
+
+
+def test_min_interval_restores_in_half_seconds_from_2_s():
+    assert restored_min_interval(2.5) == 2.5
+    assert restored_min_interval(1.0) == 2  # saved under the old 1 s minimum

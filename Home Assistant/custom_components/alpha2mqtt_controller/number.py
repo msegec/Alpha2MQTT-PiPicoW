@@ -21,7 +21,7 @@ NUMBERS = [
     ("smoothing_s", "Smoothing", 0, 300, 5, "s"),
     ("slew_w_per_s", "Slew limit", 50, 5000, 50, "W/s"),
     ("write_threshold_w", "Write threshold", 10, 500, 10, "W"),
-    ("min_interval_s", "Minimum command interval", 1, 30, 1, "s"),
+    ("min_interval_s", "Minimum command interval", 2, 30, 0.5, "s"),  # closer, commands queue behind the writes
     ("keepalive_s", "Keepalive", 10, 100, 5, "s"),
     ("flip_hysteresis_w", "Charge discharge margin", 0, 1000, 10, "W"),
     ("flip_dwell_s", "Charge discharge dwell", 0, 600, 10, "s"),
@@ -54,7 +54,8 @@ class TuningNumber(RestoreNumber):
         await super().async_added_to_hass()
         last = await self.async_get_last_number_data()
         value = last.native_value if last and last.native_value is not None else _DEFAULTS[self._key]
-        self._apply(value)
+        # A value saved before a range changed comes back as it was, so bring it inside.
+        self._apply(min(max(value, self._attr_native_min_value), self._attr_native_max_value))
 
     def _apply(self, value: float) -> None:
         setattr(self._controller.regulator.settings, self._key, value)

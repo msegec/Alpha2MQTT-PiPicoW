@@ -46,5 +46,5 @@ Documentation and tests
 	  NaN or implausible values are ignored, a failed step or publish is logged once and retried, and
 	  turning it off works while MQTT is down. Its sensors write on a 25 W move or every 10 s.
 	  Once Alpha2MQTT acks the last command and a sample follows, a move that cuts grid import goes out
-	  2 s after it instead of waiting the minimum interval.
+	  2 s after it instead of waiting the minimum interval. That interval steps by 0.5 s from 2 s.
 	- tests/firmware/run: host tests for the pure helpers in Dispatch.h.
