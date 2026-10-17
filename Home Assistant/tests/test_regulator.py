@@ -142,7 +142,9 @@ def test_stale_inputs_stop_commanding():
     assert reg.step(0, DISCHARGE) is not None
     for t in range(1, 120):
         cmd = reg.step(t, DISCHARGE)
-        if t > 30:
+        if t == 31:
+            assert cmd == R.Command("normal")  # handed back on the first stale step
+        elif t > 31:
             assert cmd is None
     assert reg.status == "stale"
     # A fresh sample restarts from the measured battery power.
@@ -155,7 +157,7 @@ def test_correction_updates_do_not_count_as_fresh():
     reg.update_grid(0, 20, 800)
     reg.step(0, DISCHARGE)
     reg.update_grid(35, 20, 800, fresh=False)
-    assert reg.step(35, DISCHARGE) is None
+    assert reg.step(35, DISCHARGE) == R.Command("normal")
     assert reg.status == "stale"
 
 
@@ -253,8 +255,7 @@ def test_release_goes_out_even_when_stale():
     reg = make(stale_after_s=30)
     reg.update_grid(0, 20, 800)
     reg.step(0, DISCHARGE)
-    assert reg.step(60, DISCHARGE) is None
-    assert reg.step(61, R.Policy(R.RELEASE)) == R.Command("normal")
+    assert reg.step(61, R.Policy(R.RELEASE)) == R.Command("normal")  # no step in between, readings long stale
 
 
 def test_fixed_override_sends_its_watts_whatever_the_grid():
@@ -288,3 +289,68 @@ def test_policy_offset_moves_the_grid_target(offset, watts):
     cmd = reg.step(0, replace(CHARGE, target_offset_w=offset))
     assert (cmd.kind, cmd.watts) == ("charge", watts)
     assert reg.error_w == -offset
+
+
+HOLD = R.Policy(R.HOLD)
+
+
+def test_stale_inputs_hand_the_inverter_back_at_once():
+    reg = make(stale_after_s=30)
+    reg.update_grid(0, 1020, 500)
+    assert reg.step(0, DISCHARGE).kind == "discharge"
+    assert reg.step(31, DISCHARGE) == R.Command("normal")
+    assert reg.status == "stale"
+    assert reg.step(32, DISCHARGE) is None  # handed back once, not every second
+
+
+def test_stale_inputs_send_nothing_once_the_lease_is_over():
+    reg = make(stale_after_s=30, duration_s=20)
+    reg.update_grid(0, 1020, 500)
+    reg.step(0, DISCHARGE)
+    assert reg.step(31, DISCHARGE) is None
+
+
+def test_hold_needs_no_grid_reading():
+    reg = make(stale_after_s=30)
+    assert reg.step(0, HOLD) == R.Command("charge", 0, 100, 120)  # no sample yet
+    assert reg.step(50, HOLD) == R.Command("charge", 0, 100, 120)  # keepalive with stale inputs
+    assert reg.status == "hold"
+
+
+def test_non_finite_readings_are_ignored():
+    reg = make()
+    reg.update_grid(0, 20, 500)
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        reg.update_grid(1, bad, 500)
+        reg.update_grid(1, 20, bad)
+    assert (reg.grid_w, reg.battery_w) == (20, 500)
+    assert reg.step(1, DISCHARGE).watts == 500
+
+
+def test_non_finite_fixed_watts_release():
+    reg = make()
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    cmd = reg.step(1, R.Policy(R.FIXED, fixed_w=float("nan")))
+    assert cmd == R.Command("normal")
+    assert reg.status == "released"
+
+
+def test_min_interval_holds_across_a_release():
+    reg = make(min_interval_s=3)
+    reg.update_grid(0, 1020, 500)
+    reg.step(0, DISCHARGE)
+    assert reg.step(1, R.Policy(R.RELEASE)) == R.Command("normal")
+    reg.update_grid(2, 1020, 0)
+    assert reg.step(2, DISCHARGE) is None  # a flapping policy cannot hammer the inverter
+    reg.update_grid(4, 1020, 0)
+    assert reg.step(4, DISCHARGE) is not None
+
+
+def test_a_failed_publish_is_retried():
+    reg = make(min_interval_s=3)
+    reg.update_grid(0, 1020, 500)
+    first = reg.step(0, DISCHARGE)
+    reg.unsend()
+    assert reg.step(1, DISCHARGE) is None  # still inside the minimum gap
+    assert reg.step(3, DISCHARGE) == first

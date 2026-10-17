@@ -42,4 +42,7 @@ Documentation and tests
 	  to other_soc, so a load edge turns the battery round in the next step instead of at the policy's
 	  next decision. Charge and discharge swap after a 150 W margin and 5 s in one direction. Pure
 	  Python core in regulator.py, step log in JSONL. Tests in Home Assistant/tests (python3 -m pytest).
+	  Fails safe: stale or frozen inputs hand the inverter back at once, hold and fixed need no reading,
+	  NaN or implausible values are ignored, a failed step or publish is logged once and retried, and
+	  turning it off works while MQTT is down. Its sensors write on a 25 W move or every 10 s.
 	- tests/firmware/run: host tests for the pure helpers in Dispatch.h.

@@ -1,13 +1,19 @@
-"""What the controller sees and does. Updated on every regulator step. States are recorded; the per-step
-attributes are not, so each step adds one small row rather than a new attributes row."""
+"""What the controller sees and does. The regulator steps every second, but control never reads these
+entities, so a power sensor writes only when it moves by MOVE_W or every EVERY_S. Each write is a recorder
+row and a push to every open dashboard; at every step it was about 3,900 rows an hour per sensor."""
 
 from __future__ import annotations
+
+import time
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import MATCH_ALL, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+MOVE_W = 25
+EVERY_S = 10.0
 
 
 def _round(x):
@@ -53,6 +59,8 @@ class ControllerSensor(SensorEntity):
     def __init__(self, entry: ConfigEntry, key, name, power, value, attributes) -> None:
         self._controller = entry.runtime_data
         self._value, self._attributes = value, attributes
+        self._power = power
+        self._written: tuple[float, object] = (float("-inf"), object())
         self._attr_name = name
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = self._controller.device_info
@@ -67,7 +75,16 @@ class ControllerSensor(SensorEntity):
 
     @callback
     def _update(self) -> None:
-        self._attr_native_value = self._value(self._controller)
+        value = self._value(self._controller)
+        t_last, last = self._written
+        now = time.monotonic()
+        if value == last and not self._attributes and not self._power:
+            return
+        if self._power and isinstance(value, (int, float)) and isinstance(last, (int, float)):
+            if abs(value - last) < MOVE_W and now - t_last < EVERY_S:
+                return
+        self._written = (now, value)
+        self._attr_native_value = value
         if self._attributes:
             self._attr_extra_state_attributes = self._attributes(self._controller)
         self.async_write_ha_state()

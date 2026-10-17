@@ -10,6 +10,7 @@ The next setpoint starts from that: battery now + kp * grid error + integral + f
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 RELEASE = "release"  # no dispatch, the inverter runs itself
@@ -108,6 +109,8 @@ class Regulator:
 
     def update_grid(self, t: float, grid_w: float, battery_w: float, fresh: bool = True) -> None:
         """A new grid estimate. fresh is False when only a correction term changed, not the sample."""
+        if not (math.isfinite(grid_w) and math.isfinite(battery_w)):
+            return  # a NaN would clip to full output
         s = self.settings
         e = self._error(grid_w)
         if self._mode == REGULATE and self._t_measure is not None and abs(e) <= s.integral_band_w:
@@ -132,6 +135,10 @@ class Regulator:
     def lease_active(self, t: float) -> bool:
         return self.sent is not None and self.sent.kind != "normal" and t < self._t_sent + self.sent.duration
 
+    def unsend(self) -> None:
+        """The last command never reached the inverter: send again once the minimum gap is up."""
+        self.sent = None
+
     def _restart(self) -> None:
         self.integral_w = 0.0
         self._filtered = None
@@ -142,6 +149,8 @@ class Regulator:
         s = self.settings
         dt = 0.0 if self._t_step is None else max(0.0, t - self._t_step)
         self._t_step = t
+        if policy.mode == FIXED and not math.isfinite(policy.fixed_w):
+            policy = Policy(RELEASE)
         if policy.mode == RELEASE:
             # Needs no reading, so it goes out even when the inputs are stale.
             self.status = "released"
@@ -152,28 +161,34 @@ class Regulator:
                 return self._send(t, Command("normal"))
             return None
         live = inputs_ok and self._t_fresh is not None and t - self._t_fresh <= s.stale_after_s
-        if not live:
-            # Stop commanding. The lease runs out and the inverter takes back control.
+        if policy.mode in (HOLD, FIXED):
+            # Fixed watts need no reading, so they hold through stale inputs.
+            self.status = policy.mode
+            self._mode = policy.mode
+            self._offset_w = 0.0
+            self._restart()
+            self.ff_w = 0.0
+            self.error_w = 0.0 if self.grid_w is None else self.grid_w - s.target_w
+            request = lo = hi = policy.fixed_w
+        elif not live:
+            # Hand the inverter back now. Holding the last watts until the lease ran out could mean
+            # two minutes at a setpoint chosen for a load that has gone.
             self.status = "stale"
             self._mode = RELEASE
             self._restart()
+            self.output_w = 0.0
+            if self.lease_active(t):
+                return self._send(t, Command("normal"))
             return None
-
-        if self._mode == RELEASE:
-            # Bumpless start from whatever the inverter is doing on its own.
-            self.output_w = self.battery_w
-            self._direction = _sign(self.battery_w)
-        self._mode = policy.mode
-        self._offset_w = policy.target_offset_w
-
-        e = self._error(self.grid_w)
-        self.error_w = self.grid_w - s.target_w - self._offset_w
-        if policy.mode in (HOLD, FIXED):
-            self.status = policy.mode
-            self._restart()
-            self.ff_w = 0.0
-            request = lo = hi = policy.fixed_w
         else:
+            if self._mode != REGULATE:
+                # Bumpless start from whatever the inverter is doing on its own.
+                self.output_w = self.battery_w
+                self._direction = _sign(self.battery_w)
+            self._mode = policy.mode
+            self._offset_w = policy.target_offset_w
+            e = self._error(self.grid_w)
+            self.error_w = self.grid_w - s.target_w - self._offset_w
             self.status = "regulating"
             have_load = self.load_w is not None and self._load_ref is not None
             self.ff_w = s.kff * (self.load_w - self._load_ref) if have_load else 0.0
@@ -216,13 +231,11 @@ class Regulator:
         s = self.settings
         cmd = self._command(policy)
         last = self.sent
-        if last is None or not self.lease_active(t):
-            return self._send(t, cmd)
         since = t - self._t_sent
-        if since >= s.keepalive_s:
-            return self._send(t, cmd)
         if since < s.min_interval_s:
-            return None
+            return None  # also after a release or a failed publish, so a flapping policy cannot hammer the inverter
+        if last is None or not self.lease_active(t) or since >= s.keepalive_s:
+            return self._send(t, cmd)
         if cmd.kind != last.kind and (cmd.watts or last.watts):
             return self._send(t, cmd)
         if cmd.soc != last.soc or abs(cmd.signed_w - last.signed_w) >= s.write_threshold_w:

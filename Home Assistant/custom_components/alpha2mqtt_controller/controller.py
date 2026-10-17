@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from collections import deque
 from collections.abc import Callable
@@ -40,18 +41,35 @@ DEFAULT_MAX_W = 3000.0
 # clamp: scale x grid clamp + correction. estimate: correction - battery, for a clamp that cannot see the house.
 GRID_SOURCES = ["clamp", "estimate"]
 
+# A plausible reading is finite and under this. A kW value read as W, or a NaN, would otherwise drive the battery.
+MAX_PLAUSIBLE_W = 20000.0
+# Net demand rewrites every few seconds, 26 s at most over a measured day. Older than this, a plug or
+# template has frozen and its last value is not the house any more.
+CORRECTION_MAX_AGE_S = 90.0
+STEPLOG_EVERY_S = 5.0
+STEPLOG_MOVE_W = 25.0
+
 GRID_KEY = "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1"
 BATTERY_KEY = "REG_BATTERY_HOME_R_BATTERY_POWER"
 
 
-def _number(hass: HomeAssistant, entity_id: str | None) -> float | None:
+def _plausible(x: float) -> bool:
+    return math.isfinite(x) and abs(x) <= MAX_PLAUSIBLE_W
+
+
+def _number(hass: HomeAssistant, entity_id: str | None, max_age_s: float | None = None) -> float | None:
     if not entity_id:
         return None
     state = hass.states.get(entity_id)
     try:
-        return float(state.state)
+        x = float(state.state)
     except (AttributeError, TypeError, ValueError):
         return None
+    if not _plausible(x):
+        return None
+    if max_age_s is not None and (dt_util.utcnow() - state.last_reported).total_seconds() > max_age_s:
+        return None
+    return x
 
 
 class Controller:
@@ -78,6 +96,8 @@ class Controller:
         self._unsubs: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
         self._steplog: StepLog | None = None
+        self._logged: tuple[float, str, float | None] = (float("-inf"), "", None)
+        self._failing: str | None = None  # what is failing now, so it is logged once, not every second
 
     @property
     def status(self) -> str:
@@ -96,11 +116,11 @@ class Controller:
     async def async_start(self) -> None:
         cfg = self.config
         base = cfg.get(CONF_BASE_TOPIC, DEFAULT_BASE_TOPIC)
-        if not await mqtt.async_wait_for_mqtt_client(self.hass):
-            _LOGGER.error("MQTT is not available, the battery controller will not run")
-            return
-        self._steplog = await self.hass.async_add_executor_job(
-            StepLog, self.hass.config.path(DOMAIN, file_name(base)))
+        try:
+            self._steplog = await self.hass.async_add_executor_job(
+                StepLog, self.hass.config.path(DOMAIN, file_name(base)))
+        except OSError as err:
+            _LOGGER.warning("Battery controller step log is off: %s", err)
         self._unsubs.append(await mqtt.async_subscribe(
             self.hass, cfg.get(CONF_STATE_TOPIC, DEFAULT_STATE_TOPIC), self._on_state))
         self._unsubs.append(await mqtt.async_subscribe(self.hass, f"{base}/response/set/+", self._on_response))
@@ -114,20 +134,23 @@ class Controller:
             self.regulator.update_load(time.monotonic(), load)
 
     async def async_stop(self) -> None:
-        await self.async_set_enabled(False)
-        while self._unsubs:
-            self._unsubs.pop()()
-        if self._steplog is not None:
-            steplog, self._steplog = self._steplog, None
-            await self.hass.async_add_executor_job(steplog.close)
+        try:
+            await self.async_set_enabled(False)
+        finally:
+            while self._unsubs:
+                self._unsubs.pop()()
+            if self._steplog is not None:
+                steplog, self._steplog = self._steplog, None
+                await self.hass.async_add_executor_job(steplog.close)
 
     async def async_set_enabled(self, enabled: bool) -> None:
-        if not enabled and self.enabled:
-            # Hand the inverter back now rather than waiting for the lease to run out.
+        was, self.enabled = self.enabled, enabled
+        if was and not enabled:
+            # Hand the inverter back now rather than waiting for the lease to run out. Off is off even
+            # when this publish fails: the lease then returns the inverter to normal within two minutes.
             cmd = self.regulator.step(time.monotonic(), Policy(RELEASE), self._inputs_ok())
             if cmd is not None:
                 await self._publish(cmd)
-        self.enabled = enabled
         self._notify()
 
     def _grid_estimate(self) -> float | None:
@@ -135,7 +158,7 @@ class Controller:
         if self._raw_grid is None:
             return None
         if self.config.get(CONF_GRID_SOURCE) == "estimate":
-            correction = _number(self.hass, self.config.get(CONF_CORRECTION_ENTITY))
+            correction = _number(self.hass, self.config.get(CONF_CORRECTION_ENTITY), CORRECTION_MAX_AGE_S)
             return None if correction is None else estimate_grid(correction, self._battery_w)
         scale = _number(self.hass, self.config.get(CONF_GRID_SCALE_ENTITY))
         if scale is None:
@@ -162,13 +185,15 @@ class Controller:
             return Policy(RELEASE)
         try:
             soc = int(float(state.attributes.get("soc_target")))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return Policy(RELEASE)
         if str(state.attributes.get("fixed")).lower() == "true":
             # A manual override: the policy's watts, not regulation.
             try:
                 watts = float(state.attributes.get("watts"))
             except (TypeError, ValueError):
+                return Policy(RELEASE)
+            if not _plausible(watts):
                 return Policy(RELEASE)
             if state.state == "charge":
                 return Policy(FIXED, fixed_w=-watts, charge_soc=soc)
@@ -183,13 +208,15 @@ class Controller:
         both = str(state.attributes.get("both")).lower() == "true"
         try:
             other_soc = int(float(state.attributes.get("other_soc")))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             both = False
         if state.state == "charge":
             # The policy's grid_offset moves the grid target while charging: + tops up from the grid.
             try:
                 offset = float(state.attributes.get("grid_offset", 0))
             except (TypeError, ValueError):
+                offset = 0.0
+            if not _plausible(offset):
                 offset = 0.0
             return Policy(REGULATE, max_charge_w=charge_cap, charge_soc=soc, target_offset_w=offset,
                           max_discharge_w=discharge_cap if both else 0.0, discharge_soc=other_soc if both else 10)
@@ -202,6 +229,8 @@ class Controller:
             data = json.loads(msg.payload)
             raw_grid, battery = float(data[GRID_KEY]), float(data[BATTERY_KEY])
         except (ValueError, KeyError, TypeError):
+            return
+        if not (_plausible(raw_grid) and _plausible(battery)):
             return
         seq = data.get("seq")
         if seq is not None and seq == self._sample_seq:
@@ -235,15 +264,40 @@ class Controller:
     @callback
     def _run(self) -> None:
         if self.enabled:
-            cmd = self.regulator.step(time.monotonic(), self._policy(), self._inputs_ok())
+            now = time.monotonic()
+            try:
+                cmd = self.regulator.step(now, self._policy(), self._inputs_ok())
+            except Exception:  # one bad value must not stop regulation silently
+                self._fail("step", "Battery controller step failed, handing the inverter back")
+                cmd = self.regulator.step(now, Policy(RELEASE))
+            else:
+                self._recover("step")
             if cmd is not None:
                 self.hass.async_create_task(self._publish(cmd))
             if self._steplog is not None:
                 self._log_step(cmd)
         self._notify()
 
+    def _fail(self, what: str, message: str) -> None:
+        if self._failing != what:
+            self._failing = what
+            _LOGGER.exception(message)
+
+    def _recover(self, what: str) -> None:
+        if self._failing == what:
+            self._failing = None
+            _LOGGER.info("Battery controller %s works again", what)
+
     def _log_step(self, cmd: Command | None) -> None:
+        # Commands, status changes and grid moves go in at once; quiet steps every few seconds.
+        # Every step at 1 Hz was about 100 MB a day of SD card writes per controller.
         r = self.regulator
+        t_last, status_last, grid_last = self._logged
+        now = time.monotonic()
+        moved = r.grid_w is not None and (grid_last is None or abs(r.grid_w - grid_last) >= STEPLOG_MOVE_W)
+        if cmd is None and r.status == status_last and not moved and now - t_last < STEPLOG_EVERY_S:
+            return
+        self._logged = (now, r.status, r.grid_w)
         watts = {k: None if v is None else round(v, 1) for k, v in (
             ("grid_w", r.grid_w), ("battery_w", r.battery_w), ("load_w", r.load_w), ("error_w", r.error_w),
             ("integral_w", r.integral_w), ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w))}
@@ -261,7 +315,15 @@ class Controller:
         else:
             payload = {"watts": cmd.watts, "socPercent": cmd.soc, "duration": cmd.duration, "seq": seq}
         # The Pico reads at most 127 bytes of payload; these stay under 80.
-        await mqtt.async_publish(self.hass, f"{base}/request/set/{cmd.kind}", json.dumps(payload, separators=(",", ":")))
+        try:
+            await mqtt.async_publish(self.hass, f"{base}/request/set/{cmd.kind}", json.dumps(payload, separators=(",", ":")))
+        except Exception:
+            # Not sent, so the regulator must not count it: it sends again after the minimum gap.
+            if self.regulator.sent == cmd:
+                self.regulator.unsend()
+            self._fail("publish", "Battery controller could not publish, retrying")
+            return
+        self._recover("publish")
         self.last_command, self.last_sent, self.last_seq = cmd, dt_util.utcnow(), seq
         self._sent_mono = {seq: time.monotonic()}
         self._sent_times.append(time.monotonic())
