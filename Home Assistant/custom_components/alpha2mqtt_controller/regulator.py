@@ -11,7 +11,7 @@ The next setpoint starts from that: battery now + kp * grid error + integral + f
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 RELEASE = "release"  # no dispatch, the inverter runs itself
 HOLD = "hold"  # dispatch at 0 W
@@ -52,6 +52,9 @@ class Settings:
     flip_hysteresis_w: float = 150.0
     flip_dwell_s: float = 5.0  # long enough to ignore noise, short enough to turn round on a load edge
     stale_after_s: float = 30.0
+    # 0 keeps every command a full block write. Above 0, a power change may go as one write, and once the
+    # firmware acks one as written that way the next command may follow this long after it.
+    power_write_gap_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,7 @@ class Command:
     watts: int = 0
     soc: int = 0
     duration: int = 0
+    power_only: bool = False  # the firmware may write just the power if the running block matches
 
     @property
     def signed_w(self) -> int:
@@ -103,6 +107,8 @@ class Regulator:
         self._t_direction = float("-inf")
         self._t_sent = float("-inf")
         self._t_ack: float | None = None
+        self._ack_power = False
+        self._failed = False
         self.integral_w = 0.0
         self._offset_w = 0.0
         self.error_w = 0.0
@@ -140,13 +146,14 @@ class Regulator:
     def lease_active(self, t: float) -> bool:
         return self.sent is not None and self.sent.kind != "normal" and t < self._t_sent + self.sent.duration
 
-    def ack(self, t: float) -> None:
-        """Alpha2MQTT wrote the last command."""
-        self._t_ack = t
+    def ack(self, t: float, power_write: bool = False) -> None:
+        """Alpha2MQTT wrote the last command, as one power write or as the whole block."""
+        self._t_ack, self._ack_power = t, power_write
 
-    def unsend(self) -> None:
-        """The last command never reached the inverter: send again once the minimum gap is up."""
-        self.sent = None
+    def fail(self) -> None:
+        """The last command was not published or not written: send it again in full once the minimum interval
+        is up. It still counts as sent, so a release in the meantime still hands the inverter back."""
+        self._failed = True
 
     def _restart(self) -> None:
         self.integral_w = 0.0
@@ -243,21 +250,26 @@ class Regulator:
         since = t - self._t_sent
         if since < s.min_interval_s and not self._may_send_early(since, cmd):
             return None  # also after a release or a failed publish, so a flapping policy cannot hammer the inverter
-        if last is None or not self.lease_active(t) or since >= s.keepalive_s:
+        if last is None or self._failed or not self.lease_active(t) or since >= s.keepalive_s:
             return self._send(t, cmd)
         if cmd.kind != last.kind and (cmd.watts or last.watts):
             return self._send(t, cmd)
         if cmd.soc != last.soc or abs(cmd.signed_w - last.signed_w) >= s.write_threshold_w:
-            return self._send(t, cmd)
+            same_block = (cmd.kind, cmd.soc, cmd.duration) == (last.kind, last.soc, last.duration)
+            return self._send(t, replace(cmd, power_only=True) if same_block and s.power_write_gap_s > 0 else cmd)
         return None
 
     def _may_send_early(self, since: float, cmd: Command) -> bool:
-        """The last command is written and a sample since shows the battery there: an import cut need not wait."""
+        """The last command is written and a sample has come in since. After a power write the bus is free at
+        once, so any move may follow after the power write gap; after a block write only an import cut goes early."""
         last = self.sent
-        return (since >= MIN_SEND_GAP_S and last is not None and last.kind != "normal"
-                and self._t_ack is not None and self._t_fresh is not None and self._t_fresh > self._t_ack
-                and cmd.signed_w > last.signed_w)
+        if (last is None or last.kind == "normal" or self._t_ack is None or self._t_fresh is None
+                or self._t_fresh <= self._t_ack):
+            return False
+        if self._ack_power and self.settings.power_write_gap_s > 0:
+            return since >= self.settings.power_write_gap_s
+        return since >= MIN_SEND_GAP_S and cmd.signed_w > last.signed_w
 
     def _send(self, t: float, cmd: Command) -> Command:
-        self.sent, self._t_sent, self._t_ack = cmd, t, None
+        self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
         return cmd

@@ -303,7 +303,8 @@ class Controller:
             ("integral_w", r.integral_w), ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w))}
         self._steplog.write({
             "t": round(time.time(), 2), "status": r.status, **watts,
-            "sent": None if cmd is None else {"kind": cmd.kind, "watts": cmd.watts, "soc": cmd.soc},
+            "sent": None if cmd is None else {"kind": cmd.kind, "watts": cmd.watts, "soc": cmd.soc,
+                                              "power_only": cmd.power_only},
         })
 
     async def _publish(self, cmd: Command) -> None:
@@ -314,13 +315,15 @@ class Controller:
             payload = {"void": 0, "seq": seq}
         else:
             payload = {"watts": cmd.watts, "socPercent": cmd.soc, "duration": cmd.duration, "seq": seq}
-        # The Pico reads at most 127 bytes of payload; these stay under 80.
+            if cmd.power_only:
+                payload["powerOnly"] = 1  # older firmware ignores it and writes the whole block
+        # The Pico reads at most 127 bytes of payload; these stay under 90.
         try:
             await mqtt.async_publish(self.hass, f"{base}/request/set/{cmd.kind}", json.dumps(payload, separators=(",", ":")))
         except Exception:
-            # Not sent, so the regulator must not count it: it sends again after the minimum gap.
-            if self.regulator.sent == cmd:
-                self.regulator.unsend()
+            # Not sent: the regulator sends it again in full after the minimum gap.
+            if self.regulator.sent is cmd:
+                self.regulator.fail()
             self._fail("publish", "Battery controller could not publish, retrying")
             return
         self._recover("publish")
@@ -342,13 +345,17 @@ class Controller:
             "ack_status": data.get("responseStatus"),
             "ack_detail": data.get("failureDetail"),
             "ack_after_ms": None if sent is None else round((time.monotonic() - sent) * 1000),
+            "ack_write": data.get("write"),  # power or block; older firmware sends neither
         }
         ok = "success" in str(data.get("responseStatus")).lower()
+        # Only the newest command's response counts, and not once the regulator has chosen another.
+        newest = seq is not None and seq == self.last_seq and self.regulator.sent is self.last_command
         if not ok:
             _LOGGER.warning("Alpha2MQTT refused %s: %s", msg.topic, msg.payload)
-        elif seq is not None and seq == self.last_seq and self.regulator.sent is self.last_command:
-            # Only the newest command's write counts, and not once the regulator has chosen another.
-            self.regulator.ack(time.monotonic())
+            if newest:
+                self.regulator.fail()
+        elif newest:
+            self.regulator.ack(time.monotonic(), power_write=data.get("write") == "power")
         self._notify()
 
     def _notify(self) -> None:

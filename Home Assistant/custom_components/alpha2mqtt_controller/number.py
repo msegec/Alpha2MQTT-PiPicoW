@@ -26,6 +26,7 @@ NUMBERS = [
     ("flip_hysteresis_w", "Charge discharge margin", 0, 1000, 10, "W"),
     ("flip_dwell_s", "Charge discharge dwell", 0, 600, 10, "s"),
     ("stale_after_s", "Stale after", 3, 100, 1, "s"),
+    ("power_write_gap_s", "Power write gap", 0, 5, 0.5, "s"),  # 0 is off: every command is a full block write
 ]
 
 _DEFAULTS = {f.name: f.default for f in fields(Settings)}

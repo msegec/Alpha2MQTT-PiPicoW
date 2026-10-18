@@ -347,13 +347,34 @@ def test_min_interval_holds_across_a_release():
     assert reg.step(4, DISCHARGE) is not None
 
 
-def test_a_failed_publish_is_retried():
+def test_a_failed_command_is_retried():
     reg = make(min_interval_s=3)
     reg.update_grid(0, 1020, 500)
     first = reg.step(0, DISCHARGE)
-    reg.unsend()
+    reg.fail()
     assert reg.step(1, DISCHARGE) is None  # still inside the minimum gap
     assert reg.step(3, DISCHARGE) == first
+    assert reg.step(4, DISCHARGE) is None  # once
+
+
+def test_a_failed_command_still_hands_the_inverter_back_on_release():
+    # A failed write may have left part of the block running, so release must still send normal.
+    reg = make()
+    reg.update_grid(0, 1020, 500)
+    reg.step(0, DISCHARGE)
+    reg.fail()
+    assert reg.step(1, R.Policy(R.RELEASE)) == R.Command("normal")
+
+
+def test_a_failed_power_write_is_retried_as_a_full_block():
+    reg = make(min_interval_s=3, power_write_gap_s=1)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(5, 520, 500)
+    assert reg.step(5, DISCHARGE).power_only
+    reg.fail()
+    reg.update_grid(8, 520, 500)
+    assert reg.step(8, DISCHARGE) == R.Command("discharge", 980, 20, 120)
 
 
 def _acked_dip(reg, ack=True, fresh=True, grid_w=1020):
@@ -421,3 +442,71 @@ def test_acked_hold_stays_at_zero():
     reg.ack(1.8)
     reg.update_grid(1.9, 1020, 0)
     assert reg.step(2.5, HOLD) is None
+
+
+def _power_written(reg, ack=True, power_write=True, fresh=True, grid_w=520):
+    """Discharging 500 W on target, 1480 W sent at 10 s and acked at 10.15 s, then at 11 s a sample with the
+    battery there and the load moved again: by default 500 W more, a negative grid_w for less."""
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(10, 1020, 500)
+    cmd = reg.step(10, DISCHARGE)
+    if ack:
+        reg.ack(10.15, power_write=power_write)
+    reg.update_grid(11, grid_w, 1480, fresh=fresh)
+    return cmd
+
+
+def test_power_writes_are_off_by_default():
+    reg = make(min_interval_s=3)
+    assert not _power_written(reg).power_only
+    assert reg.step(11, DISCHARGE) is None  # today's 2 s floor after an ack
+    assert reg.step(12, DISCHARGE) == R.Command("discharge", 1960, 20, 120)
+
+
+def test_a_power_change_in_the_running_block_may_go_as_one_write():
+    reg = make(min_interval_s=3, power_write_gap_s=1)
+    reg.update_grid(0, 20, 500)
+    assert not reg.step(0, DISCHARGE).power_only  # the first command writes the block
+    reg.update_grid(10, 1020, 500)
+    assert reg.step(10, DISCHARGE) == R.Command("discharge", 1480, 20, 120, power_only=True)
+
+
+def test_keepalive_kind_and_soc_changes_write_the_whole_block():
+    reg = make(min_interval_s=3, power_write_gap_s=1, keepalive_s=40)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, BOTH)
+    reg.update_grid(40, 20, 500)
+    assert not reg.step(40, BOTH).power_only  # keepalive renews the lease
+    reg.update_grid(50, -2000, 500)
+    assert reg.step(50, BOTH).kind == "charge"
+    assert not reg.sent.power_only  # a new kind
+    reg.update_grid(60, -1000, -1500)
+    assert reg.step(60, replace(BOTH, charge_soc=90)).soc == 90
+    assert not reg.sent.power_only  # a new SOC
+
+
+def test_after_an_acked_power_write_any_move_follows_after_the_gap():
+    reg = make(min_interval_s=3, power_write_gap_s=1)
+    _power_written(reg, grid_w=-500)  # now exporting: a cut in discharge, not an import cut
+    cmd = reg.step(11, DISCHARGE)
+    assert (cmd.watts, cmd.power_only) == (980, True)
+
+
+def test_the_power_write_gap_is_a_floor():
+    reg = make(min_interval_s=3, power_write_gap_s=1.5)
+    _power_written(reg)
+    assert reg.step(11, DISCHARGE) is None
+    assert reg.step(11.5, DISCHARGE) is not None
+
+
+@pytest.mark.parametrize("ack, power_write, fresh", [
+    (False, True, True),  # no ack
+    (True, False, True),  # the firmware wrote the whole block, or is too old to say
+    (True, True, False),  # no sample since the ack
+])
+def test_early_follow_up_needs_a_power_write_ack_and_a_fresh_sample(ack, power_write, fresh):
+    reg = make(min_interval_s=3, power_write_gap_s=1)
+    _power_written(reg, ack, power_write, fresh, grid_w=-500)
+    assert reg.step(12, DISCHARGE) is None
+    assert reg.step(13, DISCHARGE) is not None

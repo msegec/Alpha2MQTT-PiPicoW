@@ -8,6 +8,8 @@ import types
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 for _name in ("homeassistant", "homeassistant.components", "homeassistant.config_entries", "homeassistant.core",
               "homeassistant.helpers", "homeassistant.helpers.device_registry", "homeassistant.helpers.entity_platform",
               "homeassistant.helpers.event", "homeassistant.util"):
@@ -89,6 +91,42 @@ def subscribed_state_topic(config):
     hass = MagicMock(async_add_executor_job=AsyncMock())
     asyncio.run(C.Controller(hass, config, "entry").async_start())
     return mqtt.async_subscribe.call_args_list[0].args[1]
+
+
+def published(cmd):
+    mqtt = sys.modules["homeassistant.components"].mqtt
+    mqtt.async_publish = AsyncMock()
+    asyncio.run(C.Controller(MagicMock(), {}, "entry")._publish(cmd))
+    return json.loads(mqtt.async_publish.call_args.args[2])
+
+
+def test_power_only_commands_carry_the_flag_and_others_do_not():
+    assert published(R.Command("discharge", 800, 20, 120, power_only=True))["powerOnly"] == 1
+    assert "powerOnly" not in published(R.Command("discharge", 800, 20, 120))
+
+
+def respond_write(c, write):
+    payload = {"responseStatus": "setDishargeSuccess", "seq": 1}
+    if write is not None:
+        payload["write"] = write
+    c._on_response(types.SimpleNamespace(topic="Alpha2MQTT/response/set/discharge", payload=json.dumps(payload)))
+
+
+@pytest.mark.parametrize("write, power_write", [("power", True), ("block", False), (None, False)])
+def test_the_ack_says_whether_only_the_power_was_written(write, power_write):
+    c = sent_controller()
+    respond_write(c, write)
+    assert c.regulator.ack.call_args.kwargs == {"power_write": power_write}
+    assert c.ack["ack_write"] == write
+
+
+def test_a_failed_write_of_the_newest_command_is_retried():
+    c = sent_controller()
+    c.regulator.fail = MagicMock()
+    respond(c, 0, "noResponse")  # an older command
+    c.regulator.fail.assert_not_called()
+    respond(c, 1, "noResponse")
+    c.regulator.fail.assert_called_once()
 
 
 def test_state_topic_defaults_to_the_fast_state_and_keeps_an_explicit_one():
