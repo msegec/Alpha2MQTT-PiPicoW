@@ -18,14 +18,14 @@ NUMBERS = [
     ("ki", "Integral gain", 0, 0.2, 0.005, None),
     ("kff", "Feed forward gain", 0, 1.5, 0.05, None),
     ("deadband_w", "Deadband", 0, 200, 5, "W"),
-    ("smoothing_s", "Smoothing", 0, 300, 5, "s"),
+    ("smoothing_s", "Smoothing", 0, 300, 0.5, "s"),
     ("slew_w_per_s", "Slew limit", 50, 5000, 50, "W/s"),
     ("write_threshold_w", "Write threshold", 10, 500, 10, "W"),
     ("min_interval_s", "Minimum command interval", 2, 30, 0.5, "s"),  # closer, commands queue behind the writes
-    ("keepalive_s", "Keepalive", 10, 100, 5, "s"),
+    ("keepalive_s", "Keepalive", 10, 100, 0.5, "s"),
     ("flip_hysteresis_w", "Charge discharge margin", 0, 1000, 10, "W"),
-    ("flip_dwell_s", "Charge discharge dwell", 0, 600, 10, "s"),
-    ("stale_after_s", "Stale after", 3, 100, 1, "s"),
+    ("flip_dwell_s", "Charge discharge dwell", 0, 600, 0.5, "s"),
+    ("stale_after_s", "Stale after", 3, 100, 0.5, "s"),
     ("power_write_gap_s", "Power write gap", 0, 5, 0.5, "s"),  # 0 is off: every command is a full block write
 ]
 
