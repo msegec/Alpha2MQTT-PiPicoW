@@ -41,7 +41,6 @@ class Policy:
 class Settings:
     target_w: float = 20.0  # grid power to hold, positive is a little import
     kp: float = 1.0  # share of the grid error corrected at once
-    import_gain: float = 1.0  # kp times this on an import, which costs more than an export earns
     ki: float = 0.01  # per second, trims the inverter's own error
     integral_band_w: float = 300.0  # bigger errors are load steps: proportional only
     integral_limit_w: float = 300.0
@@ -213,8 +212,7 @@ class Regulator:
             self.status = "regulating"
             have_load = self.load_w is not None and self._load_ref is not None
             self.ff_w = s.kff * (self.load_w - self._load_ref) if have_load else 0.0
-            kp = s.kp * s.import_gain if e > 0 else s.kp
-            request = self.battery_w + kp * e + self.integral_w + self.ff_w
+            request = self.battery_w + s.kp * e + self.integral_w + self.ff_w
             if s.smoothing_s > 0 and self._filtered is not None:
                 request = self._filtered + (request - self._filtered) * min(1.0, dt / s.smoothing_s)
             self._filtered = request

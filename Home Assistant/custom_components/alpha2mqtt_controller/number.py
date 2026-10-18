@@ -15,7 +15,6 @@ from .regulator import Settings
 NUMBERS = [
     ("target_w", "Grid target", -500, 500, 5, "W"),
     ("kp", "Proportional gain", 0, 1.5, 0.05, None),
-    ("import_gain", "Import gain", 1, 2, 0.05, None),  # 1 is off
     ("ki", "Integral gain", 0, 0.2, 0.005, None),
     ("kff", "Feed forward gain", 0, 1.5, 0.05, None),
     ("deadband_w", "Deadband", 0, 200, 5, "W"),

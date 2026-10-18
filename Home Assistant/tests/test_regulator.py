@@ -513,18 +513,3 @@ def test_early_follow_up_needs_a_power_write_ack_and_a_fresh_sample(ack, power_w
     _power_written(reg, ack, power_write, fresh, grid_w=-500)
     assert reg.step(12, DISCHARGE) is None
     assert reg.step(13, DISCHARGE) is not None
-
-
-@pytest.mark.parametrize("grid_w, cmd", [(1020, ("discharge", 1770)), (-980, ("charge", 480))])
-def test_import_gain_corrects_only_import_harder(grid_w, cmd):
-    # Import costs more than export earns, so an import is corrected 1.3 x; an export as before.
-    reg = make(kp=1.0, ki=0, deadband_w=20, import_gain=1.3, flip_hysteresis_w=0, slew_w_per_s=10000)
-    reg.update_grid(0, 20, 500)
-    reg.step(0, BOTH)
-    reg.update_grid(10, grid_w, 500)
-    sent = reg.step(10, BOTH)
-    assert (sent.kind, sent.watts) == cmd  # 500 + 1.3 x 980 rounds to 1770; 500 - 980 is a 480 W charge
-
-
-def test_import_gain_is_off_by_default():
-    assert R.Settings().import_gain == 1.0
