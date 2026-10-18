@@ -22,6 +22,7 @@ system.  I found that WRITE DATA REGISTER will write any appropriate single (2 b
 register, and we just leverage 'Number of bytes' to guide it accordingly.
 */
 #include "RegisterHandler.h"
+#include "PvMeter.h"
 
 /*
 Default Constructor
@@ -1702,11 +1703,9 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 			*/
 
 
-			uint8_t	frame[] = { ALPHA_SLAVE_ID, MODBUS_FN_READDATAREGISTER, REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 >> 8, REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 & 0xff, 0, 2, 0, 0 };
-			result = _modBus->sendModbus(frame, sizeof(frame), rs);
+			result = readPvMeterPower(rs, &pvPower);
 			if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 			{
-				pvPower = (int32_t)(rs->data[0] << 24 | rs->data[1] << 16 | rs->data[2] << 8 | rs->data[3]);
 				uint8_t	frame[] = { ALPHA_SLAVE_ID, MODBUS_FN_READDATAREGISTER, REG_INVERTER_HOME_R_PV1_POWER_1 >> 8, REG_INVERTER_HOME_R_PV1_POWER_1 & 0xff, 0, 2, 0, 0 };
 				result = _modBus->sendModbus(frame, sizeof(frame), rs);
 				if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
@@ -1838,11 +1837,9 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 			*/
 
 
-			uint8_t	frame[] = { ALPHA_SLAVE_ID, MODBUS_FN_READDATAREGISTER, REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 >> 8, REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 & 0xff, 0, 2, 0, 0 };
-			result = _modBus->sendModbus(frame, sizeof(frame), rs);
+			result = readPvMeterPower(rs, &pvPower);
 			if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 			{
-				pvPower = (int32_t)(rs->data[0] << 24 | rs->data[1] << 16 | rs->data[2] << 8 | rs->data[3]);
 				uint8_t	frame[] = { ALPHA_SLAVE_ID, MODBUS_FN_READDATAREGISTER, REG_INVERTER_HOME_R_PV1_POWER_1 >> 8, REG_INVERTER_HOME_R_PV1_POWER_1 & 0xff, 0, 2, 0, 0 };
 				result = _modBus->sendModbus(frame, sizeof(frame), rs);
 				if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
@@ -1906,7 +1903,11 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 			}
 			}
 
-			if (result == modbusRequestAndResponseStatusValues::preProcessing)
+			if (registerAddressToSend == REG_PV_METER_R_TOTAL_ACTIVE_POWER_1)
+			{
+				result = readPvMeterPower(rs, &pvPower);
+			}
+			else if (result == modbusRequestAndResponseStatusValues::preProcessing)
 			{
 				// Generate a frame without CRC (ending 0, 0), sendModbus will do the rest
 				uint8_t	frame[] = { ALPHA_SLAVE_ID, MODBUS_FN_READDATAREGISTER, registerAddressToSend >> 8, registerAddressToSend & 0xff, 0, rs->registerCount, 0, 0 };
@@ -4441,6 +4442,35 @@ void RegisterHandler::createFormattedDateTime(char *target, uint8_t year, uint8_
 
 
 
+
+
+
+/*
+readPvMeterPower
+
+Reads REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 for the register itself and for the custom registers built on it.
+A 0 that pvMeterZeroUnconfirmed holds back fails as unconfirmedZero, so a schedule leaves it out of that payload.
+*/
+modbusRequestAndResponseStatusValues RegisterHandler::readPvMeterPower(modbusRequestAndResponse* rs, int32_t* pvPower)
+{
+	bool unconfirmed;
+	uint8_t	frame[] = { ALPHA_SLAVE_ID, MODBUS_FN_READDATAREGISTER, REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 >> 8, REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 & 0xff, 0, 2, 0, 0 };
+	modbusRequestAndResponseStatusValues result = _modBus->sendModbus(frame, sizeof(frame), rs);
+
+	if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
+	{
+		*pvPower = (int32_t)(rs->data[0] << 24 | rs->data[1] << 16 | rs->data[2] << 8 | rs->data[3]);
+		unconfirmed = pvMeterZeroUnconfirmed(_lastPvMeterPower, *pvPower);
+		_lastPvMeterPower = *pvPower;
+		if (unconfirmed)
+		{
+			result = modbusRequestAndResponseStatusValues::unconfirmedZero;
+			strcpy(rs->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_UNCONFIRMED_ZERO_MQTT_DESC);
+			strcpy(rs->displayMessage, MODBUS_REQUEST_AND_RESPONSE_UNCONFIRMED_ZERO_DISPLAY_DESC);
+		}
+	}
+	return result;
+}
 
 
 

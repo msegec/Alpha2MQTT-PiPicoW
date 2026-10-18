@@ -4,5 +4,9 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-g++ -std=c++17 -Wall -Wextra -Werror -I"$here/../../Alpha2MQTT" "$here/test_dispatch.cpp" -o "$out/test_dispatch"
-"$out/test_dispatch"
+for test in "$here"/test_*.cpp; do
+	name=$(basename "$test" .cpp)
+	g++ -std=c++17 -Wall -Wextra -Werror -I"$here/../../Alpha2MQTT" "$test" -o "$out/$name"
+	echo "$name"
+	"$out/$name"
+done

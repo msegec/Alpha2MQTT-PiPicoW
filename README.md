@@ -85,7 +85,7 @@ On a Pico W, Alpha2MQTT also publishes its own supply every minute to `Alpha2MQT
     "read_ms": 142
 }
 ```
-seq counts up by one per message and restarts at 1 after a reboot. ms is the Pico's millis() when the reads started and read_ms is how long they took. A register that fails to read is left out of that message. The other schedules run between fast cycles, so they no longer hold the fast state up.
+seq counts up by one per message and restarts at 1 after a reboot. ms is the Pico's millis() when the reads started and read_ms is how long they took. A register that fails to read is left out of that message. So is a PV meter power of exactly 0 straight after a reading 10 W or more from 0: the inverter now and then reports a lone 0 while the PV is generating, so a 0 is only published once a second read confirms it. This applies to every schedule. The other schedules run between fast cycles, so they no longer hold the fast state up.
 
 Each of the schedules can be customised to report a number* / any combination of register values.  Alpha2MQTT has been developed this way to give flexibility.  For example, there is probably no need to report grid voltage every ten seconds, instead once every five minutes and in doing so we are limiting network traffic over MQTT and onward processing in software such as Home Assistant.
 
