@@ -11,6 +11,7 @@ This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) 
 - **Over the air updates.** Password protected ArduinoOTA on the Pico W, with `scripts/ota-upload` to build and send a new image over WiFi. USB is only needed for the first flash.
 - **A fast state every second.** `Alpha2MQTT/state/fast` carries grid power, PV power, battery power, SOC and dispatch start with a sequence number and timing, for a closed loop controller. See [States](#states).
 - **Set responses carry a seq and ms.** `set/charge`, `set/discharge` and `set/normal` accept an optional `seq` and echo it with the Pico's millis(), so a controller can match replies to requests.
+- **Power-only dispatch writes, opt in and untested on hardware.** A `set/charge` or `set/discharge` with `"powerOnly": 1` rewrites only the power register when the dispatch Alpha2MQTT last wrote in full has the same kind, SOC and duration and less than a third of its duration has passed. That is one bus write instead of five. See [Force Charge From Grid](#force-charge-from-grid).
 - **Device supply every minute.** `Alpha2MQTT/state/device` reports VSYS and whether USB power is present.
 - **Schedules tuned for a battery only inverter.** Energy totals move from daily to every minute so the Home Assistant Energy dashboard stays current, and the hybrid only PV1 to PV6 reads are dropped from the ten second schedule. The five minute and daily schedules are empty by default.
 - **Dispatch SOC as a percent.** `socPercent` is converted with the register's 0.4 % per bit scale and rounded up, so a charge reaches at least the target and a discharge stops at or above it, and the response reports the percent rather than 0.
@@ -432,6 +433,8 @@ duration is how long in seconds to put the inverter in this mode.  Charging from
 
 seq is optional, on this and the other set requests.  Alpha2MQTT returns it in the response, with ms, its millis() when the writes finished, so a controller can match each response to its request and time the round trip.  Without it the response carries a seq of 0.  The five writes behind charge and discharge are spaced 400 ms apart, so expect the response about two seconds after the request, with the fast state paused meanwhile.
 
+powerOnly is optional, on charge and discharge only.  With `"powerOnly": 1`, Alpha2MQTT writes just the power register (`0x0881`, one Write Data Register of two registers, 32000 offset) if the dispatch it last wrote in full has the same kind, SOC and duration, every write since has succeeded, and less than a third of the duration has passed since that full write.  That takes one bus transaction, about 30 to 40 ms at 9600 baud.  Otherwise it writes the whole block as above.  A power-only write does not rewrite the dispatch time, and power-only writes stop a third of the way into the duration, so the inverter returns to normal within about one and a third durations of the last full write even if it restarts its timer on a power write.  Any failed write, any raw register write, a set/normal and a reboot all make the next request a full write.  Whether an inverter acts on a power write while a dispatch runs is not in the AlphaESS documentation, so check it on yours before relying on it.
+
 
 Alpha2MQTT will do the rest and will return the response via the following topic which you can subscribe to:
 ```
@@ -443,6 +446,7 @@ An example response for the above request could be:
 {
     "responseStatus": "setChargeSuccess",
     "failureDetail": "",
+    "write": "block",
     "seq": 42,
     "ms": 5123456
 }
@@ -450,6 +454,8 @@ An example response for the above request could be:
 where
 
 failureDetail will document at what point in the dispatch process the failure occurred.
+
+write is `power` when only the power register was written and `block` when the whole block was.
 
 
 ## Force Discharge To Grid
@@ -487,6 +493,7 @@ An example response for the above request could be:
 {
     "responseStatus": "setDishargeSuccess",
     "failureDetail": "",
+    "write": "block",
     "seq": 0,
     "ms": 5123456
 }

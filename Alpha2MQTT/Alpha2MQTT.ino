@@ -62,6 +62,9 @@ char* _commandPayload;
 // The fast state can also be sent between the reads of a slow schedule, so it gets its own too.
 char* _fastPayload;
 
+// The last dispatch block written in full, so a power change can go out as one write
+DispatchBlock _activeDispatch = {};
+
 // OLED variables
 char _oledOperatingIndicator = '*';
 char _oledLine2[OLED_CHARACTER_WIDTH] = "";
@@ -1405,6 +1408,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	char startPos[32] = "";
 	char endPos[32] = "";
 	char seq[32] = "";		// Optional on set commands, echoed back so the sender can match the response
+	char powerOnly[32] = "";	// Optional on set/charge and set/discharge, 1 lets a power change skip the rest of the block
 
 	// Convert incoming values into native data types for sending
 	uint16_t registerAddressConverted;
@@ -1676,10 +1680,20 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				{
 					strcpy(seq, pairValueClean);
 				}
+				else if (strcmp(pairNameClean, "powerOnly") == 0)
+				{
+					strcpy(powerOnly, pairValueClean);
+				}
 			}
 		}
 	}
 
+
+	// A raw write may change the dispatch block, and normal ends it: the next charge or discharge writes it all
+	if (subScription == mqttSubscriptions::writeRawSingleRegister || subScription == mqttSubscriptions::writeRawDataRegister || subScription == mqttSubscriptions::setNormal)
+	{
+		_activeDispatch.valid = false;
+	}
 
 	// Carry on?
 	if (result == modbusRequestAndResponseStatusValues::preProcessing)
@@ -1855,6 +1869,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 			// Handles dispatch mode for charge and discharge
 			// Code is fundamentally the same, just a different charge power.
 			int multiplier = 1;
+			bool powerOnlyWrite = false;
 
 			//if (strcmp(topic, DEVICE_NAME MQTT_SUB_REQUEST_SET_CHARGE) == 0)
 			if (subScription == mqttSubscriptions::setCharge)
@@ -1903,17 +1918,17 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				Serial.println(_debugOutput);
 #endif
 
-				// First enable dispatch
-				responseDispatch.registerCount = 1;
-				resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_START, &responseDispatch);
-				if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+				bool charge = subScription == mqttSubscriptions::setCharge;
+				uint32_t writeStartedMs = millis();
+				DispatchBlock running = _activeDispatch;
+				powerOnlyWrite = dispatchPowerOnly(strcmp(powerOnly, "1") == 0, running, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs);
+
+				// Cleared until this write is acknowledged, so after any failure the next command writes the whole block
+				_activeDispatch.valid = false;
+
+				if (powerOnlyWrite)
 				{
-					sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"", responseDispatch.statusMqttMessage);
-				}
-				else
-				{
-					delay(RS485_TRIES * 50);
-					// Now set power
+					// The running block already has this kind, SOC and duration. One write changes the power, the lease runs on.
 					responseDispatch.registerCount = 2;
 					resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, chargeDischargeWattsConverted, &responseDispatch);
 					if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
@@ -1922,52 +1937,82 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					}
 					else
 					{
+						_activeDispatch = running;
+					}
+				}
+				else
+				{
+					// First enable dispatch
+					responseDispatch.registerCount = 1;
+					resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_START, &responseDispatch);
+					if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+					{
+						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"", responseDispatch.statusMqttMessage);
+					}
+					else
+					{
 						delay(RS485_TRIES * 50);
-						// Now set duration
+						// Now set power
 						responseDispatch.registerCount = 2;
-						resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_TIME_1, durationSecondsConverted, &responseDispatch);
+						resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, chargeDischargeWattsConverted, &responseDispatch);
 						if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 						{
-							sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_TIME_1\"", responseDispatch.statusMqttMessage);
+							sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_ACTIVE_POWER_1\"", responseDispatch.statusMqttMessage);
 						}
 						else
 						{
 							delay(RS485_TRIES * 50);
-							// Now set battery
-							responseDispatch.registerCount = 1;
-							resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_SOC, batterySocPercentConverted, &responseDispatch);
+							// Now set duration
+							responseDispatch.registerCount = 2;
+							resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_TIME_1, durationSecondsConverted, &responseDispatch);
 							if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 							{
-								sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_SOC\"", responseDispatch.statusMqttMessage);
+								sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_TIME_1\"", responseDispatch.statusMqttMessage);
 							}
 							else
 							{
 								delay(RS485_TRIES * 50);
-								// Finally set the mode to start
+								// Now set battery
 								responseDispatch.registerCount = 1;
-								resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_MODE, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, &responseDispatch);
+								resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_SOC, batterySocPercentConverted, &responseDispatch);
 								if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 								{
-									sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_MODE\"", responseDispatch.statusMqttMessage);
+									sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_SOC\"", responseDispatch.statusMqttMessage);
 								}
 								else
 								{
-									if (subScription == mqttSubscriptions::setCharge)
+									delay(RS485_TRIES * 50);
+									// Finally set the mode to start
+									responseDispatch.registerCount = 1;
+									resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_MODE, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, &responseDispatch);
+									if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 									{
-										sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_CHARGE_SUCCESS_MQTT_DESC);
-										result = modbusRequestAndResponseStatusValues::setChargeSuccess;
+										sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_MODE\"", responseDispatch.statusMqttMessage);
 									}
 									else
 									{
-										sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_DISCHARGE_SUCCESS_MQTT_DESC);
-										result = modbusRequestAndResponseStatusValues::setDischargeSuccess;
+										_activeDispatch = { true, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs };
 									}
-									
 								}
 							}
 						}
 					}
 				}
+
+				if (_activeDispatch.valid)
+				{
+					if (charge)
+					{
+						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_CHARGE_SUCCESS_MQTT_DESC);
+						result = modbusRequestAndResponseStatusValues::setChargeSuccess;
+					}
+					else
+					{
+						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_DISCHARGE_SUCCESS_MQTT_DESC);
+						result = modbusRequestAndResponseStatusValues::setDischargeSuccess;
+					}
+				}
+				strcat(stateAddition, powerOnlyWrite ? ",\r\n    \"write\": \"power\"" : ",\r\n    \"write\": \"block\"");
 			}
 			// Empty if the request was invalid, the standard response below covers that
 			if (*stateAddition)
