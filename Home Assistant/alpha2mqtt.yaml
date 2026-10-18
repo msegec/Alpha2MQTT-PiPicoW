@@ -101,7 +101,13 @@ mqtt:
     - name: "PV Meter Power"
       unique_id: alpha2mqtt_pv_meter_r_total_active_power_1
       state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 | default(None) }}"
+      # The firmware leaves out a lone 0 until a second read confirms it. Keep the last value through
+      # that gap: an unavailable PV meter takes the net demand, and with it the battery controller, down.
+      value_template: >-
+        {%- set k = 'REG_PV_METER_R_TOTAL_ACTIVE_POWER_1' -%}
+        {%- if value_json is mapping and k in value_json -%}{{ value_json[k] }}
+        {%- elif this.state not in ('unknown', 'unavailable') and now() - this.last_changed < timedelta(seconds=60) -%}{{ this.state }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "W"
       device_class: power
       state_class: measurement
@@ -487,7 +493,13 @@ mqtt:
     - name: "PV Meter Power Fast"
       unique_id: alpha2mqtt_fast_pv_meter_power
       state_topic: "Alpha2MQTT/state/fast"
-      value_template: "{{ value_json.REG_PV_METER_R_TOTAL_ACTIVE_POWER_1 | default(None) }}"
+      # The firmware leaves out a lone 0 until a second read confirms it. Keep the last value through
+      # that gap: an unavailable PV meter takes the net demand, and with it the battery controller, down.
+      value_template: >-
+        {%- set k = 'REG_PV_METER_R_TOTAL_ACTIVE_POWER_1' -%}
+        {%- if value_json is mapping and k in value_json -%}{{ value_json[k] }}
+        {%- elif this.state not in ('unknown', 'unavailable') and now() - this.last_changed < timedelta(seconds=10) -%}{{ this.state }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "W"
       device_class: power
       expire_after: 10

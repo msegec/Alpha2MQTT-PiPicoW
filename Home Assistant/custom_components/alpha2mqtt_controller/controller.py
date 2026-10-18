@@ -98,6 +98,8 @@ class Controller:
         self._steplog: StepLog | None = None
         self._logged: tuple[float, str, float | None] = (float("-inf"), "", None)
         self._failing: str | None = None  # what is failing now, so it is logged once, not every second
+        self._gaps: set[str] = set()  # inputs missing now, logged the same way
+        self._good_policy: tuple[float, Policy] = (float("-inf"), Policy(RELEASE))
 
     @property
     def status(self) -> str:
@@ -148,7 +150,7 @@ class Controller:
         if was and not enabled:
             # Hand the inverter back now rather than waiting for the lease to run out. Off is off even
             # when this publish fails: the lease then returns the inverter to normal within two minutes.
-            cmd = self.regulator.step(time.monotonic(), Policy(RELEASE), self._inputs_ok())
+            cmd = self.regulator.step(time.monotonic(), Policy(RELEASE))
             if cmd is not None:
                 await self._publish(cmd)
         self._notify()
@@ -172,13 +174,23 @@ class Controller:
                 return None
         return estimate_grid(correction, self._battery_w, self._raw_grid, scale)
 
-    def _inputs_ok(self) -> bool:
-        return self._grid_estimate() is not None
-
     def _policy(self) -> Policy:
+        """The policy now. A policy that is missing or unreadable for a moment, as in a template reload,
+        keeps the last good one until stale_after_s; then the inverter goes back to normal."""
+        now = time.monotonic()
+        policy = self._read_policy()
+        self._gap("policy", policy is None)
+        if policy is not None:
+            self._good_policy = (now, policy)
+            return policy
+        t, policy = self._good_policy
+        return policy if now - t <= self.regulator.settings.stale_after_s else Policy(RELEASE)
+
+    def _read_policy(self) -> Policy | None:
+        """None when the policy cannot be read; any state but charge, discharge or hold is a release."""
         state = self.hass.states.get(self.config.get(CONF_POLICY_ENTITY, DEFAULT_POLICY_ENTITY))
-        if state is None:
-            return Policy(RELEASE)
+        if state is None or state.state in ("unavailable", "unknown"):
+            return None
         if state.state == "hold":
             return Policy(HOLD)
         if state.state not in ("charge", "discharge"):
@@ -186,15 +198,15 @@ class Controller:
         try:
             soc = int(float(state.attributes.get("soc_target")))
         except (TypeError, ValueError, OverflowError):
-            return Policy(RELEASE)
+            return None
         if str(state.attributes.get("fixed")).lower() == "true":
             # A manual override: the policy's watts, not regulation.
             try:
                 watts = float(state.attributes.get("watts"))
             except (TypeError, ValueError):
-                return Policy(RELEASE)
+                return None
             if not _plausible(watts):
-                return Policy(RELEASE)
+                return None
             if state.state == "charge":
                 return Policy(FIXED, fixed_w=-watts, charge_soc=soc)
             return Policy(FIXED, fixed_w=watts, discharge_soc=soc)
@@ -240,7 +252,10 @@ class Controller:
         self._measure(fresh=True)
 
     def _measure(self, fresh: bool) -> None:
+        # A gap in the estimate sends nothing to the regulator, which holds its last command until stale_after_s.
         self.grid_w = self._grid_estimate()
+        if self._raw_grid is not None:
+            self._gap("grid estimate", self.grid_w is None)
         if self.grid_w is not None and self._battery_w is not None:
             self.regulator.update_grid(time.monotonic(), self.grid_w, self._battery_w, fresh=fresh)
         self._run()
@@ -266,7 +281,7 @@ class Controller:
         if self.enabled:
             now = time.monotonic()
             try:
-                cmd = self.regulator.step(now, self._policy(), self._inputs_ok())
+                cmd = self.regulator.step(now, self._policy())
             except Exception:  # one bad value must not stop regulation silently
                 self._fail("step", "Battery controller step failed, handing the inverter back")
                 cmd = self.regulator.step(now, Policy(RELEASE))
@@ -277,6 +292,15 @@ class Controller:
             if self._steplog is not None:
                 self._log_step(cmd)
         self._notify()
+
+    def _gap(self, what: str, missing: bool) -> None:
+        """Logs a gap in an input once when it starts and once when it ends."""
+        if missing and what not in self._gaps:
+            self._gaps.add(what)
+            _LOGGER.warning("Battery controller %s missing, holding the last command", what)
+        elif not missing and what in self._gaps:
+            self._gaps.discard(what)
+            _LOGGER.info("Battery controller %s back", what)
 
     def _fail(self, what: str, message: str) -> None:
         if self._failing != what:

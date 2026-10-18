@@ -132,3 +132,75 @@ def test_a_failed_write_of_the_newest_command_is_retried():
 def test_state_topic_defaults_to_the_fast_state_and_keeps_an_explicit_one():
     assert subscribed_state_topic({}) == "Alpha2MQTT/state/fast"
     assert subscribed_state_topic({"state_topic": "Alpha2MQTT/state/second/ten"}) == "Alpha2MQTT/state/second/ten"
+
+
+NOW = C.datetime(2026, 1, 1)
+
+
+class House:
+    """A controller on the net demand estimate, with entity states and a clock the test sets."""
+
+    def __init__(self, monkeypatch):
+        self.t = 0.0
+        self.seq = 0
+        monkeypatch.setattr(C.time, "monotonic", lambda: self.t)
+        monkeypatch.setattr(C, "dt_util", types.SimpleNamespace(utcnow=lambda: NOW))
+        self.mqtt = sys.modules["homeassistant.components"].mqtt
+        self.mqtt.async_publish = AsyncMock()
+        self.states = {}
+        hass = MagicMock(async_create_task=asyncio.run)
+        hass.states.get = self.states.get
+        self.c = C.Controller(hass, {"grid_source": "estimate", "correction_entity": "sensor.net_demand"}, "entry")
+        self.c.enabled = True
+        self.set("sensor.battery_auto_action", "discharge", soc_target=20)
+        self.set("sensor.net_demand", "1000")
+
+    def set(self, entity_id, state, **attributes):
+        self.states[entity_id] = types.SimpleNamespace(state=state, attributes=attributes, last_reported=NOW)
+
+    def second(self):
+        """One second on: a fresh sample with the battery at 500 W, then the tick."""
+        self.t += 1
+        self.seq += 1
+        self.c._on_state(types.SimpleNamespace(payload=json.dumps(
+            {C.GRID_KEY: 0, C.BATTERY_KEY: 500, "seq": self.seq})))
+        self.c._on_tick(None)
+
+    def released(self):
+        return any(call.args[1].endswith("/normal") for call in self.mqtt.async_publish.call_args_list)
+
+
+@pytest.mark.parametrize("entity_id", ["sensor.net_demand", "sensor.battery_auto_action"])
+def test_a_gap_in_an_input_holds_the_last_command_until_stale_after(monkeypatch, entity_id):
+    house = House(monkeypatch)
+    house.second()
+    assert house.c.status == "regulating" and house.mqtt.async_publish.called
+    house.set(entity_id, "unavailable")
+    for _ in range(29):
+        house.second()
+        assert not house.released()
+    for _ in range(3):
+        house.second()
+    assert house.released()
+
+
+def test_an_input_back_within_stale_after_keeps_regulating(monkeypatch):
+    house = House(monkeypatch)
+    house.second()
+    house.set("sensor.net_demand", "unknown")
+    house.set("sensor.battery_auto_action", "unavailable")
+    for _ in range(10):
+        house.second()
+    house.set("sensor.net_demand", "1000")
+    house.set("sensor.battery_auto_action", "discharge", soc_target=20)
+    for _ in range(60):
+        house.second()
+    assert house.c.status == "regulating" and not house.released()
+
+
+def test_a_policy_of_normal_releases_at_once(monkeypatch):
+    house = House(monkeypatch)
+    house.second()
+    house.set("sensor.battery_auto_action", "normal")
+    house.second()
+    assert house.released() and house.c.status == "released"

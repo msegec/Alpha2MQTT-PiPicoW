@@ -21,6 +21,9 @@ REGULATE = "regulate"
 # A dispatch is five register writes, about 1.8 s. Closer than this, a command queues behind the last
 # one's writes, so even an acked command waits this long.
 MIN_SEND_GAP_S = 2.0
+# Samples come every second, or every 10 s from older firmware. A longer gap would wind the integral on
+# an error nobody measured.
+MAX_INTEGRATE_S = 10.0
 
 
 @dataclass(frozen=True)
@@ -127,7 +130,7 @@ class Regulator:
         if self._mode == REGULATE and self._t_measure is not None and abs(e) <= s.integral_band_w:
             # Conditional integration: stop when the output is pinned in the error's direction.
             if _sign(e) != self._saturation:
-                dt = min(t - self._t_measure, s.stale_after_s)
+                dt = min(t - self._t_measure, MAX_INTEGRATE_S)
                 self.integral_w = _clip(self.integral_w + s.ki * e * dt, -s.integral_limit_w, s.integral_limit_w)
         self.grid_w, self.battery_w, self._t_measure = grid_w, battery_w, t
         if fresh:
@@ -160,8 +163,9 @@ class Regulator:
         self._filtered = None
         self._saturation = 0
 
-    def step(self, t: float, policy: Policy, inputs_ok: bool = True) -> Command | None:
-        """Returns a command to publish now, or None."""
+    def step(self, t: float, policy: Policy) -> Command | None:
+        """Returns a command to publish now, or None. Without a fresh sample it holds the last command until
+        stale_after_s, then hands the inverter back."""
         s = self.settings
         dt = 0.0 if self._t_step is None else max(0.0, t - self._t_step)
         self._t_step = t
@@ -176,7 +180,7 @@ class Regulator:
             if self.lease_active(t):
                 return self._send(t, Command("normal"))
             return None
-        live = inputs_ok and self._t_fresh is not None and t - self._t_fresh <= s.stale_after_s
+        live = self._t_fresh is not None and t - self._t_fresh <= s.stale_after_s
         if policy.mode in (HOLD, FIXED):
             # Fixed watts need no reading, so they hold through stale inputs.
             self.status = policy.mode

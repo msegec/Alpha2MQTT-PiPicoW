@@ -161,10 +161,13 @@ def test_correction_updates_do_not_count_as_fresh():
     assert reg.status == "stale"
 
 
-def test_unusable_inputs_stop_commanding():
-    reg = make()
-    reg.update_grid(0, 20, 800)
-    assert reg.step(0, DISCHARGE, inputs_ok=False) is None
+def test_a_gap_in_samples_integrates_a_few_seconds_at_most():
+    # The error before a gap is not the error through it.
+    reg = make(ki=0.05, deadband_w=0, target_w=0)
+    reg.update_grid(0, 0, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(25, 100, 500)
+    assert reg.integral_w == pytest.approx(0.05 * 100 * R.MAX_INTEGRATE_S)
 
 
 def test_release_sends_normal_once_while_dispatching():
