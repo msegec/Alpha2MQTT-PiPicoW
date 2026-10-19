@@ -513,3 +513,46 @@ def test_early_follow_up_needs_a_power_write_ack_and_a_fresh_sample(ack, power_w
     _power_written(reg, ack, power_write, fresh, grid_w=-500)
     assert reg.step(12, DISCHARGE) is None
     assert reg.step(13, DISCHARGE) is not None
+
+
+def test_at_the_discharge_limit_it_holds_zero_instead_of_asking_for_discharge():
+    # At its limit the battery stays at 0 W whatever it is sent, and a growing request sent a command every few seconds.
+    reg = make()
+    reg.update_grid(0, 20, 500, soc=20)
+    hold = reg.step(0, DISCHARGE)
+    assert hold == R.Command("charge", 0, 100, 120)
+    sent = []
+    for t in range(3, 120, 3):
+        reg.update_grid(t, 300 + t, 0, soc=20)
+        sent.append(reg.step(t, DISCHARGE))
+    assert all(cmd is None or cmd == hold for cmd in sent)
+    assert sum(cmd is not None for cmd in sent) <= 3  # keepalives only
+
+
+@pytest.mark.parametrize("soc, policy", [(21, DISCHARGE), (20, replace(DISCHARGE, discharge_soc=15))])
+def test_discharge_resumes_once_the_soc_rises_or_the_limit_drops(soc, policy):
+    reg = make()
+    reg.update_grid(0, 520, 0, soc=20)
+    assert reg.step(0, DISCHARGE).watts == 0
+    reg.update_grid(5, 520, 0, soc=soc)
+    assert reg.step(5, policy).kind == "discharge"
+
+
+def test_the_discharge_limit_does_not_stop_charging():
+    reg = make()
+    reg.update_grid(0, -1000, 0, soc=10)
+    assert reg.step(0, BOTH) == R.Command("charge", 1000, 100, 120)
+    reg = make()
+    reg.update_grid(0, -1000, 0, soc=10)
+    assert reg.step(0, CHARGE) == R.Command("charge", 1000, 100, 120)
+
+
+def test_a_sample_without_soc_keeps_the_last_one():
+    reg = make()
+    reg.update_grid(0, 520, 0, soc=20)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(5, 520, 0)
+    assert reg.step(5, DISCHARGE) is None and reg.output_w == 0
+    reg = make()
+    reg.update_grid(0, 520, 0)  # older firmware: no SOC, regulates as before
+    assert reg.step(0, DISCHARGE).kind == "discharge"

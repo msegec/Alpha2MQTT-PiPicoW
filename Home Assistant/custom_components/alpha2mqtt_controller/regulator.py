@@ -99,6 +99,7 @@ class Regulator:
         self.grid_w: float | None = None
         self.battery_w: float | None = None
         self.load_w: float | None = None
+        self.soc: float | None = None
         self._load_ref: float | None = None
         self._t_measure: float | None = None
         self._t_fresh: float | None = None
@@ -121,10 +122,14 @@ class Regulator:
         self.sent: Command | None = None
         self.status = "waiting"
 
-    def update_grid(self, t: float, grid_w: float, battery_w: float, fresh: bool = True) -> None:
-        """A new grid estimate. fresh is False when only a correction term changed, not the sample."""
+    def update_grid(self, t: float, grid_w: float, battery_w: float, fresh: bool = True,
+                    soc: float | None = None) -> None:
+        """A new grid estimate. fresh is False when only a correction term changed, not the sample. A sample
+        without an SOC keeps the last one."""
         if not (math.isfinite(grid_w) and math.isfinite(battery_w)):
             return  # a NaN would clip to full output
+        if soc is not None and math.isfinite(soc):
+            self.soc = soc
         s = self.settings
         e = self._error(grid_w)
         if self._mode == REGULATE and self._t_measure is not None and abs(e) <= s.integral_band_w:
@@ -217,6 +222,9 @@ class Regulator:
                 request = self._filtered + (request - self._filtered) * min(1.0, dt / s.smoothing_s)
             self._filtered = request
             lo, hi = -policy.max_charge_w, policy.max_discharge_w
+            if self.soc is not None and self.soc <= policy.discharge_soc:
+                # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.
+                hi = 0.0
         self.request_w = request
         u = _clip(request, lo, hi)
         self._saturation = _sign(request - u)

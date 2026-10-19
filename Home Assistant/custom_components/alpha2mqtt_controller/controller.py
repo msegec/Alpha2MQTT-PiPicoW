@@ -51,6 +51,7 @@ STEPLOG_MOVE_W = 25.0
 
 GRID_KEY = "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1"
 BATTERY_KEY = "REG_BATTERY_HOME_R_BATTERY_POWER"
+SOC_KEY = "REG_BATTERY_HOME_R_SOC"
 
 
 def _plausible(x: float) -> bool:
@@ -85,6 +86,7 @@ class Controller:
         self.grid_w: float | None = None
         self._raw_grid: float | None = None
         self._battery_w: float | None = None
+        self._soc: float | None = None
         self._sample_seq = None
         self._cmd_seq = 0
         self.last_command: Command | None = None
@@ -249,6 +251,10 @@ class Controller:
             return  # a repeat, not a new reading
         self._sample_seq = seq
         self._raw_grid, self._battery_w = raw_grid, battery
+        try:
+            self._soc = float(data[SOC_KEY])
+        except (KeyError, TypeError, ValueError):
+            self._soc = None  # a failed read is left out of the message; the regulator keeps the last
         self._measure(fresh=True)
 
     def _measure(self, fresh: bool) -> None:
@@ -257,7 +263,8 @@ class Controller:
         if self._raw_grid is not None:
             self._gap("grid estimate", self.grid_w is None)
         if self.grid_w is not None and self._battery_w is not None:
-            self.regulator.update_grid(time.monotonic(), self.grid_w, self._battery_w, fresh=fresh)
+            self.regulator.update_grid(time.monotonic(), self.grid_w, self._battery_w, fresh=fresh,
+                                       soc=self._soc)
         self._run()
 
     @callback

@@ -158,13 +158,17 @@ class House:
     def set(self, entity_id, state, **attributes):
         self.states[entity_id] = types.SimpleNamespace(state=state, attributes=attributes, last_reported=NOW)
 
-    def second(self):
+    def second(self, **fields):
         """One second on: a fresh sample with the battery at 500 W, then the tick."""
         self.t += 1
         self.seq += 1
         self.c._on_state(types.SimpleNamespace(payload=json.dumps(
-            {C.GRID_KEY: 0, C.BATTERY_KEY: 500, "seq": self.seq})))
+            {C.GRID_KEY: 0, C.BATTERY_KEY: 500, "seq": self.seq, **fields})))
         self.c._on_tick(None)
+
+    def sent(self):
+        return [json.loads(call.args[2]) | {"kind": call.args[1].rsplit("/", 1)[1]}
+                for call in self.mqtt.async_publish.call_args_list]
 
     def released(self):
         return any(call.args[1].endswith("/normal") for call in self.mqtt.async_publish.call_args_list)
@@ -204,3 +208,10 @@ def test_a_policy_of_normal_releases_at_once(monkeypatch):
     house.set("sensor.battery_auto_action", "normal")
     house.second()
     assert house.released() and house.c.status == "released"
+
+
+def test_at_the_policy_soc_the_battery_is_held_at_zero_not_asked_to_discharge(monkeypatch):
+    house = House(monkeypatch)
+    for _ in range(10):
+        house.second(REG_BATTERY_HOME_R_SOC=20.0)
+    assert [(cmd["kind"], cmd["watts"]) for cmd in house.sent()] == [("charge", 0)]
