@@ -1,4 +1,4 @@
-"""Tuning numbers. Each writes straight into the regulator's settings and survives a restart."""
+"""Tuning numbers. Each writes straight into the regulator's settings, goes in the step log and survives a restart."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class TuningNumber(RestoreNumber):
         self._apply(min(max(value, self._attr_native_min_value), self._attr_native_max_value))
 
     def _apply(self, value: float) -> None:
-        setattr(self._controller.regulator.settings, self._key, value)
+        self._controller.set_setting(self._key, value)
         self._attr_native_value = value
 
     async def async_set_native_value(self, value: float) -> None:

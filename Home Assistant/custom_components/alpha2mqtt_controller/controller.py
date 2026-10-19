@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import time
 from collections import deque
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import datetime, timedelta
 
 from homeassistant.components import mqtt
@@ -33,6 +35,8 @@ CONF_CORRECTION_ENTITY = "correction_entity"
 CONF_LOAD_ENTITY = "load_entity"
 CONF_MAX_CHARGE_ENTITY = "max_charge_entity"
 CONF_MAX_DISCHARGE_ENTITY = "max_discharge_entity"
+CONF_LOG_DIR = "log_dir"  # default <config>/alpha2mqtt_controller
+CONF_LOG_ENTITIES = "log_entities"  # also logged on every change, for replay
 
 DEFAULT_STATE_TOPIC = "Alpha2MQTT/state/fast"  # every second; older firmware has only state/second/ten
 DEFAULT_BASE_TOPIC = "Alpha2MQTT"
@@ -49,12 +53,14 @@ CORRECTION_MAX_AGE_S = 90.0
 # A correction rendered from the fast message, such as a net demand template, carries its seq and may update just
 # after the controller sees the message. A sample waits this long for it, then steps on the value it has.
 MATCH_WAIT_S = 0.5
-STEPLOG_EVERY_S = 5.0
-STEPLOG_MOVE_W = 25.0
 
 GRID_KEY = "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1"
 BATTERY_KEY = "REG_BATTERY_HOME_R_BATTERY_POWER"
 SOC_KEY = "REG_BATTERY_HOME_R_SOC"
+# Step log name and fast state key of each firmware field.
+FAST_FIELDS = (("seq", "seq"), ("ms", "ms"), ("read_ms", "read_ms"), ("grid", GRID_KEY),
+               ("pv", "REG_PV_METER_R_TOTAL_ACTIVE_POWER_1"), ("battery", BATTERY_KEY), ("soc", SOC_KEY),
+               ("dispatch", "REG_DISPATCH_RW_DISPATCH_START"))
 
 
 def _plausible(x: float) -> bool:
@@ -91,7 +97,7 @@ class Controller:
         self._battery_w: float | None = None
         self._soc: float | None = None
         self._sample_seq = None
-        self._waiting: tuple[dict, float, float] | None = None  # a sample waiting for its correction
+        self._waiting: tuple[dict, float, float, float] | None = None  # a sample waiting for its correction
         self._cancel_wait: Callable[[], None] | None = None
         self._cmd_seq = 0
         self.last_command: Command | None = None
@@ -103,7 +109,6 @@ class Controller:
         self._unsubs: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
         self._steplog: StepLog | None = None
-        self._logged: tuple[float, str, float | None] = (float("-inf"), "", None)
         self._failing: str | None = None  # what is failing now, so it is logged once, not every second
         self._gaps: set[str] = set()  # inputs missing now, logged the same way
         self._good_policy: tuple[float, Policy] = (float("-inf"), Policy(RELEASE))
@@ -125,14 +130,22 @@ class Controller:
     async def async_start(self) -> None:
         cfg = self.config
         base = cfg.get(CONF_BASE_TOPIC, DEFAULT_BASE_TOPIC)
+        log_dir = cfg.get(CONF_LOG_DIR) or self.hass.config.path(DOMAIN)
         try:
-            self._steplog = await self.hass.async_add_executor_job(
-                StepLog, self.hass.config.path(DOMAIN, file_name(base)))
+            self._steplog = await self.hass.async_add_executor_job(StepLog, os.path.join(log_dir, file_name(base)))
         except OSError as err:
             _LOGGER.warning("Battery controller step log is off: %s", err)
         self._unsubs.append(await mqtt.async_subscribe(
             self.hass, cfg.get(CONF_STATE_TOPIC, DEFAULT_STATE_TOPIC), self._on_state))
         self._unsubs.append(await mqtt.async_subscribe(self.hass, f"{base}/response/set/+", self._on_response))
+        if self._steplog is not None:
+            self._log("start")
+            self._log("cfg", **asdict(self.regulator.settings))
+            # Every request on the bus, so writes by hand or by a script show next to the controller's own.
+            self._unsubs.append(await mqtt.async_subscribe(self.hass, f"{base}/request/#", self._on_request))
+            if cfg.get(CONF_LOG_ENTITIES):
+                self._unsubs.append(async_track_state_change_event(
+                    self.hass, cfg[CONF_LOG_ENTITIES], self._on_log_entity))
         watched = [cfg.get(k) for k in (CONF_POLICY_ENTITY, CONF_GRID_SCALE_ENTITY, CONF_CORRECTION_ENTITY,
                                         CONF_LOAD_ENTITY, CONF_MAX_CHARGE_ENTITY, CONF_MAX_DISCHARGE_ENTITY)]
         self._unsubs.append(async_track_state_change_event(
@@ -152,6 +165,7 @@ class Controller:
                 self._cancel_wait()
                 self._cancel_wait = None
             if self._steplog is not None:
+                self._log("stop")
                 steplog, self._steplog = self._steplog, None
                 await self.hass.async_add_executor_job(steplog.close)
 
@@ -164,6 +178,10 @@ class Controller:
             if cmd is not None:
                 await self._publish(cmd)
         self._notify()
+
+    def set_setting(self, key: str, value: float) -> None:
+        setattr(self.regulator.settings, key, value)
+        self._log("cfg", **asdict(self.regulator.settings))
 
     def _grid_estimate(self) -> float | None:
         """Grid power as the utility meter would see it, from the clamp or from the correction alone."""
@@ -261,10 +279,10 @@ class Controller:
         if self._waiting is not None:
             self._take(*self._waiting)  # it has waited long enough
         if self._correction_behind(seq):
-            self._waiting = (data, raw_grid, battery)
+            self._waiting = (data, raw_grid, battery, time.monotonic())
             self._cancel_wait = async_call_later(self.hass, MATCH_WAIT_S, self._on_wait_over)
         else:
-            self._take(data, raw_grid, battery)
+            self._take(data, raw_grid, battery, time.monotonic())
 
     @callback
     def _on_wait_over(self, _now) -> None:
@@ -272,8 +290,8 @@ class Controller:
         if self._waiting is not None:
             self._take(*self._waiting)
 
-    def _take(self, data: dict, raw_grid: float, battery: float) -> None:
-        """Steps on a sample."""
+    def _take(self, data: dict, raw_grid: float, battery: float, t_seen: float) -> None:
+        """Steps on a sample and logs the step."""
         self._waiting = None
         if self._cancel_wait is not None:
             self._cancel_wait()
@@ -283,7 +301,17 @@ class Controller:
             self._soc = float(data[SOC_KEY])
         except (KeyError, TypeError, ValueError):
             self._soc = None  # a failed read is left out of the message; the regulator keeps the last
-        self._measure(fresh=True)
+        self._log_step(data, t_seen, self._measure(fresh=True))
+
+    def _log_step(self, data: dict, t_seen: float, cmd: Command | None) -> None:
+        r = self.regulator
+        watts = {k: None if v is None else round(v, 1) for k, v in (
+            ("grid_w", self.grid_w), ("load_w", r.load_w), ("error_w", r.error_w), ("integral_w", r.integral_w),
+            ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w))}
+        self._log("step", **{name: data.get(key) for name, key in FAST_FIELDS},
+                  wait_ms=round((time.monotonic() - t_seen) * 1000), status=self.status, **watts,
+                  sent=None if cmd is None else {"kind": cmd.kind, "watts": cmd.watts, "soc": cmd.soc,
+                                                 "power_only": cmd.power_only})
 
     def _correction_seq(self):
         """The seq of the fast message the correction was rendered from, None if it carries none."""
@@ -296,7 +324,7 @@ class Controller:
         correction_seq = self._correction_seq()
         return seq is not None and correction_seq is not None and str(correction_seq) != str(seq)
 
-    def _measure(self, fresh: bool) -> None:
+    def _measure(self, fresh: bool) -> Command | None:
         # A gap in the estimate sends nothing to the regulator, which holds its last command until stale_after_s.
         self.grid_w = self._grid_estimate()
         if self._raw_grid is not None:
@@ -304,7 +332,7 @@ class Controller:
         if self.grid_w is not None and self._battery_w is not None:
             self.regulator.update_grid(time.monotonic(), self.grid_w, self._battery_w, fresh=fresh,
                                        soc=self._soc)
-        self._run()
+        return self._run()
 
     @callback
     def _on_entity(self, event: Event[EventStateChangedData]) -> None:
@@ -329,7 +357,8 @@ class Controller:
         self._run()
 
     @callback
-    def _run(self) -> None:
+    def _run(self) -> Command | None:
+        cmd = None
         if self.enabled:
             now = time.monotonic()
             try:
@@ -341,17 +370,32 @@ class Controller:
                 self._recover("step")
             if cmd is not None:
                 self.hass.async_create_task(self._publish(cmd))
-            if self._steplog is not None:
-                self._log_step(cmd)
         self._notify()
+        return cmd
+
+    def _log(self, kind: str, **fields) -> None:
+        if self._steplog is not None:
+            self._steplog.write({"k": kind, "t": round(time.time(), 3), **fields})
+
+    @callback
+    def _on_request(self, msg) -> None:
+        self._log("cmd", topic=msg.topic, p=msg.payload)
+
+    @callback
+    def _on_log_entity(self, event: Event[EventStateChangedData]) -> None:
+        state = event.data["new_state"]
+        self._log("e", e=event.data["entity_id"], s=None if state is None else state.state,
+                  a={} if state is None else dict(state.attributes))
 
     def _gap(self, what: str, missing: bool) -> None:
         """Logs a gap in an input once when it starts and once when it ends."""
         if missing and what not in self._gaps:
             self._gaps.add(what)
+            self._log("gap", what=what, missing=True)
             _LOGGER.warning("Battery controller %s missing, holding the last command", what)
         elif not missing and what in self._gaps:
             self._gaps.discard(what)
+            self._log("gap", what=what, missing=False)
             _LOGGER.info("Battery controller %s back", what)
 
     def _fail(self, what: str, message: str) -> None:
@@ -363,25 +407,6 @@ class Controller:
         if self._failing == what:
             self._failing = None
             _LOGGER.info("Battery controller %s works again", what)
-
-    def _log_step(self, cmd: Command | None) -> None:
-        # Commands, status changes and grid moves go in at once; quiet steps every few seconds.
-        # Every step at 1 Hz was about 100 MB a day of SD card writes per controller.
-        r = self.regulator
-        t_last, status_last, grid_last = self._logged
-        now = time.monotonic()
-        moved = r.grid_w is not None and (grid_last is None or abs(r.grid_w - grid_last) >= STEPLOG_MOVE_W)
-        if cmd is None and r.status == status_last and not moved and now - t_last < STEPLOG_EVERY_S:
-            return
-        self._logged = (now, r.status, r.grid_w)
-        watts = {k: None if v is None else round(v, 1) for k, v in (
-            ("grid_w", r.grid_w), ("battery_w", r.battery_w), ("load_w", r.load_w), ("error_w", r.error_w),
-            ("integral_w", r.integral_w), ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w))}
-        self._steplog.write({
-            "t": round(time.time(), 2), "status": r.status, **watts,
-            "sent": None if cmd is None else {"kind": cmd.kind, "watts": cmd.watts, "soc": cmd.soc,
-                                              "power_only": cmd.power_only},
-        })
 
     async def _publish(self, cmd: Command) -> None:
         self._cmd_seq += 1
@@ -410,6 +435,7 @@ class Controller:
 
     @callback
     def _on_response(self, msg) -> None:
+        self._log("ack", topic=msg.topic, p=msg.payload)
         try:
             data = json.loads(msg.payload)
         except ValueError:

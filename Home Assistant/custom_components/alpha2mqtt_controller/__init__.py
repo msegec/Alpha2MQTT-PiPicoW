@@ -19,6 +19,8 @@ from .controller import (
     CONF_GRID_SCALE_ENTITY,
     CONF_GRID_SOURCE,
     CONF_LOAD_ENTITY,
+    CONF_LOG_DIR,
+    CONF_LOG_ENTITIES,
     CONF_MAX_CHARGE_ENTITY,
     CONF_MAX_DISCHARGE_ENTITY,
     CONF_POLICY_ENTITY,
@@ -47,6 +49,8 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(CONF_LOAD_ENTITY): cv.entity_id,
                 vol.Optional(CONF_MAX_CHARGE_ENTITY): cv.entity_id,
                 vol.Optional(CONF_MAX_DISCHARGE_ENTITY): cv.entity_id,
+                vol.Optional(CONF_LOG_DIR): cv.string,
+                vol.Optional(CONF_LOG_ENTITIES, default=[]): cv.entity_ids,
             }
         )
     },

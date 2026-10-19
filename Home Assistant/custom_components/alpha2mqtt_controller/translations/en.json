@@ -17,7 +17,9 @@
           "correction_entity": "Correction entity: W added to the scaled clamp, or with estimate the house load less solar",
           "load_entity": "Fast load entity for feed forward",
           "max_charge_entity": "Maximum charge rate entity",
-          "max_discharge_entity": "Maximum discharge rate entity"
+          "max_discharge_entity": "Maximum discharge rate entity",
+          "log_dir": "Step log directory (empty for alpha2mqtt_controller in the config directory)",
+          "log_entities": "Entities to log (each change goes in the step log)"
         }
       }
     }
