@@ -147,6 +147,8 @@ class House:
         monkeypatch.setattr(C, "dt_util", types.SimpleNamespace(utcnow=lambda: NOW))
         self.mqtt = sys.modules["homeassistant.components"].mqtt
         self.mqtt.async_publish = AsyncMock()
+        self.timers = []
+        monkeypatch.setattr(C, "async_call_later", self._call_later)
         self.states = {}
         hass = MagicMock(async_create_task=asyncio.run)
         hass.states.get = self.states.get
@@ -158,12 +160,26 @@ class House:
     def set(self, entity_id, state, **attributes):
         self.states[entity_id] = types.SimpleNamespace(state=state, attributes=attributes, last_reported=NOW)
 
-    def second(self, **fields):
-        """One second on: a fresh sample with the battery at 500 W, then the tick."""
-        self.t += 1
-        self.seq += 1
+    def _call_later(self, hass, delay, action):
+        timer = types.SimpleNamespace(delay=delay, action=action, cancelled=False)
+        self.timers.append(timer)
+        return lambda: setattr(timer, "cancelled", True)
+
+    def update(self, entity_id, state, **attributes):
+        """An entity changes, as a template rendering a new value."""
+        self.set(entity_id, state, **attributes)
+        self.c._on_entity(types.SimpleNamespace(data={"entity_id": entity_id}))
+
+    def sample(self, **fields):
+        """A fresh sample with the battery at 500 W."""
         self.c._on_state(types.SimpleNamespace(payload=json.dumps(
             {C.GRID_KEY: 0, C.BATTERY_KEY: 500, "seq": self.seq, **fields})))
+
+    def second(self, **fields):
+        """One second on: a fresh sample, then the tick."""
+        self.t += 1
+        self.seq += 1
+        self.sample(**fields)
         self.c._on_tick(None)
 
     def sent(self):
@@ -215,3 +231,62 @@ def test_at_the_policy_soc_the_battery_is_held_at_zero_not_asked_to_discharge(mo
     for _ in range(10):
         house.second(REG_BATTERY_HOME_R_SOC=20.0)
     assert [(cmd["kind"], cmd["watts"]) for cmd in house.sent()] == [("charge", 0)]
+
+
+# Net demand is recomputed from the same fast message as the controller's sample. Stepping on last
+# second's net demand with this second's battery is out by however much the battery moved.
+NEW_NET_W = 2000  # this second's: 2000 - 500 battery = 1500 W import, a 1960 W discharge
+OLD_NET_W = 1000  # last second's: 500 W import, 960 W
+
+
+def stepped_watts(house):
+    return [cmd["watts"] for cmd in house.sent()]
+
+
+def test_net_demand_already_rendered_for_the_sample_steps_at_once(monkeypatch):
+    house = House(monkeypatch)
+    house.seq = 7
+    house.update("sensor.net_demand", str(NEW_NET_W), seq=7)
+    house.sample()
+    assert stepped_watts(house) == [1960] and not house.timers
+
+
+def test_a_sample_waits_for_net_demand_rendered_from_it(monkeypatch):
+    house = House(monkeypatch)
+    house.set("sensor.net_demand", str(OLD_NET_W), seq=6)
+    house.seq = 7
+    house.sample()
+    assert stepped_watts(house) == []
+    house.update("sensor.net_demand", str(NEW_NET_W), seq=7)
+    assert stepped_watts(house) == [1960]
+    assert [timer.cancelled for timer in house.timers] == [True]
+
+
+def test_without_matching_net_demand_the_sample_steps_on_the_last_value_soon_after(monkeypatch):
+    house = House(monkeypatch)
+    house.set("sensor.net_demand", str(OLD_NET_W), seq=6)
+    house.seq = 7
+    house.sample()
+    (timer,) = house.timers
+    assert timer.delay <= 0.5
+    timer.action(None)
+    assert stepped_watts(house) == [960]
+
+
+def test_a_new_sample_steps_on_one_still_waiting_first(monkeypatch):
+    house = House(monkeypatch)
+    house.set("sensor.net_demand", str(OLD_NET_W), seq=6)
+    house.seq = 7
+    house.sample()
+    house.t, house.seq = 4, 8
+    house.sample()
+    assert stepped_watts(house) == [960]
+
+
+@pytest.mark.parametrize("net_seq, sample_seq", [(None, 7), (6, None)])
+def test_without_a_seq_on_either_side_the_sample_steps_at_once(monkeypatch, net_seq, sample_seq):
+    house = House(monkeypatch)
+    house.set("sensor.net_demand", str(OLD_NET_W), **({} if net_seq is None else {"seq": net_seq}))
+    house.seq = sample_seq
+    house.sample()
+    assert stepped_watts(house) == [960] and not house.timers

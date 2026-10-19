@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from homeassistant.components import mqtt
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .regulator import FIXED, HOLD, REGULATE, RELEASE, Command, Policy, Regulator, estimate_grid
@@ -46,6 +46,9 @@ MAX_PLAUSIBLE_W = 20000.0
 # Net demand rewrites every few seconds, 26 s at most over a measured day. Older than this, a plug or
 # template has frozen and its last value is not the house any more.
 CORRECTION_MAX_AGE_S = 90.0
+# A correction rendered from the fast message, such as a net demand template, carries its seq and may update just
+# after the controller sees the message. A sample waits this long for it, then steps on the value it has.
+MATCH_WAIT_S = 0.5
 STEPLOG_EVERY_S = 5.0
 STEPLOG_MOVE_W = 25.0
 
@@ -88,6 +91,8 @@ class Controller:
         self._battery_w: float | None = None
         self._soc: float | None = None
         self._sample_seq = None
+        self._waiting: tuple[dict, float, float] | None = None  # a sample waiting for its correction
+        self._cancel_wait: Callable[[], None] | None = None
         self._cmd_seq = 0
         self.last_command: Command | None = None
         self.last_sent: datetime | None = None
@@ -143,6 +148,9 @@ class Controller:
         finally:
             while self._unsubs:
                 self._unsubs.pop()()
+            if self._cancel_wait is not None:
+                self._cancel_wait()
+                self._cancel_wait = None
             if self._steplog is not None:
                 steplog, self._steplog = self._steplog, None
                 await self.hass.async_add_executor_job(steplog.close)
@@ -250,12 +258,43 @@ class Controller:
         if seq is not None and seq == self._sample_seq:
             return  # a repeat, not a new reading
         self._sample_seq = seq
+        if self._waiting is not None:
+            self._take(*self._waiting)  # it has waited long enough
+        if self._correction_behind(seq):
+            self._waiting = (data, raw_grid, battery)
+            self._cancel_wait = async_call_later(self.hass, MATCH_WAIT_S, self._on_wait_over)
+        else:
+            self._take(data, raw_grid, battery)
+
+    @callback
+    def _on_wait_over(self, _now) -> None:
+        self._cancel_wait = None
+        if self._waiting is not None:
+            self._take(*self._waiting)
+
+    def _take(self, data: dict, raw_grid: float, battery: float) -> None:
+        """Steps on a sample."""
+        self._waiting = None
+        if self._cancel_wait is not None:
+            self._cancel_wait()
+            self._cancel_wait = None
         self._raw_grid, self._battery_w = raw_grid, battery
         try:
             self._soc = float(data[SOC_KEY])
         except (KeyError, TypeError, ValueError):
             self._soc = None  # a failed read is left out of the message; the regulator keeps the last
         self._measure(fresh=True)
+
+    def _correction_seq(self):
+        """The seq of the fast message the correction was rendered from, None if it carries none."""
+        entity_id = self.config.get(CONF_CORRECTION_ENTITY)
+        state = self.hass.states.get(entity_id) if entity_id else None
+        return None if state is None else state.attributes.get("seq")
+
+    def _correction_behind(self, seq) -> bool:
+        """True while the correction comes from an older message. Without a seq on either side it never waits."""
+        correction_seq = self._correction_seq()
+        return seq is not None and correction_seq is not None and str(correction_seq) != str(seq)
 
     def _measure(self, fresh: bool) -> None:
         # A gap in the estimate sends nothing to the regulator, which holds its last command until stale_after_s.
@@ -274,7 +313,13 @@ class Controller:
             load = _number(self.hass, entity_id)
             if load is not None:
                 self.regulator.update_load(time.monotonic(), load)
-        if entity_id in (self.config.get(CONF_CORRECTION_ENTITY), self.config.get(CONF_GRID_SCALE_ENTITY)):
+        if entity_id == self.config.get(CONF_CORRECTION_ENTITY) and self._correction_seq() is not None:
+            # A correction rendered from a sample steps that sample and is never paired with another.
+            if self._waiting is not None and not self._correction_behind(self._waiting[0].get("seq")):
+                self._take(*self._waiting)
+            else:
+                self._run()
+        elif entity_id in (self.config.get(CONF_CORRECTION_ENTITY), self.config.get(CONF_GRID_SCALE_ENTITY)):
             self._measure(fresh=False)
         else:
             self._run()
