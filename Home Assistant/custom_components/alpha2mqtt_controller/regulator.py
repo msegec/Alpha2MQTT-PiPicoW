@@ -24,6 +24,9 @@ MIN_SEND_GAP_S = 2.0
 # Samples come every second, or every 10 s from older firmware. A longer gap would wind the integral on
 # an error nobody measured.
 MAX_INTEGRATE_S = 10.0
+# A discharge takes about 5 s to start. A power write before it delivers leaves the inverter ramping at about
+# 10 W/s for minutes, so power writes wait until the battery gives half the last block, and this much above idle.
+STARTED_MIN_W = 50.0
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,7 @@ class Regulator:
         self.request_w = 0.0
         self.output_w = 0.0
         self.sent: Command | None = None
+        self._block_w: float | None = None  # signed watts of the last whole block written
         self.status = "waiting"
 
     def update_grid(self, t: float, grid_w: float, battery_w: float, fresh: bool = True,
@@ -268,8 +272,17 @@ class Regulator:
             return self._send(t, cmd)
         if cmd.soc != last.soc or abs(cmd.signed_w - last.signed_w) >= s.write_threshold_w:
             same_block = (cmd.kind, cmd.soc, cmd.duration) == (last.kind, last.soc, last.duration)
-            return self._send(t, replace(cmd, power_only=True) if same_block and s.power_write_gap_s > 0 else cmd)
+            power_only = same_block and s.power_write_gap_s > 0 and self._started(cmd)
+            return self._send(t, replace(cmd, power_only=True) if power_only else cmd)
         return None
+
+    def _started(self, cmd: Command) -> bool:
+        """A discharge has started once the battery gives at least half the last block, clear of idle. Charging
+        follows a power write at once, so it needs no check."""
+        if cmd.kind != "discharge":
+            return True
+        b, block = self.battery_w, self._block_w
+        return b is not None and block is not None and b >= max(block / 2, STARTED_MIN_W)
 
     def _may_send_early(self, since: float, cmd: Command) -> bool:
         """The last command is written and a sample has come in since. After a power write the bus is free at
@@ -284,4 +297,6 @@ class Regulator:
 
     def _send(self, t: float, cmd: Command) -> Command:
         self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
+        if not cmd.power_only:
+            self._block_w = None if cmd.kind == "normal" else cmd.signed_w
         return cmd

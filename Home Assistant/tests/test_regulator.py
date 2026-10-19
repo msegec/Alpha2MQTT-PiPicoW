@@ -475,6 +475,40 @@ def test_a_power_change_in_the_running_block_may_go_as_one_write():
     assert reg.step(10, DISCHARGE) == R.Command("discharge", 1480, 20, 120, power_only=True)
 
 
+def test_after_a_flip_power_writes_wait_until_the_battery_delivers():
+    # A power write before the inverter starts a new dispatch left it ramping at 10 W/s for minutes.
+    reg = make(min_interval_s=3, power_write_gap_s=1)
+    reg.update_grid(0, -20, -134)
+    reg.step(0, BOTH)
+    reg.update_grid(10, 1980, -134)
+    cmd = reg.step(10, BOTH)
+    assert (cmd.kind, cmd.power_only) == ("discharge", False)  # the flip writes the block
+    reg.update_grid(13, 2050, 0)  # the inverter is still starting
+    assert not reg.step(13, BOTH).power_only
+    reg.update_grid(16, 2300, 30)  # idle noise is not a start
+    assert not reg.step(16, BOTH).power_only
+    reg.update_grid(19, 900, 1900)  # delivering: the load grew again
+    assert reg.step(19, BOTH).power_only
+
+
+def test_power_writes_stop_once_the_battery_falls_well_short_of_the_block():
+    reg = make(min_interval_s=3, power_write_gap_s=1)
+    reg.update_grid(0, 20, 1000)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(10, -900, 1000)
+    assert reg.step(10, DISCHARGE).power_only  # down to 120 W in the running block
+    reg.update_grid(20, 1000, 120)
+    assert not reg.step(20, DISCHARGE).power_only  # near idle, so back up as a block
+
+
+def test_charging_follows_power_writes_from_idle():
+    reg = make(min_interval_s=3, power_write_gap_s=1)
+    reg.update_grid(0, 20, 0)
+    assert reg.step(0, CHARGE) == R.Command("charge", 0, 100, 120)
+    reg.update_grid(10, -900, 0)
+    assert reg.step(10, CHARGE).power_only
+
+
 def test_keepalive_kind_and_soc_changes_write_the_whole_block():
     reg = make(min_interval_s=3, power_write_gap_s=1, keepalive_s=40)
     reg.update_grid(0, 20, 500)
