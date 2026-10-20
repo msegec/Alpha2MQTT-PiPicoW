@@ -24,6 +24,18 @@ MIN_SEND_GAP_S = 2.0
 # Samples come every second, or every 10 s from older firmware. A longer gap would wind the integral on
 # an error nobody measured.
 MAX_INTEGRATE_S = 10.0
+# The inverter cuts discharge about 1 % above its floor, so the hold starts this far above the policy SOC.
+FLOOR_MARGIN = 1.5
+# A battery this far from the last setpoint has not arrived: the integral waits, or the error it sees is the
+# inverter's lag, not a trim. The wait ends after ARRIVE_S regardless, for an inverter that clamps below
+# the request and would otherwise freeze it for good.
+LAG_W, ARRIVE_S = 100.0, 15.0
+# Under this battery power for this long against a real request, the inverter is refusing (at its cutoff,
+# whatever the SOC says): ask for 0 W, drop the integral, try again after the hold. A slow start passes
+# 30 W within about 7 s of the command, so 20 s is not a slow start.
+REFUSED_W, REFUSED_AFTER_S, REFUSED_HOLD_S = 30.0, 20.0, 60.0
+# Keep warm stands in for requests this close to idle; a bigger surplus is still stored.
+WARM_BAND_W = 50.0
 
 
 @dataclass(frozen=True)
@@ -117,6 +129,8 @@ class Regulator:
         self._t_ack: float | None = None
         self._ack_power = False
         self._failed = False
+        self._t_low: float | None = None  # battery under REFUSED_W against a request, since
+        self._t_refused = float("-inf")
         self.integral_w = 0.0
         self._offset_w = 0.0
         self.error_w = 0.0
@@ -136,7 +150,9 @@ class Regulator:
             self.soc = soc
         s = self.settings
         e = self._error(grid_w)
-        if self._mode == REGULATE and self._t_measure is not None and abs(e) <= s.integral_band_w:
+        arrived = (self.sent is None or self.sent.kind == "normal" or abs(battery_w - self.sent.signed_w) <= LAG_W
+                   or t - self._t_sent >= ARRIVE_S)
+        if self._mode == REGULATE and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived:
             # Conditional integration: stop when the output is pinned in the error's direction.
             if _sign(e) != self._saturation:
                 dt = min(t - self._t_measure, MAX_INTEGRATE_S)
@@ -169,6 +185,7 @@ class Regulator:
 
     def _restart(self) -> None:
         self.integral_w = 0.0
+        self._t_low = None
         self._filtered = None
         self._saturation = 0
 
@@ -226,7 +243,7 @@ class Regulator:
                 request = self._filtered + (request - self._filtered) * min(1.0, dt / s.smoothing_s)
             self._filtered = request
             lo, hi = -policy.max_charge_w, policy.max_discharge_w
-            if self.soc is not None and self.soc <= policy.discharge_soc:
+            if (self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN) or self._refused(t):
                 # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.
                 hi = 0.0
         self.request_w = request
@@ -240,7 +257,7 @@ class Regulator:
                 u = 0.0
             else:
                 self._direction, self._t_direction = d, t
-        if (policy.mode == REGULATE and 0 < s.warm_w <= hi and -s.flip_hysteresis_w < u < s.warm_w
+        if (policy.mode == REGULATE and 0 < s.warm_w <= hi and -WARM_BAND_W < u < s.warm_w
                 and (self._direction >= 0 or t - self._t_direction >= s.flip_dwell_s)):
             # Idle or a trickle charge: keep a small discharge running instead, see Settings.warm_w. The output
             # is pinned there, so the export it causes must not wind the integral into a charge.
@@ -258,10 +275,29 @@ class Regulator:
             self.output_w = _clip(u, self.sent.signed_w - step_max, self.sent.signed_w + step_max)
         return self._maybe_send(t, policy)
 
+    def _refused(self, t: float) -> bool:
+        """The battery gives nothing against a real request: the inverter is refusing."""
+        asking = self.sent is not None and self.sent.kind == "discharge" and self.sent.watts > 200
+        if asking and self.battery_w is not None and self.battery_w < REFUSED_W:
+            if self._t_low is None:
+                self._t_low = t
+            elif t - self._t_low >= REFUSED_AFTER_S:
+                self._t_refused, self._t_low = t, None
+                self.integral_w = 0.0
+        else:
+            self._t_low = None
+        return t - self._t_refused < REFUSED_HOLD_S
+
     def _command(self, policy: Policy) -> Command:
         s = self.settings
         w = int(round(abs(self.output_w) / 10.0)) * 10
-        if policy.mode == HOLD or w == 0:
+        last = self.sent
+        if policy.mode == HOLD:
+            return Command("charge", 0, 100, s.duration_s)
+        if w == 0:
+            # 0 W in the running block's kind, so idling never costs a block write.
+            if last is not None and last.kind != "normal":
+                return Command(last.kind, 0, last.soc, s.duration_s)
             return Command("charge", 0, 100, s.duration_s)
         if self.output_w > 0:
             return Command("discharge", w, policy.discharge_soc, s.duration_s)

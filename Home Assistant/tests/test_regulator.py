@@ -133,7 +133,7 @@ def test_flip_needs_margin_even_after_dwell():
     reg.step(0, BOTH)
     reg.update_grid(100, -80, 0)  # wants 100 W charge, under the margin
     cmd = reg.step(100, BOTH)
-    assert cmd == R.Command("charge", 0, 100, 120)
+    assert cmd == R.Command("discharge", 0, 20, 120)  # 0 W, in the running block's kind
 
 
 def test_stale_inputs_stop_commanding():
@@ -529,7 +529,7 @@ def test_at_the_discharge_limit_it_holds_zero_instead_of_asking_for_discharge():
     assert sum(cmd is not None for cmd in sent) <= 3  # keepalives only
 
 
-@pytest.mark.parametrize("soc, policy", [(21, DISCHARGE), (20, replace(DISCHARGE, discharge_soc=15))])
+@pytest.mark.parametrize("soc, policy", [(22, DISCHARGE), (20, replace(DISCHARGE, discharge_soc=15))])
 def test_discharge_resumes_once_the_soc_rises_or_the_limit_drops(soc, policy):
     reg = make()
     reg.update_grid(0, 520, 0, soc=20)
@@ -583,9 +583,9 @@ def test_keep_warm_replaces_a_trickle_charge_after_the_dwell():
     reg = make(warm_w=80, flip_hysteresis_w=150, flip_dwell_s=5)
     reg.update_grid(0, -500, 0, soc=50)
     assert reg.step(0, BOTH).kind == "charge"
-    reg.update_grid(3, 0, -100, soc=50)  # the surplus has shrunk to 100 W, still within the dwell
-    assert reg.step(3, BOTH) == R.Command("charge", 100, 100, 120)
-    reg.update_grid(6, 0, -100, soc=50)
+    reg.update_grid(3, 0, -40, soc=50)  # the surplus has shrunk to 40 W, still within the dwell
+    assert reg.step(3, BOTH) == R.Command("charge", 40, 100, 120)
+    reg.update_grid(6, 0, -40, soc=50)
     assert reg.step(6, BOTH) == R.Command("discharge", 80, 20, 120)
     reg.update_grid(9, -200, 80, soc=50)  # a surplus under the margin does not pull it back into a charge
     assert reg.step(9, BOTH) is None and reg.output_w == 80
@@ -610,3 +610,108 @@ def test_keep_warm_does_not_wind_the_integral_into_a_charge():
         sent.append(reg.step(t, BOTH))
     assert all(cmd.kind == "discharge" and cmd.watts == 80 for cmd in sent if cmd is not None)
     assert abs(reg.integral_w) < 50
+
+
+def test_zero_watts_keeps_the_last_kind_so_no_block_write_is_needed():
+    # 0 W as "charge" made every crossing between 0 W and a small discharge a kind flip: a full block write.
+    reg = make(write_threshold_w=20, ki=0)
+    reg.update_grid(0, 240, 0, soc=50)
+    assert reg.step(0, BOTH) == R.Command("discharge", 200, 20, 120)
+    reg.update_grid(3, 20, 200, soc=50)
+    reg.step(3, BOTH)
+    reg.update_grid(6, -200, 200, soc=50)  # load gone: want 0 W
+    assert reg.step(6, BOTH) == R.Command("discharge", 0, 20, 120)
+    reg.ack(6.1)
+    reg.update_grid(9, 70, 0, soc=50)  # 50 W over target: a small discharge, same kind
+    cmd = reg.step(9, BOTH)
+    assert cmd.kind == "discharge" and cmd.watts == 30
+
+
+def test_zero_watts_with_no_last_kind_is_a_charge():
+    reg = make()
+    reg.update_grid(0, 20, 0, soc=50)
+    assert reg.step(0, BOTH) == R.Command("charge", 0, 100, 120)
+
+
+def test_hold_zero_a_little_above_the_discharge_soc():
+    # The inverter refuses about 1 % above its floor, so holding only at the policy SOC left the house on the grid.
+    reg = make()
+    reg.update_grid(0, 520, 0, soc=21.2)
+    assert reg.step(0, DISCHARGE) == R.Command("charge", 0, 100, 120)
+    reg = make()
+    reg.update_grid(0, 520, 0, soc=21.6)
+    assert reg.step(0, DISCHARGE).kind == "discharge"
+
+
+def test_a_refused_discharge_is_held_at_zero():
+    # Battery under 30 W for 20 s against a request over 200 W: the inverter is refusing, stop asking and
+    # drop the integral, whatever the SOC says.
+    reg = make()
+    for t in range(0, 15, 3):
+        reg.update_grid(t, 520, 0, soc=30)
+        reg.step(t, DISCHARGE)
+    assert reg.output_w == 480  # still waiting: a slow start looks like this for a while
+    for t in range(15, 27, 3):
+        reg.update_grid(t, 520, 0, soc=30)
+        cmd = reg.step(t, DISCHARGE)
+    assert cmd == R.Command("discharge", 0, 20, 120) or reg.output_w == 0
+    assert reg.integral_w == 0
+    reg.update_grid(30, 520, 0, soc=30)
+    assert reg.step(30, DISCHARGE) is None or reg.output_w == 0
+    reg.update_grid(90, 520, 400, soc=30)  # the hold is over and it delivers: regulate
+    reg.step(90, DISCHARGE)
+    assert reg.output_w > 200
+
+
+def test_a_hand_back_forgets_a_half_counted_refusal():
+    reg = make(stale_after_s=30)
+    reg.update_grid(0, 520, 0, soc=30)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(3, 520, 0, soc=30)  # the refusal clock starts
+    reg.step(3, DISCHARGE)
+    reg.step(40, DISCHARGE)  # no sample for 37 s: handed back
+    reg.update_grid(41, 520, 0, soc=30)
+    reg.step(41, DISCHARGE)
+    assert reg.output_w == 480  # a fresh request, not a refusal carried over the gap
+
+
+def test_integral_waits_while_the_inverter_is_still_arriving():
+    reg = make(ki=0.1)
+    reg.update_grid(0, 520, 0, soc=50)
+    reg.step(0, DISCHARGE)  # asks 500 W
+    for t in range(1, 6):
+        reg.update_grid(t, 220, 300, soc=50)  # battery 200 W short of the output: still on its way
+        reg.step(t, DISCHARGE)
+    assert reg.integral_w == 0
+    reg.update_grid(6, 60, 480, soc=50)  # arrived within 100 W: trim again
+    reg.step(6, DISCHARGE)
+    reg.update_grid(7, 60, 480, soc=50)
+    reg.step(7, DISCHARGE)
+    assert reg.integral_w > 0
+
+
+def test_integral_resumes_when_the_inverter_clamps_below_the_request():
+    reg = make(ki=0.1)
+    reg.update_grid(0, 520, 0, soc=50)
+    reg.step(0, DISCHARGE)  # asks 500 W
+    for t in range(1, 15):
+        reg.update_grid(t, 220, 300, soc=50)  # the inverter gives 300 W and no more
+        reg.step(t, DISCHARGE)
+    assert reg.integral_w == 0
+    reg.update_grid(16, 220, 300, soc=50)  # 15 s after the command: it is not coming, trim what there is
+    reg.step(16, DISCHARGE)
+    assert reg.integral_w > 0
+
+
+def test_keep_warm_only_replaces_requests_within_fifty_watts_of_idle():
+    reg = make(warm_w=50)
+    reg.update_grid(0, -80, 0, soc=50)  # an 80 W surplus is stored, not thrown away
+    assert reg.step(0, BOTH) == R.Command("charge", 80, 100, 120)
+    reg.update_grid(6, 20, -80, soc=50)  # settled, past the dwell: still stored
+    reg.step(6, BOTH)
+    assert reg.output_w == -80
+    reg = make(warm_w=50)
+    reg.update_grid(0, -40, 0, soc=50)  # a 40 W trickle gives way to the warm discharge after the dwell
+    assert reg.step(0, BOTH) == R.Command("charge", 40, 100, 120)
+    reg.update_grid(6, 20, -40, soc=50)
+    assert reg.step(6, BOTH) == R.Command("discharge", 50, 20, 120)
