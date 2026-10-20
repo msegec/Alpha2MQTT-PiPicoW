@@ -1518,11 +1518,11 @@ modbusRequestAndResponseStatusValues writeDispatchStop(modbusRequestAndResponse*
 /*
 holdIdleWhileHaGone
 
-While Home Assistant is gone (its will said offline, or the broker has been away over a minute) the battery is held
-idle instead of left to the inverter's own mode: a charge of 0 W to 100 % for IDLE_HOLD_DURATION_S, written as a full
-block every IDLE_HOLD_REWRITE_MS. Charge 0 W stores no solar surplus, it exports. Once Home Assistant is back, by its
-birth or a reconnect, a hold this wrote is ended in the same pass with a set/normal, so control returns at once. A set
-request from Home Assistant replaces the hold instead and nothing is written over it. A failed write of either kind
+While Home Assistant is gone (HA_GONE_AFTER_MS after its will said offline, or that long off the broker) the battery
+is held idle instead of left to the inverter's own mode: a charge of 0 W to 100 % for IDLE_HOLD_DURATION_S, written as
+a full block every IDLE_HOLD_REWRITE_MS. Charge 0 W stores no solar surplus, it exports. Once Home Assistant is back,
+by its birth or a reconnect, a hold this wrote is ended in the same pass with a set/normal, so control returns at once.
+A set request from Home Assistant replaces the hold instead and nothing is written over it. A failed write of either kind
 is tried again after IDLE_HOLD_RETRY_MS. _activeDispatch is kept as after a set/charge or set/normal, so the next
 command follows the same power-only rules. One block write or one stop write per call at most, never a wait.
 */
@@ -1575,7 +1575,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	// Home Assistant's birth or will. Only noted here: loop() writes the idle hold, between RS485 requests.
 	if (strcmp(topic, MQTT_SUB_HA_STATUS) == 0)
 	{
-		idleHoldStatus(_idleHold, haStatusFromPayload(message, length));
+		idleHoldStatus(_idleHold, haStatusFromPayload(message, length), millis());
 		return;
 	}
 

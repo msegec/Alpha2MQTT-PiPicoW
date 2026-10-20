@@ -6,8 +6,10 @@
 #include <stdint.h>
 #include "Timer.h"
 
-// Home Assistant counts as gone once the broker has been away this long, since its commands cannot arrive
-#define HA_GONE_AFTER_DISCONNECT_MS 60000u
+// Home Assistant counts as gone this long after its will, or this long after the broker was last seen, since its
+// commands cannot arrive. A planned restart sends the will and is back in about two minutes, so a shorter wait
+// would put the house on the grid for nothing.
+#define HA_GONE_AFTER_MS 180000u
 
 // The hold is a 120 s dispatch block rewritten every 60 s, so one late rewrite does not let it lapse. A failed
 // write tries again after the short gap.
@@ -45,7 +47,9 @@ enum class IdleHoldWrite : uint8_t { none, hold, release };
 struct IdleHold
 {
 	HaStatus status;			// The last birth or will seen, unknown until one arrives
-	bool mqttGone;				// Off the broker over HA_GONE_AFTER_DISCONNECT_MS, held until a reconnect
+	uint32_t offlineMs;			// When the will arrived, while status is offline
+	bool offlineGone;			// Offline over HA_GONE_AFTER_MS, held until an online or a command
+	bool mqttGone;				// Off the broker over HA_GONE_AFTER_MS, held until a reconnect
 	uint32_t lastConnectedMs;	// The last pass that saw the broker connection up, 0 from boot
 	bool held;					// A hold has gone out, landed or not, and is not yet released or replaced
 	bool tried;					// lastWrite went out, at lastTryMs, and lastOk says how it went
@@ -54,12 +58,16 @@ struct IdleHold
 	uint32_t lastTryMs;
 };
 
-inline void idleHoldStatus(IdleHold& h, HaStatus status)
+// A will starts the gone clock; a repeat while it runs, or once gone, does not restart it. A birth ends both.
+inline void idleHoldStatus(IdleHold& h, HaStatus status, uint32_t now)
 {
-	if (status != HaStatus::unknown)
+	if (status == HaStatus::unknown || status == h.status)
 	{
-		h.status = status;
+		return;
 	}
+	h.status = status;
+	h.offlineMs = now;
+	h.offlineGone = false;
 }
 
 // A set/charge, set/discharge or set/normal request: Home Assistant is up, whatever the last status said, and
@@ -68,22 +76,23 @@ inline void idleHoldStatus(IdleHold& h, HaStatus status)
 inline void idleHoldCommand(IdleHold& h)
 {
 	h.status = HaStatus::online;
+	h.offlineGone = false;
 	h.mqttGone = false;
 	h.held = false;
 	h.tried = false;
 }
 
-// Gone after an offline until the next online or command, or while the broker has been away over a minute.
-// With no status seen, only the broker rule applies.
+// Gone HA_GONE_AFTER_MS after an offline until the next online or command, or while the broker has been away
+// that long. With no status seen, only the broker rule applies.
 inline bool haGone(const IdleHold& h)
 {
-	return h.status == HaStatus::offline || h.mqttGone;
+	return h.offlineGone || h.mqttGone;
 }
 
-// Called once per loop pass with the connection state. While Home Assistant is gone the hold is due at once,
+// Called once per loop pass with the connection state. Once Home Assistant counts as gone the hold is due at once,
 // then every IDLE_HOLD_REWRITE_MS. Once it is back, a hold the Pico wrote is released at once. A failed write of
 // either kind is tried again after IDLE_HOLD_RETRY_MS. The broker rule counts from the last connected pass, so
-// failed reconnect attempts do not restart it, and latches, so a disconnect longer than a millis() wrap stays gone.
+// failed reconnect attempts do not restart it. Both rules latch, so an absence longer than a millis() wrap stays gone.
 inline IdleHoldWrite idleHoldDue(IdleHold& h, bool mqttConnected, uint32_t now)
 {
 	if (mqttConnected)
@@ -91,9 +100,13 @@ inline IdleHoldWrite idleHoldDue(IdleHold& h, bool mqttConnected, uint32_t now)
 		h.lastConnectedMs = now;
 		h.mqttGone = false;
 	}
-	else if (now - h.lastConnectedMs > HA_GONE_AFTER_DISCONNECT_MS)
+	else if (now - h.lastConnectedMs > HA_GONE_AFTER_MS)
 	{
 		h.mqttGone = true;
+	}
+	if (h.status == HaStatus::offline && now - h.offlineMs > HA_GONE_AFTER_MS)
+	{
+		h.offlineGone = true;
 	}
 
 	IdleHoldWrite want = haGone(h) ? IdleHoldWrite::hold : h.held ? IdleHoldWrite::release : IdleHoldWrite::none;
