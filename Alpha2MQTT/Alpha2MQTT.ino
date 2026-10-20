@@ -67,6 +67,10 @@ char* _fastPayload;
 // The last dispatch block written in full, so a power change can go out as one write
 DispatchBlock _activeDispatch = {};
 
+// Set when the inverter answers the one frame dispatch write with an exception. Later commands go straight to
+// the five single writes instead of paying for a refused frame first. Only a reboot clears it.
+bool _blockFrameRefused = false;
+
 // OLED variables
 char _oledOperatingIndicator = '*';
 char _oledLine2[OLED_CHARACTER_WIDTH] = "";
@@ -1924,13 +1928,19 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 						_activeDispatch = running;
 					}
 				}
-				else if ((resultDispatch = _registerHandler->writeDispatchBlock(DISPATCH_START_START, chargeDischargeWattsConverted, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, batterySocPercentConverted, durationSecondsConverted, &responseDispatch)) == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+				else if (!_blockFrameRefused && (resultDispatch = _registerHandler->writeDispatchBlock(DISPATCH_START_START, chargeDischargeWattsConverted, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, batterySocPercentConverted, durationSecondsConverted, &responseDispatch)) == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 				{
 					// The whole block in one write, about 50 ms on the bus
 					_activeDispatch = { true, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs };
 				}
 				else
 				{
+					// An exception, not a timeout, says the inverter will not take a nine register write
+					if (resultDispatch == modbusRequestAndResponseStatusValues::slaveError)
+					{
+						_blockFrameRefused = true;
+					}
+
 					// An inverter that will not take a nine register write gets the five single writes, 400 ms apart
 					blockFrames = 5;
 					// First enable dispatch
