@@ -438,6 +438,9 @@ static const uint16_t _mqttAllHandledRegisters[] =
 // Reconnects. setupWifi reissues WiFi.begin if still not connected after WIFI_RETRY_INTERVAL, and mqttReconnect
 // waits MQTT_RETRY_INTERVAL after a failed attempt. One attempt at the broker gives up on the TCP connect or a write
 // after MQTT_CLIENT_TIMEOUT ms, and on the broker's answer after MQTT_REPLY_TIMEOUT seconds.
+// On the Pico W, WiFi.begin blocks while the driver joins the access point, up to WIFI_JOIN_TIMEOUT ms, and nothing
+// in the core feeds the watchdog meanwhile. The core's default is 15 s, longer than WATCHDOG_TIMEOUT.
+#define WIFI_JOIN_TIMEOUT 3000
 #define WIFI_RETRY_INTERVAL 10000
 #define MQTT_RETRY_INTERVAL 5000
 #define MQTT_CLIENT_TIMEOUT 2500
@@ -494,6 +497,11 @@ void setup()
 	// Bit of a delay to give things time to kick in
 	delay(100);
 
+
+#if defined MP_PICOW
+	// Bound the join inside WiFi.begin, see WIFI_JOIN_TIMEOUT. Milliseconds, see WiFiClass::setTimeout.
+	WiFi.setTimeout(WIFI_JOIN_TIMEOUT);
+#endif
 
 	// Start WiFi. It connects in the background, see setupWifi.
 	setupWifi();
@@ -682,8 +690,9 @@ void loop()
 setupWifi
 
 Connect to WiFi without waiting for it, so OTA and the RS485 work carry on while WiFi is down.
-WiFi.begin only starts the connection. loop() and waitServicingOta call this on every pass: it returns at once,
-and reissues WiFi.begin if still not connected after WIFI_RETRY_INTERVAL.
+WiFi.begin joins the access point, blocking for up to WIFI_JOIN_TIMEOUT, and leaves DHCP running in the background.
+loop() and waitServicingOta call this on every pass: it returns at once, and reissues WiFi.begin if still not
+connected after WIFI_RETRY_INTERVAL.
 */
 void setupWifi()
 {
@@ -727,7 +736,10 @@ void setupWifi()
 	// Set up in Station Mode - Will be connecting to an access point
 	WiFi.mode(WIFI_STA);
 
-	// And connect to the details defined at the top
+	// The join inside WiFi.begin blocks for up to WIFI_JOIN_TIMEOUT with no feed in the core, so start it on a fresh
+	// watchdog. Past the timeout the driver still waits out a join that is mid negotiation (the while (true) in
+	// CYW43::begin); the watchdog is the backstop there.
+	feedWatchdog();
 	WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
