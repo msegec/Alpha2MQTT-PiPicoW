@@ -1912,14 +1912,13 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				sprintf(_debugOutput, "Trying to setCharge or setDischarge without a watts, socPercent or duration!");
 				Serial.println(_debugOutput);
 #endif
-				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
-				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
+				// Nothing is written. The refusal carries the seq like any set response, so the sender fails the command at once.
+				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"missing\"", MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
 			else if (!dispatchRequestValid(strtoul(watts, NULL, 10), strtoul(socPercent, NULL, 10)))
 			{
 				// Out of range, so nothing is written. A negative number reads as a huge one and is refused too.
-				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
-				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
+				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"range\"", MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
 			else
 			{
@@ -2026,8 +2025,8 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 									}
 									else
 									{
-										_blockFrameRefused = _blockFrameRefused || blockRefused;
 										_activeDispatch = { true, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs };
+										_blockFrameRefused = _blockFrameRefused || blockRefused;
 									}
 								}
 							}
@@ -2057,12 +2056,8 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					sprintf(stateAddition + strlen(stateAddition), ",\r\n    \"write\": \"block\",\r\n    \"frames\": %d", blockFrames);
 				}
 			}
-			// Empty if the request was invalid, the standard response below covers that
-			if (*stateAddition)
-			{
-				resultAddToPayload = addToPayload(stateAddition);
-				resultAddToPayload = closeSetResponse(seq);
-			}
+			resultAddToPayload = addToPayload(stateAddition);
+			resultAddToPayload = closeSetResponse(seq);
 		}
 
 		else if (subScription == mqttSubscriptions::setNormal)
