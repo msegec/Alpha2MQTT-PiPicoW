@@ -22,6 +22,7 @@ system.  I found that WRITE DATA REGISTER will write any appropriate single (2 b
 register, and we just leverage 'Number of bytes' to guide it accordingly.
 */
 #include "RegisterHandler.h"
+#include "Dispatch.h"
 #include "PvMeter.h"
 
 /*
@@ -4569,4 +4570,19 @@ modbusRequestAndResponseStatusValues RegisterHandler::writeRawDataRegister(uint1
 	}
 
 	return result;
+}
+
+/*
+writeDispatchBlock
+
+The whole dispatch block in one Write Data Register, see dispatchBlockFrame. The inverter answers a
+nine register write like any other, so the caller sees the same statuses as writeRawDataRegister.
+*/
+modbusRequestAndResponseStatusValues RegisterHandler::writeDispatchBlock(uint16_t start, uint32_t powerRegister, uint16_t mode, uint16_t socRegister, uint32_t durationS, modbusRequestAndResponse* rs)
+{
+	uint8_t frame[DISPATCH_BLOCK_FRAME_SIZE];
+
+	rs->registerCount = 9;
+	dispatchBlockFrame(frame, ALPHA_SLAVE_ID, start, powerRegister, mode, socRegister, durationS);
+	return _modBus->sendModbus(frame, sizeof(frame), rs);
 }

@@ -700,7 +700,9 @@ bool checkTimer(unsigned long *lastRun, unsigned long interval)
 
 	if (now >= *lastRun + interval)
 	{
-		*lastRun = now;
+		// Keep the phase, so a run that was held up (a two second dispatch write, say) does not shift every
+		// run after it. One catch up run at most: the modulo drops any whole intervals missed.
+		*lastRun = now - ((now - *lastRun) % interval);
 		return true;
 	}
 
@@ -1919,6 +1921,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 #endif
 
 				bool charge = subScription == mqttSubscriptions::setCharge;
+				int blockFrames = 1;
 				uint32_t writeStartedMs = millis();
 				DispatchBlock running = _activeDispatch;
 				powerOnlyWrite = dispatchPowerOnly(strcmp(powerOnly, "1") == 0, running, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs);
@@ -1940,8 +1943,15 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 						_activeDispatch = running;
 					}
 				}
+				else if ((resultDispatch = _registerHandler->writeDispatchBlock(DISPATCH_START_START, chargeDischargeWattsConverted, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, batterySocPercentConverted, durationSecondsConverted, &responseDispatch)) == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+				{
+					// The whole block in one write, about 50 ms on the bus
+					_activeDispatch = { true, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs };
+				}
 				else
 				{
+					// An inverter that will not take a nine register write gets the five single writes, 400 ms apart
+					blockFrames = 5;
 					// First enable dispatch
 					responseDispatch.registerCount = 1;
 					resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_START, &responseDispatch);
@@ -2012,7 +2022,14 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 						result = modbusRequestAndResponseStatusValues::setDischargeSuccess;
 					}
 				}
-				strcat(stateAddition, powerOnlyWrite ? ",\r\n    \"write\": \"power\"" : ",\r\n    \"write\": \"block\"");
+				if (powerOnlyWrite)
+				{
+					strcat(stateAddition, ",\r\n    \"write\": \"power\"");
+				}
+				else
+				{
+					sprintf(stateAddition + strlen(stateAddition), ",\r\n    \"write\": \"block\",\r\n    \"frames\": %d", blockFrames);
+				}
 			}
 			// Empty if the request was invalid, the standard response below covers that
 			if (*stateAddition)

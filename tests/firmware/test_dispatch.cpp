@@ -34,8 +34,8 @@ int main()
 
 	const DispatchBlock discharging = { true, false, 25, 120, 1000 };
 	expect(dispatchPowerOnly(true, discharging, false, 25, 120, 1000), "same block right after the full write");
-	expect(dispatchPowerOnly(true, discharging, false, 25, 120, 40999), "39.999 s into a 120 s lease");
-	expect(!dispatchPowerOnly(true, discharging, false, 25, 120, 41000), "a third of the lease gone renews it");
+	expect(dispatchPowerOnly(true, discharging, false, 25, 120, 60999), "59.999 s into a 120 s lease");
+	expect(!dispatchPowerOnly(true, discharging, false, 25, 120, 61000), "half the lease gone renews it");
 	expect(!dispatchPowerOnly(false, discharging, false, 25, 120, 2000), "a request that does not allow it");
 	expect(!dispatchPowerOnly(true, discharging, true, 25, 120, 2000), "charge after discharge");
 	expect(!dispatchPowerOnly(true, discharging, false, 26, 120, 2000), "a new SOC");
@@ -47,9 +47,31 @@ int main()
 	expect(!dispatchPowerOnly(true, charging, false, 250, 120, 2000), "discharge after charge");
 	const DispatchBlock beforeWrap = { true, false, 25, 120, 0xFFFFF000u };
 	expect(dispatchPowerOnly(true, beforeWrap, false, 25, 120, 0x00001000u), "8 s across a millis() wrap");
-	expect(!dispatchPowerOnly(true, beforeWrap, false, 25, 120, 0x00009C40u + 0x1000u), "44 s across a millis() wrap");
-	const DispatchBlock shortLease = { true, false, 25, 2, 1000 };
-	expect(!dispatchPowerOnly(true, shortLease, false, 25, 2, 1000), "a lease under 3 s always rewrites");
+	expect(!dispatchPowerOnly(true, beforeWrap, false, 25, 120, 0x0000EA60u + 0x1000u), "64 s across a millis() wrap");
+	const DispatchBlock shortLease = { true, false, 25, 1, 1000 };
+	expect(!dispatchPowerOnly(true, shortLease, false, 25, 1, 1000), "a lease under 2 s always rewrites");
+
+	// Discharge 150 W, SOC register 25 (10 %), 120 s: slave 0x55, function 0x10, 0x0880, 9 registers, 18 bytes.
+	uint8_t frame[DISPATCH_BLOCK_FRAME_SIZE];
+	dispatchBlockFrame(frame, 0x55, 1, 32150, 2, 25, 120);
+	const uint8_t want[DISPATCH_BLOCK_FRAME_SIZE] = { 0x55, 0x10, 0x08, 0x80, 0x00, 0x09, 18,
+		0x00, 0x01,              // 0x0880 start
+		0x00, 0x00, 0x7D, 0x96,  // 0x0881 active power 32150
+		0x00, 0x00, 0x7D, 0x00,  // 0x0883 reactive power 32000
+		0x00, 0x02,              // 0x0885 mode
+		0x00, 0x19,              // 0x0886 SOC
+		0x00, 0x00, 0x00, 0x78,  // 0x0887 time 120 s
+		0x00, 0x00 };            // CRC, filled by the sender
+	bool same = true;
+	for (unsigned int i = 0; i < DISPATCH_BLOCK_FRAME_SIZE; i++)
+	{
+		same = same && frame[i] == want[i];
+	}
+	expect(same, "the block frame is laid out register by register");
+	dispatchBlockFrame(frame, 0x55, 1, 32000 - 2200, 2, 250, 14400);
+	expect(frame[11] == 0x74 && frame[12] == 0x68, "a 2200 W charge is 29800");
+	expect(frame[19] == 0x00 && frame[20] == 0xFA, "100 % is SOC register 250");
+	expect(frame[21] == 0 && frame[22] == 0 && frame[23] == 0x38 && frame[24] == 0x40, "14400 s spans two registers");
 
 	if (failures == 0)
 	{

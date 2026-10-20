@@ -30,12 +30,33 @@ struct DispatchBlock
 };
 
 // A request that allows it rewrites only the power register while the running block has the same kind, SOC
-// and duration and at least two thirds of its lease left. Everything else rewrites the whole block, which
+// and duration and at least half of its lease left. Everything else rewrites the whole block, which
 // renews the lease, so the inverter still falls back to normal within one duration of the last full write.
 inline bool dispatchPowerOnly(bool allowed, const DispatchBlock& last, bool charge, uint16_t socRegister, uint32_t durationS, uint32_t nowMs)
 {
 	return allowed && last.valid && last.charge == charge && last.socRegister == socRegister && last.durationS == durationS
-		&& (uint32_t)(nowMs - last.writtenMs) / 1000u < durationS / 3u;
+		&& (uint32_t)(nowMs - last.writtenMs) / 1000u < durationS / 2u;
+}
+
+// The dispatch block, registers 0x0880 to 0x0888, as one Write Data Register frame: start, active power,
+// reactive power (none, 32000 is zero), mode, SOC and time. One bus transaction of about 50 ms at 9600 baud
+// instead of five. The last two bytes are left for the CRC.
+#define DISPATCH_BLOCK_FRAME_SIZE 27
+
+inline void dispatchBlockFrame(uint8_t frame[DISPATCH_BLOCK_FRAME_SIZE], uint8_t slaveId, uint16_t start, uint32_t powerRegister, uint16_t mode, uint16_t socRegister, uint32_t durationS)
+{
+	const uint8_t head[] = { slaveId, 0x10, 0x08, 0x80, 0x00, 0x09, 18,
+		(uint8_t)(start >> 8), (uint8_t)start,
+		(uint8_t)(powerRegister >> 24), (uint8_t)(powerRegister >> 16), (uint8_t)(powerRegister >> 8), (uint8_t)powerRegister,
+		0x00, 0x00, 0x7D, 0x00,
+		(uint8_t)(mode >> 8), (uint8_t)mode,
+		(uint8_t)(socRegister >> 8), (uint8_t)socRegister,
+		(uint8_t)(durationS >> 24), (uint8_t)(durationS >> 16), (uint8_t)(durationS >> 8), (uint8_t)durationS,
+		0x00, 0x00 };
+	for (unsigned int i = 0; i < DISPATCH_BLOCK_FRAME_SIZE; i++)
+	{
+		frame[i] = head[i];
+	}
 }
 
 #endif

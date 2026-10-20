@@ -18,8 +18,8 @@ HOLD = "hold"  # dispatch at 0 W
 FIXED = "fixed"  # dispatch at fixed_w, a manual override
 REGULATE = "regulate"
 
-# A dispatch is five register writes, about 1.8 s. Closer than this, a command queues behind the last
-# one's writes, so even an acked command waits this long.
+# Firmware before the one frame block write takes about 1.8 s per dispatch, five register writes. Closer
+# than this, a command queues behind the last one's writes, so even an acked command waits this long.
 MIN_SEND_GAP_S = 2.0
 # Samples come every second, or every 10 s from older firmware. A longer gap would wind the integral on
 # an error nobody measured.
