@@ -41,7 +41,7 @@ static_assert(sizeof(OTA_PASSWORD) > 1, "OTA_PASSWORD must not be empty, or anyo
 #include <Adafruit_SSD1306.h>
 
 // Device parameters
-char _version[6] = "v1.28";
+char _version[6] = "v1.29";
 
 // WiFi parameters
 WiFiClient _wifi;

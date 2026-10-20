@@ -1,0 +1,59 @@
+v1.29 (fork, msegec/Alpha2MQTT-PiPicoW, 21 October 2026)
+
+Firmware changes since v1.28.
+
+Dispatch
+	- set/charge and set/discharge write the whole dispatch block 0x0880 to 0x0888 as one Write Data
+	  Register frame, about 50 ms on the bus instead of five writes two seconds apart. The response
+	  reports "frames": 1 or 5.
+	- An inverter that refuses the one frame write gets the five single writes; once those land after a
+	  refused frame, later commands skip the frame until a reboot. An exception both paths get leaves
+	  the one frame write in use.
+	- Power-only writes are allowed for half the lease instead of a third.
+	- The cached dispatch block is forgotten once the fast state reads dispatch stopped, so the next
+	  command writes the whole block instead of a power write the inverter would ignore.
+	- A set/charge or set/discharge over 32000 W or over 100 % SOC is refused and nothing is written.
+	- An invalid set/charge or set/discharge is answered with its seq and ms, and failureDetail says
+	  missing or range.
+	- set/normal reports success only when the write succeeded.
+	- The full block write, its fallback and the refused frame latch live in writeFullDispatchBlock.
+
+Idle hold
+	- Alpha2MQTT subscribes to homeassistant/status. Three minutes after Home Assistant's offline will,
+	  or three minutes off the broker, the battery is held idle: a full dispatch block every 60 s,
+	  charge 0 W to 100 % SOC for 120 s. An online or any set request inside the three minutes cancels
+	  the pending will and nothing is written. When Home Assistant is back, a hold the Pico wrote is
+	  ended at once with the set/normal write. A failed hold or release is tried again after 10 s.
+	- The fast state gains haIdle: 1 while Home Assistant counts as gone.
+
+RS485
+	- Each reply is matched to its request: register count, echoed address and count, or the request's
+	  own function code. A late reply from an earlier read is no longer taken as this one. After a
+	  failed exchange the next flush waits for 10 ms of quiet, up to 150 ms.
+	- A read reply or a read/register/raw request that would overrun the receive buffer is refused.
+	- The rawData list is built by one bounded helper, so a long reply cannot overrun its buffer.
+	- The unused fallback response built on every read is gone.
+
+Robustness
+	- Request keys and values over 31 characters are rejected instead of overrunning the parser's
+	  buffers.
+	- checkTimer uses unsigned elapsed time, so the schedules keep their phase across the millis() wrap
+	  every 49.7 days and after a late run.
+	- WiFi and MQTT reconnects return instead of waiting: WiFi.begin is reissued every 10 s and one
+	  broker attempt is made every 5 s, so the loop, OTA and the dispatch work keep running through an
+	  outage.
+	- The Pico W reboots through its hardware watchdog, 8 s, when the loop hangs. It is fed in every
+	  RS485 exchange, publish, broker attempt and OTA progress report.
+	- The display refresh no longer services MQTT, so mqttCallback cannot run inside a half built
+	  schedule payload.
+
+Memory and bus time
+	- The schedule tables hold register addresses only; the names come from the register read. RAM in
+	  use drops by about 20 KB.
+	- The display shows the fast state's last readings instead of reading them again: no bus traffic
+	  for the display outside dispatch, two reads instead of five in it.
+	- The load and total solar custom registers share one read of the PV strings.
+	- Dead variables, no-op statements and empty placeholder blocks are deleted.
+
+Tests
+	- tests/firmware/run covers Dispatch.h, Timer.h, ModbusFrame.h, PvMeter.h and IdleHold.h.
