@@ -97,6 +97,24 @@ void RS485Handler::flushRS485()
 	{
 		_RS485Serial->read();
 	}
+
+	// After a failed exchange the rest of a late or broken reply may still be on its way. Wait for the line
+	// to go quiet, for up to one full frame at the slowest baud rate, so its tail is not read as the next reply.
+	if (_lineDirty)
+	{
+		unsigned long start = millis();
+		unsigned long quietSince = start;
+
+		while (millis() - quietSince < RS485_QUIET_MS && millis() - start < RS485_DRAIN_MAX_MS)
+		{
+			if (_RS485Serial->available())
+			{
+				_RS485Serial->read();
+				quietSince = millis();
+			}
+		}
+		_lineDirty = false;
+	}
 }
 
 
@@ -108,6 +126,8 @@ Following the send, kicks off a synchronous listen for response
 */
 modbusRequestAndResponseStatusValues RS485Handler::sendModbus(uint8_t frame[], byte actualFrameSize, modbusRequestAndResponse* resp)
 {
+	modbusRequestAndResponseStatusValues result;
+
 	//Calculate the CRC and overwrite the last two bytes.
 	calcCRC(frame, actualFrameSize);
 
@@ -135,8 +155,21 @@ modbusRequestAndResponseStatusValues RS485Handler::sendModbus(uint8_t frame[], b
 	// we finish sending so that the serial port can start to buffer the response.
 
 	digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_RX);
-	
-	return listenResponse(resp);
+
+	result = listenResponse(frame, resp);
+
+	// A late reply to the last request can arrive just ahead of this one's. It has been read whole, so listen again
+	if (result == modbusRequestAndResponseStatusValues::unexpectedResponse)
+	{
+		result = listenResponse(frame, resp);
+	}
+
+	_lineDirty = result != modbusRequestAndResponseStatusValues::readDataRegisterSuccess
+		&& result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess
+		&& result != modbusRequestAndResponseStatusValues::writeSingleRegisterSuccess
+		&& result != modbusRequestAndResponseStatusValues::slaveError;
+
+	return result;
 }
 
 
@@ -192,7 +225,7 @@ listenResponse
 Listens for a response and processes what it is given that data frame formats vary based on function codes
 Returns data in a stucture and returns a result to guide onward processing.
 */
-modbusRequestAndResponseStatusValues RS485Handler::listenResponse(modbusRequestAndResponse* resp)
+modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t request[], modbusRequestAndResponse* resp)
 {
 	uint8_t inFrame[MAX_FRAME_SIZE_ZERO_INDEXED];
 	uint8_t inByteNumZeroIndexed = 0;
@@ -440,7 +473,13 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(modbusRequestA
 		}
 		else if (checkCRC(inFrame, inByteNumZeroIndexed + 1))
 		{
-			if (resp->functionCode == MODBUS_FN_WRITEDATAREGISTER)
+			if (!replyMatchesRequest(request, inFrame))
+			{
+				result = modbusRequestAndResponseStatusValues::unexpectedResponse;
+				strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_UNEXPECTED_RESPONSE_MQTT_DESC);
+				strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_UNEXPECTED_RESPONSE_DISPLAY_DESC);
+			}
+			else if (resp->functionCode == MODBUS_FN_WRITEDATAREGISTER)
 			{
 				result = modbusRequestAndResponseStatusValues::writeDataRegisterSuccess;
 				strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_WRITE_DATA_REGISTER_SUCCESS_MQTT_DESC);

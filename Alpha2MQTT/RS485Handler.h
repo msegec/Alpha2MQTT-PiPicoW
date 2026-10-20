@@ -33,6 +33,8 @@ Handles Modbus requests and responses in a tidy class separate from main program
 #define RS485_TX HIGH						// Transmit control pin goes high
 #define RS485_RX LOW						// Receive control pin goes low
 #define DEFAULT_BAUD_RATE 9600				// Just a default, Alpha2MQTT will cycle baud rates until one is found
+#define RS485_QUIET_MS 10					// A gap this long after a failed exchange means the line is clear
+#define RS485_DRAIN_MAX_MS 150				// About one 63 byte frame at 4800 baud
 
 #if defined MP_ESP8266
 #define SERIAL_COMMUNICATION_CONTROL_PIN D5	// Transmission set pin
@@ -62,7 +64,8 @@ class RS485Handler
 
 		char* _debugOutput;
 		void flushRS485();
-		modbusRequestAndResponseStatusValues listenResponse(modbusRequestAndResponse* resp);
+		bool _lineDirty = false;
+		modbusRequestAndResponseStatusValues listenResponse(const uint8_t request[], modbusRequestAndResponse* resp);
 		bool checkForData();
 		void outputFrameToSerial(bool transmit, uint8_t frame[], byte actualFrameSize);
 		uint16_t baudRate;
