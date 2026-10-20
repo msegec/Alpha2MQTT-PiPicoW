@@ -361,6 +361,14 @@ def test_non_finite_fixed_watts_release():
     assert reg.status == "released"
 
 
+def test_a_release_with_a_reason_names_it_in_the_status():
+    reg = make()
+    reg.step(0, R.Policy(R.RELEASE, reason="unknown policy state 'boost'"))
+    assert reg.status == "released: unknown policy state 'boost'"
+    reg.step(1, R.Policy(R.RELEASE))
+    assert reg.status == "released"
+
+
 def test_min_interval_holds_across_a_release():
     reg = make(min_interval_s=3)
     reg.update_grid(0, 1020, 500)

@@ -227,6 +227,33 @@ def test_a_policy_of_normal_releases_at_once(monkeypatch):
     assert house.released() and house.c.status == "released"
 
 
+def test_an_unknown_policy_state_releases_and_the_status_says_why(monkeypatch):
+    house = House(monkeypatch)
+    house.second()
+    house.set("sensor.battery_auto_action", "boost")
+    house.second()
+    assert house.released() and house.c.status == "released: unknown policy state 'boost'"
+
+
+def test_an_unknown_policy_state_is_logged_once_per_value(monkeypatch, caplog):
+    house = logged_house(monkeypatch)
+    house.second()
+    house.set("sensor.battery_auto_action", "boost")
+    for _ in range(3):
+        house.second()
+    house.set("sensor.battery_auto_action", "zap")
+    for _ in range(2):
+        house.second()
+    house.set("sensor.battery_auto_action", "discharge", soc_target=20)
+    house.second()
+    assert house.log.kind("gap") == [
+        {"what": "policy state", "missing": True, "reason": "unknown policy state 'boost'"},
+        {"what": "policy state", "missing": True, "reason": "unknown policy state 'zap'"},
+        {"what": "policy state", "missing": False, "reason": None}]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 2 and "'boost'" in warnings[0] and "'zap'" in warnings[1]
+
+
 def test_at_the_policy_soc_the_battery_is_held_at_zero_not_asked_to_discharge(monkeypatch):
     house = House(monkeypatch)
     for _ in range(10):

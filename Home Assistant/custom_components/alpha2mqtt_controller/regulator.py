@@ -48,6 +48,7 @@ class Policy:
     discharge_soc: int = 10
     fixed_w: float = 0.0  # FIXED only, positive is discharge
     target_offset_w: float = 0.0  # added to the grid target, positive draws more from the grid
+    reason: str = ""  # RELEASE only: why, when it is not the policy's choice; shown in the status
 
 
 @dataclass
@@ -219,7 +220,8 @@ class Regulator:
             policy = Policy(RELEASE)
         if policy.mode == RELEASE:
             # Needs no reading, so it goes out even when the inputs are stale.
-            return self._hand_back(t, "released", unknown=True)
+            status = f"released: {policy.reason}" if policy.reason else "released"
+            return self._hand_back(t, status, unknown=True)
         live = self._t_fresh is not None and t - self._t_fresh <= s.stale_after_s
         if policy.mode in (HOLD, FIXED):
             # Fixed watts need no reading, so they hold through stale inputs.

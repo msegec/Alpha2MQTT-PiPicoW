@@ -116,6 +116,7 @@ class Controller:
         self._steplog: StepLog | None = None
         self._failing: str | None = None  # what is failing now, so it is logged once, not every second
         self._gaps: set[str] = set()  # inputs missing now, logged the same way
+        self._unknown_policy_reason = ""  # the policy state the controller does not know, logged once per value
         self._good_policy: tuple[float, Policy] = (float("-inf"), Policy(RELEASE))
 
     @property
@@ -214,20 +215,23 @@ class Controller:
         policy = self._read_policy()
         self._gap("policy", policy is None)
         if policy is not None:
+            self._unknown_policy(policy.reason)
             self._good_policy = (now, policy)
             return policy
         t, policy = self._good_policy
         return policy if now - t <= self.regulator.settings.stale_after_s else Policy(RELEASE)
 
     def _read_policy(self) -> Policy | None:
-        """None when the policy cannot be read; any state but charge, discharge or hold is a release."""
+        """None when the policy cannot be read; normal is a release, and so is a state it does not know."""
         state = self.hass.states.get(self.config.get(CONF_POLICY_ENTITY, DEFAULT_POLICY_ENTITY))
         if state is None or state.state in ("unavailable", "unknown"):
             return None
         if state.state == "hold":
             return Policy(HOLD)
-        if state.state not in ("charge", "discharge"):
+        if state.state == "normal":
             return Policy(RELEASE)
+        if state.state not in ("charge", "discharge"):
+            return Policy(RELEASE, reason=f"unknown policy state {state.state[:40]!r}")
         try:
             soc = int(float(state.attributes.get("soc_target")))
         except (TypeError, ValueError, OverflowError):
@@ -412,6 +416,17 @@ class Controller:
             self._gaps.discard(what)
             self._log("gap", what=what, missing=False)
             _LOGGER.info("Battery controller %s back", what)
+
+    def _unknown_policy(self, reason: str) -> None:
+        """Logs a policy state the controller does not know once per value, and once when it clears."""
+        if reason == self._unknown_policy_reason:
+            return
+        self._unknown_policy_reason = reason
+        self._log("gap", what="policy state", missing=bool(reason), reason=reason or None)
+        if reason:
+            _LOGGER.warning("Battery controller releasing the inverter: %s", reason)
+        else:
+            _LOGGER.info("Battery controller policy state known again")
 
     def _fail(self, what: str, message: str) -> None:
         if self._failing != what:
