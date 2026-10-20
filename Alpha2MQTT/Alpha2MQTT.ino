@@ -801,7 +801,7 @@ void updateOLED(bool justStatus, const char* line2, const char* line3, const cha
 	}
 
 	// There's ten characters we can play with, width wise.
-	sprintf(line1Contents, "%s%c%c%c", "A2M    ", _oledOperatingIndicator, (WiFi.status() == WL_CONNECTED ? 'W' : ' '), (_mqtt.connected() && _mqtt.loop() ? 'M' : ' ') );
+	sprintf(line1Contents, "%s%c%c%c", "A2M    ", _oledOperatingIndicator, (WiFi.status() == WL_CONNECTED ? 'W' : ' '), (_mqtt.connected() ? 'M' : ' ') );
 	_display.println(line1Contents);
 
 
