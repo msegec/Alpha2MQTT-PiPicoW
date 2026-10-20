@@ -1540,15 +1540,6 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					// If went beyond the start, correct
 					iSegNameCounter = 0;
 				}
-				// Segment name is now from the following character until before the colon
-				iPairNameCounter = 0;
-				for (int x = iSegNameCounter; x < iCounter; x++)
-				{
-					pairNameRaw[iPairNameCounter] = mqttIncomingPayload[x];
-					iPairNameCounter++;
-				}
-				pairNameRaw[iPairNameCounter] = '\0';
-
 
 				// Everything to right is value until reached the end, a comma or a right brace.
 				for (iSegValueCounter = iCounter + 1; iSegValueCounter < length; iSegValueCounter++)
@@ -1565,6 +1556,24 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					// If went beyond end, correct
 					iSegValueCounter = length - 1;
 				}
+
+				// A name or value too long for its buffer is rejected, not cut, so it never parses as something else
+				if (iCounter - iSegNameCounter > (int)sizeof(pairNameRaw) - 1 || iSegValueCounter - iCounter > (int)sizeof(pairValueRaw) - 1)
+				{
+					result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
+					strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
+					break;
+				}
+
+				// Segment name is now from the following character until before the colon
+				iPairNameCounter = 0;
+				for (int x = iSegNameCounter; x < iCounter; x++)
+				{
+					pairNameRaw[iPairNameCounter] = mqttIncomingPayload[x];
+					iPairNameCounter++;
+				}
+				pairNameRaw[iPairNameCounter] = '\0';
+
 				// Segment value is now from the after the colon until the found character
 				iPairValueCounter = 0;
 				for (int x = iCounter + 1; x <= iSegValueCounter; x++)
