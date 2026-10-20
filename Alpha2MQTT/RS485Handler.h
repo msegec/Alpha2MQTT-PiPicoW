@@ -68,7 +68,6 @@ class RS485Handler
 		modbusRequestAndResponseStatusValues listenResponse(const uint8_t request[], modbusRequestAndResponse* resp);
 		bool checkForData();
 		void outputFrameToSerial(bool transmit, uint8_t frame[], byte actualFrameSize);
-		uint16_t baudRate;
 
 	protected:
 

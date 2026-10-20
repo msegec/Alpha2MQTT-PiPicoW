@@ -453,7 +453,6 @@ void setup()
 	modbusRequestAndResponse response;
 	char baudRateString[10] = "";
 	int baudRateIterator = -1;
-	bool firstCheck = true;
 
 
 
@@ -606,8 +605,6 @@ The loop function runs overand over again until power down or reset
 */
 void loop()
 {
-	static unsigned long autoReboot = 0;
-
 	// Refresh LED Screen, will cause the status asterisk to flicker
 	updateOLED(true, "", "", "");
 
@@ -640,6 +637,8 @@ void loop()
 	
 	// Force Restart?
 #ifdef FORCE_RESTART
+	static unsigned long autoReboot = 0;
+
 	if (checkTimer(&autoReboot, FORCE_RESTART_HOURS * 60 * 60 * 1000))
 	{
 #if defined MP_PICOW
@@ -871,7 +870,6 @@ some system fault descriptions depend on knowing whether an AL based or AE based
 */
 modbusRequestAndResponseStatusValues getSerialNumber()
 {
-	static unsigned long lastRun = 0;
 	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
 	modbusRequestAndResponse response;
 
@@ -1105,7 +1103,6 @@ Query the handled register in the usual way, and add the cleansed output to the 
 */
 modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool addComma, modbusRequestAndResponseStatusValues& resultAddedToPayload)
 {
-	unsigned int val;
 	char stateAddition[128] = ""; // 128 should cover individual additions to the payload
 	char addQuote = false;
 	modbusRequestAndResponse response;
@@ -1312,7 +1309,6 @@ void sendDataFromAppropriateArray(const uint16_t* registerArray, int numberOfReg
 	int	l = 0;
 
 	// For storing results
-	modbusRequestAndResponseStatusValues result;
 	modbusRequestAndResponseStatusValues resultAddedToPayload;
 
 	// An empty schedule has nothing to read, so publish nothing
@@ -1328,7 +1324,7 @@ void sendDataFromAppropriateArray(const uint16_t* registerArray, int numberOfReg
 	{
 		for (l = 0; l < numberOfRegisters; l++)
 		{
-			result = addStateInfo(registerArray[l], l < (numberOfRegisters - 1), resultAddedToPayload);
+			addStateInfo(registerArray[l], l < (numberOfRegisters - 1), resultAddedToPayload);
 			
 			if (resultAddedToPayload == modbusRequestAndResponseStatusValues::payloadExceededCapacity)
 			{
@@ -1470,7 +1466,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	if (strcmp(topic, DEVICE_NAME MQTT_SUB_REQUEST_READ_HANDLED_REGISTER) == 0)
 	{
 		subScription = mqttSubscriptions::readHandledRegister;
-		strcpy(topicResponse, DEVICE_NAME MQTT_MES_RESPONSE_READ_HANDLED_REGISTER) == 0;
+		strcpy(topicResponse, DEVICE_NAME MQTT_MES_RESPONSE_READ_HANDLED_REGISTER);
 	}
 	else if (strcmp(topic, DEVICE_NAME MQTT_SUB_REQUEST_READ_RAW_REGISTER) == 0)
 	{
@@ -1509,7 +1505,6 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	}
 	else
 	{
-		mqttSubscriptions::unknown;
 		result = modbusRequestAndResponseStatusValues::notValidIncomingTopic;
 	}
 
@@ -1822,9 +1817,9 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				startPosConverted = strtoul(startPos, NULL, 10);
 				endPosConverted = strtoul(endPos, NULL, 10);
 
-				// Despite a start and end provided, ensure not below zero and not above the array size
+				// Despite a start and end provided, ensure not above the array size
 				int numberOfRegisters = sizeof(_mqttAllHandledRegisters) / sizeof(_mqttAllHandledRegisters[0]);
-				uint16_t minPosition = startPosConverted < 0 ? 0 : startPosConverted;
+				uint16_t minPosition = startPosConverted;
 				uint16_t maxPosition = endPosConverted > numberOfRegisters - 1 ? numberOfRegisters - 1 : endPosConverted;
 
 				resultAddToPayload = addToPayload("{\r\n");
@@ -2198,13 +2193,6 @@ void sendMqtt(char *topic)
 		Serial.println(_mqttPayload);
 #endif
 	}
-	else
-	{
-#ifdef DEBUG
-		//sprintf(_debugOutput, "MQTT publish success");
-		//Serial.println(_debugOutput);
-#endif
-	}
 
 	// Empty payload for next use.
 	emptyPayload();
@@ -2223,12 +2211,3 @@ void emptyPayload()
 		_mqttPayload[i] = '\0';
 	}
 }
-
-
-/*
-uint32_t freeMemory()
-{
-
-	return ESP.getFreeHeap();
-}
-*/
