@@ -556,3 +556,57 @@ def test_a_sample_without_soc_keeps_the_last_one():
     reg = make()
     reg.update_grid(0, 520, 0)  # older firmware: no SOC, regulates as before
     assert reg.step(0, DISCHARGE).kind == "discharge"
+
+
+def test_keep_warm_is_off_by_default():
+    reg = make()
+    reg.update_grid(0, 20, 0, soc=50)  # on target, battery idle
+    assert reg.step(0, BOTH) == R.Command("charge", 0, 100, 120)
+
+
+def test_keep_warm_holds_a_small_discharge_instead_of_idling():
+    reg = make(warm_w=80)
+    reg.update_grid(0, 20, 0, soc=50)
+    assert reg.step(0, BOTH) == R.Command("discharge", 80, 20, 120)
+
+
+def test_keep_warm_gives_way_to_a_real_charge_or_discharge():
+    reg = make(warm_w=80)
+    reg.update_grid(0, -500, 0, soc=50)
+    assert reg.step(0, BOTH) == R.Command("charge", 500, 100, 120)
+    reg = make(warm_w=80)
+    reg.update_grid(0, 520, 0, soc=50)
+    assert reg.step(0, BOTH) == R.Command("discharge", 480, 20, 120)
+
+
+def test_keep_warm_replaces_a_trickle_charge_after_the_dwell():
+    reg = make(warm_w=80, flip_hysteresis_w=150, flip_dwell_s=5)
+    reg.update_grid(0, -500, 0, soc=50)
+    assert reg.step(0, BOTH).kind == "charge"
+    reg.update_grid(3, 0, -100, soc=50)  # the surplus has shrunk to 100 W, still within the dwell
+    assert reg.step(3, BOTH) == R.Command("charge", 100, 100, 120)
+    reg.update_grid(6, 0, -100, soc=50)
+    assert reg.step(6, BOTH) == R.Command("discharge", 80, 20, 120)
+    reg.update_grid(9, -200, 80, soc=50)  # a surplus under the margin does not pull it back into a charge
+    assert reg.step(9, BOTH) is None and reg.output_w == 80
+    reg.update_grid(12, -500, 80, soc=50)  # one past the margin does
+    cmd = reg.step(12, BOTH)
+    assert cmd.kind == "charge" and cmd.watts >= 400
+
+
+@pytest.mark.parametrize("soc, policy", [(20, BOTH), (50, CHARGE), (50, R.Policy(R.HOLD))])
+def test_keep_warm_needs_discharge_to_be_allowed(soc, policy):
+    reg = make(warm_w=80)
+    reg.update_grid(0, 20, 0, soc=soc)
+    assert reg.step(0, policy) == R.Command("charge", 0, 100, 120)
+
+
+def test_keep_warm_does_not_wind_the_integral_into_a_charge():
+    # The warm discharge exports a little all the time; integrating that would end in a grid charge.
+    reg = make(warm_w=80, ki=0.01)
+    sent = []
+    for t in range(0, 900):
+        reg.update_grid(t, 20 - 80, 80, soc=50)  # house on target, the 80 W warm discharge goes out
+        sent.append(reg.step(t, BOTH))
+    assert all(cmd.kind == "discharge" and cmd.watts == 80 for cmd in sent if cmd is not None)
+    assert abs(reg.integral_w) < 50

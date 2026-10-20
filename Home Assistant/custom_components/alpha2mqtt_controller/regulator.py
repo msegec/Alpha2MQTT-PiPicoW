@@ -58,6 +58,10 @@ class Settings:
     # 0 keeps every command a full block write. Above 0, a power change may go as one write, and once the
     # firmware acks one as written that way the next command may follow this long after it.
     power_write_gap_s: float = 0.0
+    # Some inverters start a discharge slowly (an AlphaESS SMILE-B3 was seen at about 10 W/s from 0 W, while a
+    # step from a running discharge took 3 s). Above 0, the battery holds this discharge instead of idling or
+    # trickle charging, so the next load step goes out at full rate. 0 is off.
+    warm_w: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -236,6 +240,14 @@ class Regulator:
                 u = 0.0
             else:
                 self._direction, self._t_direction = d, t
+        if (policy.mode == REGULATE and 0 < s.warm_w <= hi and -s.flip_hysteresis_w < u < s.warm_w
+                and (self._direction >= 0 or t - self._t_direction >= s.flip_dwell_s)):
+            # Idle or a trickle charge: keep a small discharge running instead, see Settings.warm_w. The output
+            # is pinned there, so the export it causes must not wind the integral into a charge.
+            u = s.warm_w
+            self._saturation = _sign(request - u)
+            if self._direction <= 0:
+                self._direction, self._t_direction = 1, t
 
         # Slew counts from the last command sent, over the time since it went out. Steps come several
         # a second, so a per-step limit split a load step across two commands a Min gap apart.
