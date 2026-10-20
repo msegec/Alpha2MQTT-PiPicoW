@@ -979,13 +979,6 @@ struct modbusRequestAndResponse
 };
 
 
-struct mqttState
-{
-	uint16_t registerAddress;
-	char mqttName[MAX_MQTT_NAME_LENGTH];
-};
-
-
 
 
 #define DEBUG
