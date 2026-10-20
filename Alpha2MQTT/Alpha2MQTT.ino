@@ -72,6 +72,15 @@ DispatchBlock _activeDispatch = {};
 bool _blockFrameRefused = false;
 
 // OLED variables
+struct displayReading
+{
+	bool ok;
+	int32_t value;
+	char displayMessage[OLED_CHARACTER_WIDTH];
+};
+displayReading _shownDispatchStart = {};
+displayReading _shownBatteryPower = {};
+displayReading _shownSoc = {};
 char _oledOperatingIndicator = '*';
 char _oledLine2[OLED_CHARACTER_WIDTH] = "";
 char _oledLine3[OLED_CHARACTER_WIDTH] = "";
@@ -931,78 +940,56 @@ void updateRunstate()
 		digitalWrite(LED_BUILTIN, HIGH);
 
 
-		// Get Dispatch Start - Is Alpha2MQTT controlling the inverter?
-		request = _registerHandler->readHandledRegister(REG_DISPATCH_RW_DISPATCH_START, &response);
-		if (request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
+		// Dispatch start, battery power and SOC come from the fast state, see keepForDisplay
+		if (!_shownDispatchStart.ok || !_shownBatteryPower.ok || !_shownSoc.ok)
 		{
-			if (response.unsignedShortValue == DISPATCH_START_START)
+			updateOLED(false, "", "", !_shownDispatchStart.ok ? _shownDispatchStart.displayMessage : !_shownBatteryPower.ok ? _shownBatteryPower.displayMessage : _shownSoc.displayMessage);
+			return;
+		}
+
+		// Is Alpha2MQTT controlling the inverter?
+		if (_shownDispatchStart.value == DISPATCH_START_START)
+		{
+			// Yep, so get the mode.  And is it state of charge control or is the user using a different dispatch mode?
+			request = _registerHandler->readHandledRegister(REG_DISPATCH_RW_DISPATCH_MODE, &response);
+			bool socControl = request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess && response.unsignedShortValue == DISPATCH_MODE_STATE_OF_CHARGE_CONTROL;
+			if (socControl)
 			{
-				// Yep, so get the mode.  And is it state of charge control or is the user using a different dispatch mode?
-				request = _registerHandler->readHandledRegister(REG_DISPATCH_RW_DISPATCH_MODE, &response);
-				if (request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
+				// Yep, SOC, so determine if charging or charging by looking at power
+				request = _registerHandler->readHandledRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, &response);
+			}
+			if (request != modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
+			{
+#ifdef DEBUG
+				Serial.println(response.statusMqttMessage);
+#endif
+				updateOLED(false, "", "", response.displayMessage);
+				return;
+			}
+			if (socControl)
+			{
+				if (response.signedIntValue < 32000)
 				{
-					if (response.unsignedShortValue == DISPATCH_MODE_STATE_OF_CHARGE_CONTROL)
-					{
-						// Yep, SOC, so determine if charging or charging by looking at power
-						request = _registerHandler->readHandledRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, &response);
-						if (request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
-						{
-							if (response.unsignedShortValue == DISPATCH_MODE_STATE_OF_CHARGE_CONTROL)
-							{
-								if (response.signedIntValue < 32000)
-								{
-									strcpy(runningMode, "Charge");
-								}
-								else if (response.signedIntValue > 32000)
-								{
-									strcpy(runningMode, "Discharge");
-								}
-								else
-								{
-									strcpy(runningMode, "Hold");
-								}
-							}
-						}
-					}
+					strcpy(runningMode, "Charge");
+				}
+				else if (response.signedIntValue > 32000)
+				{
+					strcpy(runningMode, "Discharge");
+				}
+				else
+				{
+					strcpy(runningMode, "Hold");
 				}
 			}
-			else
-			{
-				strcpy(runningMode, "Normal");
-			}
-		}
-
-		// Get battery power for line 3
-		if (request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
-		{
-			request = _registerHandler->readHandledRegister(REG_BATTERY_HOME_R_BATTERY_POWER, &response);
-			if (request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
-			{
-				sprintf(batteryPower, "Bat:%dW", response.signedShortValue);
-			}
-		}
-
-		// And percent for line 4
-		if (request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
-		{
-			request = _registerHandler->readHandledRegister(REG_BATTERY_HOME_R_SOC, &response);
-			if (request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
-			{
-				sprintf(batterySOC, "%0.02f%%", response.unsignedShortValue * 0.1);
-			}
-		}
-
-		if (request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
-		{
-			updateOLED(false, runningMode, batteryPower, batterySOC);
 		}
 		else
 		{
-#ifdef DEBUG
-			Serial.println(response.statusMqttMessage);
-#endif
-			updateOLED(false, "", "", response.displayMessage);
+			strcpy(runningMode, "Normal");
 		}
+
+		sprintf(batteryPower, "Bat:%dW", (int)_shownBatteryPower.value);
+		sprintf(batterySOC, "%0.02f%%", _shownSoc.value * 0.1);
+		updateOLED(false, runningMode, batteryPower, batterySOC);
 	}
 }
 
@@ -1082,6 +1069,36 @@ void mqttReconnect()
 
 
 /*
+keepForDisplay
+
+Keeps the latest dispatch start, battery power and SOC read by any schedule. The fast state reads all three
+every second, so updateRunstate shows them without reading them again.
+*/
+void keepForDisplay(uint16_t registerAddress, modbusRequestAndResponseStatusValues result, modbusRequestAndResponse& response)
+{
+	displayReading* kept;
+
+	switch (registerAddress)
+	{
+	case REG_DISPATCH_RW_DISPATCH_START:
+		kept = &_shownDispatchStart;
+		break;
+	case REG_BATTERY_HOME_R_BATTERY_POWER:
+		kept = &_shownBatteryPower;
+		break;
+	case REG_BATTERY_HOME_R_SOC:
+		kept = &_shownSoc;
+		break;
+	default:
+		return;
+	}
+
+	kept->ok = result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess;
+	kept->value = registerAddress == REG_BATTERY_HOME_R_BATTERY_POWER ? response.signedShortValue : response.unsignedShortValue;
+	strcpy(kept->displayMessage, response.displayMessage);
+}
+
+/*
 addStateInfo
 
 Query the handled register in the usual way, and add the cleansed output to the buffer
@@ -1096,6 +1113,7 @@ modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, char
 
 	// Read the register
 	result = _registerHandler->readHandledRegister(registerAddress, &response);
+	keepForDisplay(registerAddress, result, response);
 
 	if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 	{
