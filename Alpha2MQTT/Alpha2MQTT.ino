@@ -2043,8 +2043,8 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 			else
 			{
 				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_NORMAL_SUCCESS_MQTT_DESC);
+				result = modbusRequestAndResponseStatusValues::setNormalSuccess;
 			}
-			result = modbusRequestAndResponseStatusValues::setNormalSuccess;
 			resultAddToPayload = addToPayload(stateAddition);
 			resultAddToPayload = closeSetResponse(seq);
 		}
