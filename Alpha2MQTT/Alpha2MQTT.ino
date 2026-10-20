@@ -16,6 +16,7 @@ First, go and customise options at the top of Definitions.h!
 #include "RS485Handler.h"
 #include "Definitions.h"
 #include "Dispatch.h"
+#include "ModbusFrame.h"
 #include <Arduino.h>
 #if defined MP_ESP8266
 #include <ESP8266WiFi.h>
@@ -1737,6 +1738,12 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				sprintf(_debugOutput, "Trying to readRawRegister without a registerAddress or dataBytes!");
 				Serial.println(_debugOutput);
 #endif
+				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
+				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
+			}
+			else if (!readRequestFits(strtoul(dataBytes, NULL, 10) / 2, MAX_FRAME_SIZE_ZERO_INDEXED))
+			{
+				// The reply would not fit the receive buffer
 				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
 				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}

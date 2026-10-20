@@ -11,6 +11,7 @@ Notes
 Handles Modbus requests and responses in a tidy class separate from main program logic.
 */
 #include "RS485Handler.h"
+#include "ModbusFrame.h"
 
 /*
 Default Constructor
@@ -201,10 +202,7 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(modbusRequestA
 	bool gotData = false;
 
 	bool timedOut = false;
-
-
-
-
+	bool tooLong = false;
 	bool breakOut = false;
 
 	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
@@ -312,6 +310,14 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(modbusRequestA
 					inFrame[inByteNumZeroIndexed] = _RS485Serial->read();
 					resp->dataSize = inFrame[inByteNumZeroIndexed];
 
+					// The byte count comes before the CRC, so a corrupt one must not run past inFrame or resp->data
+					if (!readReplyFits(resp->dataSize, MAX_FRAME_SIZE_ZERO_INDEXED))
+					{
+						tooLong = true;
+						breakOut = true;
+						break;
+					}
+
 					// Assume numbytes is 2
 					// slave + func + numbytes + 2 + 2 crc = 7 bytes, which is 0 to 6 when zero indexed
 					// And 7 takeaway 3 bytes received is 4
@@ -371,7 +377,14 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(modbusRequestA
 
 
 	// Check what to report back
-	if (inByteNumZeroIndexed == 0)
+	if (tooLong)
+	{
+		result = modbusRequestAndResponseStatusValues::invalidFrame;
+		strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_FRAME_MQTT_DESC);
+		strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_FRAME_DISPLAY_DESC);
+		resp->dataSize = 0;
+	}
+	else if (inByteNumZeroIndexed == 0)
 	{
 		result = modbusRequestAndResponseStatusValues::noResponse;
 		strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_NO_RESPONSE_MQTT_DESC);
