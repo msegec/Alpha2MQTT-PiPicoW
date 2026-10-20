@@ -12,6 +12,7 @@ This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) 
 - **A fast state every second.** `Alpha2MQTT/state/fast` carries grid power, PV power, battery power, SOC and dispatch start with a sequence number and timing, for a closed loop controller. See [States](#states).
 - **Set responses carry a seq and ms.** `set/charge`, `set/discharge` and `set/normal` accept an optional `seq` and echo it with the Pico's millis(), so a controller can match replies to requests.
 - **One frame dispatch writes.** `set/charge` and `set/discharge` write the whole dispatch block, registers `0x0880` to `0x0888`, as one Write Data Register, about 50 ms on the bus instead of five writes two seconds apart. An inverter that refuses the nine register write gets the five writes as before; the response says which with `"frames": 1` or `5`. A `set/charge` or `set/discharge` with `"powerOnly": 1` rewrites only the power register when the dispatch Alpha2MQTT last wrote in full has the same kind, SOC and duration and less than half its duration has passed. See [Force Charge From Grid](#force-charge-from-grid).
+- **Idle while Home Assistant is gone.** Alpha2MQTT subscribes to `homeassistant/status`, Home Assistant's default birth and will topic (`MQTT_SUB_HA_STATUS` in Definitions.h). Home Assistant counts as gone from an `offline` until the next `online`, and while Alpha2MQTT has been off the broker for over 60 s, counted from the last time it was connected or from boot, until it reconnects. While it is gone, Alpha2MQTT writes a full dispatch block every 60 s, charge at 0 W to 100 % SOC for 120 s, so the battery sits idle instead of following the inverter's own mode. A charge of 0 W stores nothing, so solar surplus is exported while the hold is in place. When Home Assistant is back, a hold Alpha2MQTT wrote is ended at once with the same write as `set/normal`, so the inverter returns to its own mode until the controller's first command. A failed hold or release is tried again after 10 s. Any `set/charge`, `set/discharge` or `set/normal` request counts as Home Assistant being up, even after an `offline`, and is never overwritten by the hold: Home Assistant sends its birth non-retained by default, so Alpha2MQTT misses one sent while it is off the broker itself. A `set/normal` sent while Home Assistant is up stays normal. The fast state's `haIdle` is 1 while Home Assistant counts as gone.
 - **Device supply every minute.** `Alpha2MQTT/state/device` reports VSYS and whether USB power is present.
 - **Schedules tuned for a battery only inverter.** Energy totals move from daily to every minute so the Home Assistant Energy dashboard stays current, and the hybrid only PV1 to PV6 reads are dropped from the ten second schedule. The five minute and daily schedules are empty by default.
 - **Dispatch SOC as a percent.** `socPercent` is converted with the register's 0.4 % per bit scale and rounded up, so a charge reaches at least the target and a discharge stops at or above it, and the response reports the percent rather than 0.
@@ -74,7 +75,7 @@ Alpha2MQTT/state/day/one
 
 On a Pico W, Alpha2MQTT also publishes its own supply every minute to `Alpha2MQTT/state/device`: VSYS in millivolts and whether USB power is present, for example `{"vsys_mv": 4870, "usb_power": false}`. Use it to watch a battery feeding VSYS.
 
-`Alpha2MQTT/state/fast` is for a controller such as a Home Assistant automation. Every second Alpha2MQTT reads grid power, PV meter power, battery power, SOC and dispatch start back to back and publishes them straight away, with the same keys as the ten second schedule plus three of its own:
+`Alpha2MQTT/state/fast` is for a controller such as a Home Assistant automation. Every second Alpha2MQTT reads grid power, PV meter power, battery power, SOC and dispatch start back to back and publishes them straight away, with the same keys as the ten second schedule plus four of its own:
 ```
 {
     "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1": -120,
@@ -84,10 +85,11 @@ On a Pico W, Alpha2MQTT also publishes its own supply every minute to `Alpha2MQT
     "REG_DISPATCH_RW_DISPATCH_START": "Stop",
     "seq": 5123,
     "ms": 5123456,
-    "read_ms": 142
+    "read_ms": 142,
+    "haIdle": 0
 }
 ```
-seq counts up by one per message and restarts at 1 after a reboot. ms is the Pico's millis() when the reads started and read_ms is how long they took. A register that fails to read is left out of that message. So is a PV meter power of exactly 0 straight after a reading 10 W or more from 0: the inverter now and then reports a lone 0 while the PV is generating, so a 0 is only published once a second read confirms it. This applies to every schedule. The other schedules run between fast cycles, so they no longer hold the fast state up.
+seq counts up by one per message and restarts at 1 after a reboot. ms is the Pico's millis() when the reads started and read_ms is how long they took. haIdle is 1 while Home Assistant counts as gone and Alpha2MQTT keeps the battery idle, see [About this fork](#about-this-fork). A register that fails to read is left out of that message. So is a PV meter power of exactly 0 straight after a reading 10 W or more from 0: the inverter now and then reports a lone 0 while the PV is generating, so a 0 is only published once a second read confirms it. This applies to every schedule. The other schedules run between fast cycles, so they no longer hold the fast state up.
 
 Each of the schedules can be customised to report a number* / any combination of register values.  Alpha2MQTT has been developed this way to give flexibility.  For example, there is probably no need to report grid voltage every ten seconds, instead once every five minutes and in doing so we are limiting network traffic over MQTT and onward processing in software such as Home Assistant.
 

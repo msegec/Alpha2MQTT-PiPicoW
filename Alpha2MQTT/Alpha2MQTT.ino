@@ -18,6 +18,7 @@ First, go and customise options at the top of Definitions.h!
 #include "Dispatch.h"
 #include "ModbusFrame.h"
 #include "Timer.h"
+#include "IdleHold.h"
 #include <Arduino.h>
 #if defined MP_ESP8266
 #include <ESP8266WiFi.h>
@@ -71,6 +72,9 @@ DispatchBlock _activeDispatch = {};
 // Later commands go straight to the five single writes instead of paying for a refused frame first. Only a reboot
 // clears it.
 bool _blockFrameRefused = false;
+
+// Whether Home Assistant is gone, and the idle hold or its release last written. See holdIdleWhileHaGone.
+IdleHold _idleHold = {};
 
 // OLED variables
 struct displayReading
@@ -640,6 +644,9 @@ void loop()
 		mqttReconnect();
 	}
 
+	// Keep the battery idle while Home Assistant is gone
+	holdIdleWhileHaGone();
+
 	// Read and transmit the controller registers
 	sendFastState();
 
@@ -1080,6 +1087,7 @@ void mqttReconnect()
 		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
 		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_READ_HANDLED_REGISTER_ALL);
 		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
+		subscribed = subscribed && _mqtt.subscribe(MQTT_SUB_HA_STATUS);
 	}
 
 	if (subscribed)
@@ -1303,14 +1311,15 @@ sendFastState
 
 Reads the fast registers back to back and publishes them straight away, once every STATUS_INTERVAL_FAST.
 seq counts up by one per message from boot, ms is millis() when the reads started and read_ms is how long they took,
-so a controller can spot gaps, restarts and the real cycle time. Registers that fail to read are left out.
+so a controller can spot gaps, restarts and the real cycle time. haIdle is 1 while Home Assistant counts as gone and
+the idle hold is kept. Registers that fail to read are left out.
 */
 void sendFastState()
 {
 	static unsigned long lastRun = 0;
 	static unsigned long seq = 0;
 	unsigned long started;
-	char stateAddition[96];
+	char stateAddition[128];
 	char* interruptedPayload;
 	modbusRequestAndResponseStatusValues resultAddedToPayload;
 	int numberOfRegisters = sizeof(_mqttFastStatusRegisters) / sizeof(_mqttFastStatusRegisters[0]);
@@ -1335,7 +1344,7 @@ void sendFastState()
 
 	if (resultAddedToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 	{
-		sprintf(stateAddition, "    \"seq\": %lu,\r\n    \"ms\": %lu,\r\n    \"read_ms\": %lu\r\n}", ++seq, started, millis() - started);
+		snprintf(stateAddition, sizeof(stateAddition), "    \"seq\": %lu,\r\n    \"ms\": %lu,\r\n    \"read_ms\": %lu,\r\n    \"haIdle\": %d\r\n}", ++seq, started, millis() - started, haGone(_idleHold) ? 1 : 0);
 		addToPayload(stateAddition);
 	}
 
@@ -1492,6 +1501,65 @@ modbusRequestAndResponseStatusValues writeFullDispatchBlock(bool charge, uint32_
 
 
 /*
+writeDispatchStop
+
+Ends any dispatch, so the inverter goes back to its own mode: start 0 to 0x0880. Clears _activeDispatch, so the next
+charge or discharge writes the whole block.
+*/
+modbusRequestAndResponseStatusValues writeDispatchStop(modbusRequestAndResponse* rs)
+{
+	_activeDispatch.valid = false;
+	rs->registerCount = 1;
+	return _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_STOP, rs);
+}
+
+
+
+/*
+holdIdleWhileHaGone
+
+While Home Assistant is gone (its will said offline, or the broker has been away over a minute) the battery is held
+idle instead of left to the inverter's own mode: a charge of 0 W to 100 % for IDLE_HOLD_DURATION_S, written as a full
+block every IDLE_HOLD_REWRITE_MS. Charge 0 W stores no solar surplus, it exports. Once Home Assistant is back, by its
+birth or a reconnect, a hold this wrote is ended in the same pass with a set/normal, so control returns at once. A set
+request from Home Assistant replaces the hold instead and nothing is written over it. A failed write of either kind
+is tried again after IDLE_HOLD_RETRY_MS. _activeDispatch is kept as after a set/charge or set/normal, so the next
+command follows the same power-only rules. One block write or one stop write per call at most, never a wait.
+*/
+void holdIdleWhileHaGone()
+{
+	modbusRequestAndResponse response;
+	const char* failedRegister = NULL;
+	int frames = 1;
+	uint32_t now = millis();
+	IdleHoldWrite write = idleHoldDue(_idleHold, _mqtt.connected(), now);
+	modbusRequestAndResponseStatusValues result;
+
+	if (write == IdleHoldWrite::none)
+	{
+		return;
+	}
+	if (write == IdleHoldWrite::hold)
+	{
+		result = writeFullDispatchBlock(true, 32000, dispatchSocFromPercent(100), IDLE_HOLD_DURATION_S, now, &response, &failedRegister, &frames);
+	}
+	else
+	{
+		result = writeDispatchStop(&response);
+	}
+
+	bool ok = result == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess;
+	idleHoldWritten(_idleHold, write, ok, now);
+
+#ifdef DEBUG
+	sprintf(_debugOutput, "Idle %s write %s, %d frames", write == IdleHoldWrite::hold ? "hold" : "release", ok ? "acknowledged" : "failed", frames);
+	Serial.println(_debugOutput);
+#endif
+}
+
+
+
+/*
 mqttCallback()
 
 // This function is executed when an MQTT message arrives on a topic that we are subscribed to.
@@ -1501,6 +1569,13 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	// Reject oversized payloads before they reach the fixed buffer below
 	if (!requestPayloadFits(length))
 	{
+		return;
+	}
+
+	// Home Assistant's birth or will. Only noted here: loop() writes the idle hold, between RS485 requests.
+	if (strcmp(topic, MQTT_SUB_HA_STATUS) == 0)
+	{
+		idleHoldStatus(_idleHold, haStatusFromPayload(message, length));
 		return;
 	}
 
@@ -1827,6 +1902,12 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		_activeDispatch.valid = false;
 	}
 
+	// A set request means Home Assistant is up, even if its birth was missed. Its command replaces the idle hold.
+	if (subScription == mqttSubscriptions::setCharge || subScription == mqttSubscriptions::setDischarge || subScription == mqttSubscriptions::setNormal)
+	{
+		idleHoldCommand(_idleHold);
+	}
+
 	// Carry on?
 	if (result == modbusRequestAndResponseStatusValues::preProcessing)
 	{
@@ -2083,9 +2164,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		else if (subScription == mqttSubscriptions::setNormal)
 		{
 			// Turns off dispatch mode for normal
-
-			responseDispatch.registerCount = 1;
-			resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_STOP, &responseDispatch);
+			resultDispatch = writeDispatchStop(&responseDispatch);
 			if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 			{
 				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"", responseDispatch.statusMqttMessage);

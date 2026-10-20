@@ -827,6 +827,12 @@ enum mqttSubscriptions
 #define MQTT_SUB_REQUEST_SET_NORMAL "/request/set/normal"
 #define MQTT_SUB_REQUEST_READ_HANDLED_REGISTER_ALL "/request/read/register/handled/all"
 
+// Home Assistant's birth and will topic, online when it connects and offline when it stops. Not under DEVICE_NAME.
+// Change it here if Home Assistant's MQTT integration uses another.
+#ifndef MQTT_SUB_HA_STATUS
+#define MQTT_SUB_HA_STATUS "homeassistant/status"
+#endif
+
 // MQTT Responses
 #define MQTT_MES_RESPONSE_READ_HANDLED_REGISTER "/response/read/register/handled"
 #define MQTT_MES_RESPONSE_READ_RAW_REGISTER "/response/read/register/raw"
