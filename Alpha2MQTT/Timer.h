@@ -1,4 +1,4 @@
-// Pure timer arithmetic for checkTimer. No Arduino types, so tests/firmware builds it on the host.
+// Pure timer arithmetic for checkTimer and the reconnect retries. No Arduino types, so tests/firmware builds it on the host.
 #ifndef _Timer_h
 #define _Timer_h
 
@@ -18,6 +18,13 @@ inline bool timerDue(uint32_t* lastRun, uint32_t now, uint32_t interval)
 	}
 	*lastRun = interval == 0 ? now : now - elapsed % interval;
 	return true;
+}
+
+// True when a reconnect attempt is due: at once if none has failed since the last success, otherwise once
+// interval has passed since the last attempt. Unlike timerDue, the first attempt does not wait an interval from boot.
+inline bool retryDue(bool tried, uint32_t lastTry, uint32_t now, uint32_t interval)
+{
+	return !tried || now - lastTry >= interval;
 }
 
 #endif

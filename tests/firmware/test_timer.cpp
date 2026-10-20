@@ -55,6 +55,14 @@ int main()
 	expect(timerDue(&last, 5, 0), "a zero interval is always due");
 	expect(last == 5, "and does not divide by zero");
 
+	// Reconnect spacing: the first try is due at once, even at boot when millis() is small
+	expect(retryDue(false, 0, 0, 10000), "the first try is due at once");
+	expect(!retryDue(true, 1000, 10999, 10000), "a retry waits the full interval");
+	expect(retryDue(true, 1000, 11000, 10000), "and is due once it has passed");
+	expect(retryDue(true, 1000, 90000, 10000), "a long outage retries at once");
+	expect(!retryDue(true, 0xFFFFF000u, 0x00000100u, 0x2000u), "no early retry across the wrap");
+	expect(retryDue(true, 0xFFFFF000u, 0x00001000u, 0x2000u), "due across the wrap");
+
 	if (failures == 0)
 	{
 		printf("OK\n");

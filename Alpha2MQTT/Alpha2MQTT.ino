@@ -430,6 +430,14 @@ static const uint16_t _mqttAllHandledRegisters[] =
 #define STATUS_INTERVAL_ONE_DAY 86400000
 #define UPDATE_STATUS_BAR_INTERVAL 500
 
+// Reconnects. setupWifi reissues WiFi.begin if still not connected after WIFI_RETRY_INTERVAL, and mqttReconnect
+// waits MQTT_RETRY_INTERVAL after a failed attempt. One attempt at the broker gives up on the TCP connect or a write
+// after MQTT_CLIENT_TIMEOUT ms, and on the broker's answer after MQTT_REPLY_TIMEOUT seconds.
+#define WIFI_RETRY_INTERVAL 10000
+#define MQTT_RETRY_INTERVAL 5000
+#define MQTT_CLIENT_TIMEOUT 2500
+#define MQTT_REPLY_TIMEOUT 2
+
 // Wemos OLED Shield set up. 64x48
 // Pins D1 D2 if ESP8266
 // Pins GPIO22 and GPIO21 (SCL/SDA) with optional reset on GPIO13 if ESP32
@@ -479,7 +487,7 @@ void setup()
 	delay(100);
 
 
-	// Configure WIFI
+	// Start WiFi. It connects in the background, see setupWifi.
 	setupWifi();
 
 #if defined MP_PICOW
@@ -492,6 +500,8 @@ void setup()
 
 	// Configure MQTT to the address and port specified above
 	_mqtt.setServer(MQTT_SERVER, MQTT_PORT);
+	_wifi.setTimeout(MQTT_CLIENT_TIMEOUT);
+	_mqtt.setSocketTimeout(MQTT_REPLY_TIMEOUT);
 #ifdef DEBUG
 	sprintf(_debugOutput, "About to request buffer");
 	Serial.println(_debugOutput);
@@ -589,7 +599,7 @@ void setup()
 	// Get the serial number (especially prefix for error codes)
 	getSerialNumber();
 
-	// Connect to MQTT
+	// First try at MQTT. loop() keeps trying if WiFi or the broker is not there yet.
 	mqttReconnect();
 
 	updateOLED(false, "", "", _version);
@@ -608,11 +618,8 @@ void loop()
 	// Refresh LED Screen, will cause the status asterisk to flicker
 	updateOLED(true, "", "", "");
 
-	// Make sure WiFi is good
-	if (WiFi.status() != WL_CONNECTED)
-	{
-		setupWifi();
-	}
+	// Make sure WiFi is good. Returns at once, connected or not.
+	setupWifi();
 
 #if defined MP_PICOW
 	// Takes over and reboots if an upload has been accepted. Only ever called between RS485 requests.
@@ -659,40 +666,54 @@ void loop()
 /*
 setupWifi
 
-Connect to WiFi
+Connect to WiFi without waiting for it, so OTA and the RS485 work carry on while WiFi is down.
+WiFi.begin only starts the connection. loop() and waitServicingOta call this on every pass: it returns at once,
+and reissues WiFi.begin if still not connected after WIFI_RETRY_INTERVAL.
 */
 void setupWifi()
 {
-	// We start by connecting to a WiFi network
+	static bool connecting = false;
+	static unsigned long lastBegin = 0;
+
+	if (WiFi.status() == WL_CONNECTED)
+	{
+		if (connecting)
+		{
+			connecting = false;
+
+			// Set the hostname for this Arduino
+			WiFi.hostname(DEVICE_NAME);
+
+			// Output some debug information
+#ifdef DEBUG
+			Serial.print("WiFi connected, IP is");
+			Serial.print(WiFi.localIP());
+#endif
+
+			// Connected, so ditch out with blank screen
+			updateOLED(false, "", "", _version);
+		}
+		return;
+	}
+
+	if (!retryDue(connecting, lastBegin, millis(), WIFI_RETRY_INTERVAL))
+	{
+		return;
+	}
+	connecting = true;
+	lastBegin = millis();
+
 #ifdef DEBUG
 	sprintf(_debugOutput, "Connecting to %s", WIFI_SSID);
 	Serial.println(_debugOutput);
 #endif
+	updateOLED(false, "Connecting", "WiFi...", _version);
 
 	// Set up in Station Mode - Will be connecting to an access point
 	WiFi.mode(WIFI_STA);
 
 	// And connect to the details defined at the top
 	WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-	// And continually try to connect to WiFi.  If it doesn't, the device will just wait here before continuing
-	while (WiFi.status() != WL_CONNECTED)
-	{
-		delay(250);
-		updateOLED(false, "Connecting", "WiFi...", _version);
-	}
-
-	// Set the hostname for this Arduino
-	WiFi.hostname(DEVICE_NAME);
-
-	// Output some debug information
-#ifdef DEBUG
-	Serial.print("WiFi connected, IP is");
-	Serial.print(WiFi.localIP());
-#endif
-
-	// Connected, so ditch out with blank screen
-	updateOLED(false, "", "", _version);
 }
 
 
@@ -716,7 +737,7 @@ bool checkTimer(unsigned long *lastRun, unsigned long interval)
 /*
 waitServicingOta
 
-A delay that still answers OTA uploads, for the long waits in setup and while reconnecting.
+A delay that still answers OTA uploads and keeps WiFi trying, for the long waits in setup.
 espota.py gives up if the Pico takes more than 10 seconds to start an accepted upload.
 */
 void waitServicingOta(unsigned long ms)
@@ -725,6 +746,7 @@ void waitServicingOta(unsigned long ms)
 
 	while (millis() - start < ms)
 	{
+		setupWifi();
 #if defined MP_PICOW
 		ArduinoOTA.handle();
 #endif
@@ -997,69 +1019,73 @@ void updateRunstate()
 /*
 mqttReconnect
 
-This function reconnects the ESP8266 to the MQTT broker
+Makes one attempt to connect to the MQTT broker and subscribe, then returns either way, so OTA and the RS485 work
+carry on while the broker is away. loop() calls it again on its next pass. It returns at once while WiFi is down,
+and waits MQTT_RETRY_INTERVAL after a failed attempt.
 */
 void mqttReconnect()
 {
+	static bool tried = false;
+	static unsigned long lastTry = 0;
 	bool subscribed = false;
 	char subscriptionDef[100];
 
-	// Loop until we're reconnected
-	while (true)
+	if (WiFi.status() != WL_CONNECTED || !retryDue(tried, lastTry, millis(), MQTT_RETRY_INTERVAL))
 	{
-
-		_mqtt.disconnect();		// Just in case.
-		delay(200);
-
-#ifdef DEBUG
-		Serial.print("Attempting MQTT connection...");
-#endif
-
-		updateOLED(false, "Connecting", "MQTT...", _version);
-		delay(100);
-
-		// Attempt to connect
-		// An empty MQTT_USERNAME means connect without credentials
-		if (strlen(MQTT_USERNAME) == 0 ? _mqtt.connect(DEVICE_NAME) : _mqtt.connect(DEVICE_NAME, MQTT_USERNAME, MQTT_PASSWORD))
-		{
-			Serial.println("Connected MQTT");
-
-			sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_READ_HANDLED_REGISTER);
-			subscribed = _mqtt.subscribe(subscriptionDef);
-			sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_READ_RAW_REGISTER);
-			subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
-			sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_SET_CHARGE);
-			subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
-			sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_SET_DISCHARGE);
-			subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
-			sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_SET_NORMAL);
-			subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
-			sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_WRITE_RAW_SINGLE_REGISTER);
-			subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
-			sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_WRITE_RAW_DATA_REGISTER);
-			subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
-			sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_READ_HANDLED_REGISTER_ALL);
-			subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
-
-			// Subscribe or resubscribe to topics.
-			if (subscribed)
-			{
-				// Connected, so ditch out with runstate on the screen
-				updateRunstate();
-				break;
-			}
-			
-		}
-
-		if (!subscribed)
-#ifdef DEBUG
-		sprintf(_debugOutput, "MQTT Failed: RC is %d\r\nTrying again in five seconds...", _mqtt.state());
-		Serial.println(_debugOutput);
-#endif
-
-		// Wait 5 seconds before retrying
-		waitServicingOta(5000);
+		return;
 	}
+
+	_mqtt.disconnect();		// Just in case.
+	delay(200);
+
+#ifdef DEBUG
+	Serial.print("Attempting MQTT connection...");
+#endif
+
+	updateOLED(false, "Connecting", "MQTT...", _version);
+	delay(100);
+
+	// Attempt to connect
+	// An empty MQTT_USERNAME means connect without credentials
+	if (strlen(MQTT_USERNAME) == 0 ? _mqtt.connect(DEVICE_NAME) : _mqtt.connect(DEVICE_NAME, MQTT_USERNAME, MQTT_PASSWORD))
+	{
+		Serial.println("Connected MQTT");
+
+		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_READ_HANDLED_REGISTER);
+		subscribed = _mqtt.subscribe(subscriptionDef);
+		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_READ_RAW_REGISTER);
+		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
+		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_SET_CHARGE);
+		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
+		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_SET_DISCHARGE);
+		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
+		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_SET_NORMAL);
+		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
+		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_WRITE_RAW_SINGLE_REGISTER);
+		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
+		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_WRITE_RAW_DATA_REGISTER);
+		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
+		sprintf(subscriptionDef, "%s", DEVICE_NAME MQTT_SUB_REQUEST_READ_HANDLED_REGISTER_ALL);
+		subscribed = subscribed && _mqtt.subscribe(subscriptionDef);
+	}
+
+	if (subscribed)
+	{
+		// Connected, so ditch out with runstate on the screen
+		tried = false;
+		updateRunstate();
+		return;
+	}
+
+#ifdef DEBUG
+	sprintf(_debugOutput, "MQTT Failed: RC is %d\r\nTrying again in five seconds...", _mqtt.state());
+	Serial.println(_debugOutput);
+#endif
+
+	// loop() only calls back for a dropped connection, so drop one that is missing its subscriptions
+	_mqtt.disconnect();
+	tried = true;
+	lastTry = millis();
 }
 
 
