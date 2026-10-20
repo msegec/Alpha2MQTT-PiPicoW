@@ -53,6 +53,9 @@ CORRECTION_MAX_AGE_S = 90.0
 # A correction rendered from the fast message, such as a net demand template, carries its seq and may update just
 # after the controller sees the message. A sample waits this long for it, then steps on the value it has.
 MATCH_WAIT_S = 0.5
+# A block write is acked within about 2 s. No response this long after a publish means the request or its
+# response was lost, as in a Pico reconnecting: the command counts as failed and goes again in full.
+ACK_TIMEOUT_S = 10.0
 
 GRID_KEY = "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1"
 BATTERY_KEY = "REG_BATTERY_HOME_R_BATTERY_POWER"
@@ -104,6 +107,8 @@ class Controller:
         self.last_sent: datetime | None = None
         self.last_seq: int | None = None
         self.ack: dict = {}
+        self._answered_seq = None  # the newest seq with a response, or given up on
+        self._seq_echo = False  # the firmware echoes seq, so a missing response means a lost command
         self._sent_mono: dict[int, float] = {}
         self._sent_times: deque[float] = deque()
         self._unsubs: list[Callable[[], None]] = []
@@ -354,7 +359,17 @@ class Controller:
 
     @callback
     def _on_tick(self, _now) -> None:
+        self._check_ack()
         self._run()
+
+    def _check_ack(self) -> None:
+        seq = self.last_seq
+        if not self._seq_echo or seq is None or seq == self._answered_seq:
+            return
+        if self.regulator.sent is self.last_command and time.monotonic() - self._sent_mono[seq] > ACK_TIMEOUT_S:
+            self._answered_seq = seq
+            self._log("ack_timeout", seq=seq)
+            self.regulator.fail()
 
     @callback
     def _run(self) -> Command | None:
@@ -409,6 +424,9 @@ class Controller:
             _LOGGER.info("Battery controller %s works again", what)
 
     async def _publish(self, cmd: Command) -> None:
+        if self.regulator.sent is not None and self.regulator.sent is not cmd:
+            # Superseded before its task ran, as by a release from the switch: the newer command owns the inverter.
+            return
         self._cmd_seq += 1
         seq = self._cmd_seq
         base = self.config.get(CONF_BASE_TOPIC, DEFAULT_BASE_TOPIC)
@@ -441,6 +459,10 @@ class Controller:
         except ValueError:
             return
         seq = data.get("seq")
+        if seq is not None:
+            self._seq_echo = True
+        if seq is not None and seq == self.last_seq:
+            self._answered_seq = seq
         sent = self._sent_mono.get(seq)
         self.ack = {
             "ack_seq": seq,

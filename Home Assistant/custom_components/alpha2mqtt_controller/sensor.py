@@ -37,6 +37,12 @@ SENSORS = [
         "integral": _round(c.regulator.integral_w),
         "feed_forward": _round(c.regulator.ff_w),
     }),
+    # What holds the output (floor, refused, full, warm, a cap, turn_round, none), and the three numbers that say
+    # why the grid sits off target: the battery as read, the watts the inverter was told, and the integral trim.
+    ("limit", "Limit", False, lambda c: c.regulator.limit if c.enabled else None, None),
+    ("battery", "Battery", True, lambda c: _round(c.regulator.battery_w), None),
+    ("sent", "Sent", True, lambda c: c.last_command.signed_w if c.last_command else None, None),
+    ("integral", "Integral", True, lambda c: _round(c.regulator.integral_w), None),
     ("commands", "Commands in the last hour", False, lambda c: c.commands_last_hour, None),
     ("last_command", "Last command", False, _last_command, lambda c: {
         "soc": c.last_command.soc if c.last_command else None,

@@ -414,3 +414,42 @@ def test_start_and_stop_are_logged_with_the_settings_in_the_default_directory(tm
 def test_the_log_directory_can_be_set(tmp_path):
     _, paths, _ = started(tmp_path, {"log_dir": str(tmp_path / "logs")})
     assert paths == [tmp_path / "logs" / "alpha2mqtt.jsonl"]
+
+
+def test_a_command_with_no_response_is_sent_again_in_full(monkeypatch):
+    t = [0.0]
+    monkeypatch.setattr(C.time, "monotonic", lambda: t[0])
+    c = sent_controller()
+    c.regulator.fail = MagicMock()
+    c._check_ack()
+    t[0] = 20
+    c._check_ack()
+    c.regulator.fail.assert_not_called()  # this firmware has never echoed a seq: it cannot be timed out
+    respond(c, 0, "setDishargeSuccess")  # an older command's response: the firmware echoes seq
+    c._check_ack()
+    c.regulator.fail.assert_called_once()
+    c._check_ack()
+    c.regulator.fail.assert_called_once()  # given up on once, not every tick
+
+
+def test_a_command_with_a_response_is_not_timed_out(monkeypatch):
+    t = [0.0]
+    monkeypatch.setattr(C.time, "monotonic", lambda: t[0])
+    c = sent_controller()
+    c.regulator.fail = MagicMock()
+    respond(c, 1, "setDishargeSuccess")
+    t[0] = 20
+    c._check_ack()
+    c.regulator.fail.assert_not_called()
+
+
+def test_a_command_superseded_before_its_publish_is_dropped():
+    mqtt = sys.modules["homeassistant.components"].mqtt
+    mqtt.async_publish = AsyncMock()
+    c = C.Controller(MagicMock(), {}, "entry")
+    c.regulator.update_grid(0, 520, 0)
+    charge = c.regulator.step(0, DISCHARGE)
+    normal = c.regulator.step(1, R.Policy(R.RELEASE))  # the switch went off before the task ran
+    asyncio.run(c._publish(normal))
+    asyncio.run(c._publish(charge))
+    assert [call.args[1].rsplit("/", 1)[1] for call in mqtt.async_publish.call_args_list] == ["normal"]
