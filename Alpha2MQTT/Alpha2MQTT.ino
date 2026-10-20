@@ -1868,6 +1868,12 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
 				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
+			else if (!dispatchRequestValid(strtoul(watts, NULL, 10), strtoul(socPercent, NULL, 10)))
+			{
+				// Out of range, so nothing is written. A negative number reads as a huge one and is refused too.
+				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
+				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
+			}
 			else
 			{
 				chargeDischargeWattsConverted = strtoul(watts, NULL, 10);

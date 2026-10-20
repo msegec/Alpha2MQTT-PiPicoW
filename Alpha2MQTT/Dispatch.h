@@ -12,6 +12,13 @@ inline bool requestPayloadFits(unsigned int length)
 	return length <= MQTT_REQUEST_PAYLOAD_MAX;
 }
 
+// The active power register is 32000 plus the discharge watts or minus the charge watts, so a charge over
+// 32000 W would wrap below zero. A SOC above 100 % is no target. Checked before either is narrowed.
+inline bool dispatchRequestValid(unsigned long watts, unsigned long socPercent)
+{
+	return watts <= 32000ul && socPercent <= 100ul;
+}
+
 // The dispatch SOC register counts 0.4 % per bit. Round up, so a charge reaches at least the target
 // and a discharge stops at or above it.
 inline uint16_t dispatchSocFromPercent(uint16_t percent)
