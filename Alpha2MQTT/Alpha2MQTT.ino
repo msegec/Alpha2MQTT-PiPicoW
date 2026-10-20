@@ -518,6 +518,9 @@ void setup()
 
 	// Configure MQTT to the address and port specified above
 	_mqtt.setServer(MQTT_SERVER, MQTT_PORT);
+	// One broker attempt runs on a fresh watchdog and can spend MQTT_CLIENT_TIMEOUT on the TCP connect plus
+	// MQTT_REPLY_TIMEOUT on the CONNACK, 4.5 s. A hostname in MQTT_SERVER adds a DNS lookup under the same client
+	// timeout, 7 s against WATCHDOG_TIMEOUT, so prefer a dotted address.
 	_wifi.setTimeout(MQTT_CLIENT_TIMEOUT);
 	_mqtt.setSocketTimeout(MQTT_REPLY_TIMEOUT);
 #ifdef DEBUG
