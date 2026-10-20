@@ -691,15 +691,32 @@ setupWifi
 
 Connect to WiFi without waiting for it, so OTA and the RS485 work carry on while WiFi is down.
 WiFi.begin joins the access point, blocking for up to WIFI_JOIN_TIMEOUT, and leaves DHCP running in the background.
-loop() and waitServicingOta call this on every pass: it returns at once, and reissues WiFi.begin if still not
-connected after WIFI_RETRY_INTERVAL.
+loop() and waitServicingOta call this on every pass: it returns at once, and reissues WiFi.begin if the access point
+is lost, or if still not joined after WIFI_RETRY_INTERVAL. A join whose DHCP is still pending is left to finish.
 */
+
+// True while the station is joined to the access point, or a join is in progress. On the Pico W, WiFi.status()
+// only says whether lwIP holds an IPv4 address (LwipIntfDev::connected). Losing the access point does not clear
+// that address, only the DHCP lease running out does, so status() reads connected for hours after the link has
+// gone, and the core never rejoins on its own. The driver does clear its join flag on link loss
+// (cyw43_cb_tcpip_set_link_down), which is what cyw43_wifi_link_status reports. Reading it costs no bus time.
+static bool wifiJoined()
+{
+#if defined MP_PICOW
+	return cyw43_wifi_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_JOIN;
+#else
+	return WiFi.status() == WL_CONNECTED;
+#endif
+}
+
 void setupWifi()
 {
 	static bool connecting = false;
 	static unsigned long lastBegin = 0;
+	wl_status_t status = (wl_status_t)WiFi.status();
+	bool joined = wifiJoined();
 
-	if (WiFi.status() == WL_CONNECTED)
+	if (status == WL_CONNECTED && joined)
 	{
 		if (connecting)
 		{
@@ -720,6 +737,16 @@ void setupWifi()
 		return;
 	}
 
+	// Joined with DHCP still running: WL_DISCONNECTED means the join succeeded and lwIP has no address yet. A new
+	// begin would leave the access point and stop DHCP (_beginInternal calls end()), so wait. A join that timed
+	// out reads WL_NO_SHIELD instead, since the core removed the interface, so it falls through to the retry.
+	if (status == WL_DISCONNECTED && joined)
+	{
+		return;
+	}
+
+	// A lost access point arrives here with connecting false, so it begins again at once. A join still being tried
+	// waits out the retry interval.
 	if (!retryDue(connecting, lastBegin, millis(), WIFI_RETRY_INTERVAL))
 	{
 		return;
