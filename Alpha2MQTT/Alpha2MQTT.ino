@@ -1412,6 +1412,86 @@ modbusRequestAndResponseStatusValues closeSetResponse(char* seq)
 
 
 /*
+writeFullDispatchBlock
+
+Writes the whole dispatch block in SOC control mode, which renews its lease: one nine register frame, about 50 ms
+on the bus, or five single writes 400 ms apart for an inverter that refuses the frame. _activeDispatch is cleared
+first and set to this block, stamped writeStartedMs, only once the inverter has acknowledged all of it.
+Returns the last write's status. *frames says which path ran. After a failed single write, *failedRegister names it.
+*/
+modbusRequestAndResponseStatusValues writeFullDispatchBlock(bool charge, uint32_t powerRegister, uint16_t socRegister, uint32_t durationS, uint32_t writeStartedMs, modbusRequestAndResponse* rs, const char** failedRegister, int* frames)
+{
+	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
+
+	_activeDispatch.valid = false;
+	*failedRegister = NULL;
+	*frames = 1;
+
+	if (!_blockFrameRefused)
+	{
+		result = _registerHandler->writeDispatchBlock(DISPATCH_START_START, powerRegister, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, socRegister, durationS, rs);
+		if (result == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+		{
+			_activeDispatch = { true, charge, socRegister, durationS, writeStartedMs };
+			return result;
+		}
+	}
+
+	// An exception to the nine register write, then five single writes that land, says this inverter
+	// will not take the frame. An exception the single writes also get is about the values instead.
+	bool blockRefused = !_blockFrameRefused && result == modbusRequestAndResponseStatusValues::slaveError;
+
+	// An inverter that will not take a nine register write gets the five single writes, 400 ms apart.
+	// Keep the order START, ACTIVE_POWER, TIME, SOC, MODE: no other is proven on hardware.
+	*frames = 5;
+	rs->registerCount = 1;
+	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_START, rs);
+	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+	{
+		*failedRegister = "REG_DISPATCH_RW_DISPATCH_START";
+		return result;
+	}
+	delay(RS485_TRIES * 50);
+	rs->registerCount = 2;
+	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, powerRegister, rs);
+	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+	{
+		*failedRegister = "REG_DISPATCH_RW_ACTIVE_POWER_1";
+		return result;
+	}
+	delay(RS485_TRIES * 50);
+	rs->registerCount = 2;
+	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_TIME_1, durationS, rs);
+	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+	{
+		*failedRegister = "REG_DISPATCH_RW_DISPATCH_TIME_1";
+		return result;
+	}
+	delay(RS485_TRIES * 50);
+	rs->registerCount = 1;
+	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_SOC, socRegister, rs);
+	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+	{
+		*failedRegister = "REG_DISPATCH_RW_DISPATCH_SOC";
+		return result;
+	}
+	delay(RS485_TRIES * 50);
+	rs->registerCount = 1;
+	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_MODE, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, rs);
+	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+	{
+		*failedRegister = "REG_DISPATCH_RW_DISPATCH_MODE";
+		return result;
+	}
+
+	_activeDispatch = { true, charge, socRegister, durationS, writeStartedMs };
+	_blockFrameRefused = _blockFrameRefused || blockRefused;
+	return result;
+}
+
+
+
+/*
 mqttCallback()
 
 // This function is executed when an MQTT message arrives on a topic that we are subscribed to.
@@ -1963,74 +2043,14 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 						_activeDispatch = running;
 					}
 				}
-				else if (!_blockFrameRefused && (resultDispatch = _registerHandler->writeDispatchBlock(DISPATCH_START_START, chargeDischargeWattsConverted, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, batterySocPercentConverted, durationSecondsConverted, &responseDispatch)) == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
-				{
-					// The whole block in one write, about 50 ms on the bus
-					_activeDispatch = { true, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs };
-				}
 				else
 				{
-					// An exception to the nine register write, then five single writes that land, says this inverter
-					// will not take the frame. An exception the single writes also get is about the values instead.
-					bool blockRefused = !_blockFrameRefused && resultDispatch == modbusRequestAndResponseStatusValues::slaveError;
+					const char* failedRegister = NULL;
 
-					// An inverter that will not take a nine register write gets the five single writes, 400 ms apart
-					blockFrames = 5;
-					// First enable dispatch
-					responseDispatch.registerCount = 1;
-					resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_START, DISPATCH_START_START, &responseDispatch);
-					if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
+					resultDispatch = writeFullDispatchBlock(charge, chargeDischargeWattsConverted, batterySocPercentConverted, durationSecondsConverted, writeStartedMs, &responseDispatch, &failedRegister, &blockFrames);
+					if (failedRegister != NULL)
 					{
-						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"", responseDispatch.statusMqttMessage);
-					}
-					else
-					{
-						delay(RS485_TRIES * 50);
-						// Now set power
-						responseDispatch.registerCount = 2;
-						resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, chargeDischargeWattsConverted, &responseDispatch);
-						if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
-						{
-							sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_ACTIVE_POWER_1\"", responseDispatch.statusMqttMessage);
-						}
-						else
-						{
-							delay(RS485_TRIES * 50);
-							// Now set duration
-							responseDispatch.registerCount = 2;
-							resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_TIME_1, durationSecondsConverted, &responseDispatch);
-							if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
-							{
-								sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_TIME_1\"", responseDispatch.statusMqttMessage);
-							}
-							else
-							{
-								delay(RS485_TRIES * 50);
-								// Now set battery
-								responseDispatch.registerCount = 1;
-								resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_SOC, batterySocPercentConverted, &responseDispatch);
-								if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
-								{
-									sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_SOC\"", responseDispatch.statusMqttMessage);
-								}
-								else
-								{
-									delay(RS485_TRIES * 50);
-									// Finally set the mode to start
-									responseDispatch.registerCount = 1;
-									resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_MODE, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, &responseDispatch);
-									if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
-									{
-										sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_MODE\"", responseDispatch.statusMqttMessage);
-									}
-									else
-									{
-										_activeDispatch = { true, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs };
-										_blockFrameRefused = _blockFrameRefused || blockRefused;
-									}
-								}
-							}
-						}
+						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"%s\"", responseDispatch.statusMqttMessage, failedRegister);
 					}
 				}
 
