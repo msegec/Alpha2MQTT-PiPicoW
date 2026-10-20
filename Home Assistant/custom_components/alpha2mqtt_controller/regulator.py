@@ -177,8 +177,12 @@ class Regulator:
     def lease_active(self, t: float) -> bool:
         return self.sent is not None and self.sent.kind != "normal" and t < self._t_sent + self.sent.duration
 
-    def _hand_back(self, t: float, unknown: bool) -> Command | None:
-        """A normal while a lease may run, and again after the minimum interval if the last one failed."""
+    def _hand_back(self, t: float, status: str, unknown: bool) -> Command | None:
+        """Stops regulating. Sends a normal while a lease may run, and again after the minimum interval if the
+        last one failed."""
+        self.status = status
+        self._restart()
+        self.output_w = 0.0
         retry = (self.sent is not None and self.sent.kind == "normal" and self._failed
                  and t - self._t_sent >= self.settings.min_interval_s)
         # A restart forgets what the inverter was told, and a crash sends no release: until the first command,
@@ -210,20 +214,16 @@ class Regulator:
         s = self.settings
         dt = 0.0 if self._t_step is None else max(0.0, t - self._t_step)
         self._t_step = t
+        self.limit = "none"
         if policy.mode == FIXED and not math.isfinite(policy.fixed_w):
             policy = Policy(RELEASE)
         if policy.mode == RELEASE:
             # Needs no reading, so it goes out even when the inputs are stale.
-            self.status = "released"
-            self.limit = "none"
-            self._restart()
-            self.output_w = 0.0
-            return self._hand_back(t, unknown=True)
+            return self._hand_back(t, "released", unknown=True)
         live = self._t_fresh is not None and t - self._t_fresh <= s.stale_after_s
         if policy.mode in (HOLD, FIXED):
             # Fixed watts need no reading, so they hold through stale inputs.
             self.status = policy.mode
-            self.limit = "none"
             self._restart()
             self.ff_w = 0.0
             self.error_w = 0.0 if self.grid_w is None else self.grid_w - s.target_w
@@ -231,11 +231,7 @@ class Regulator:
         elif not live:
             # Hand the inverter back now. Holding the last watts until the lease ran out could mean
             # two minutes at a setpoint chosen for a load that has gone.
-            self.status = "stale"
-            self.limit = "none"
-            self._restart()
-            self.output_w = 0.0
-            return self._hand_back(t, unknown=False)
+            return self._hand_back(t, "stale", unknown=False)
         else:
             if not self._regulating:
                 # Bumpless start from whatever the inverter is doing on its own.
@@ -253,19 +249,15 @@ class Regulator:
                 request = self._filtered + (request - self._filtered) * min(1.0, dt / s.smoothing_s)
             self._filtered = request
             lo, hi = -policy.max_charge_w, policy.max_discharge_w
-            self.limit = "none"
+            floor, ceiling = "discharge_cap", "charge_cap"
             if self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN:
                 # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.
                 hi, floor = 0.0, "floor"
             elif self._refused(t):
                 hi, floor = 0.0, "refused"
-            else:
-                floor = "discharge_cap"
             if self.soc is not None and self.soc >= policy.charge_soc:
                 # Full: the same for a charge, so the export it cannot store does not wind the integral.
                 lo, ceiling = 0.0, "full"
-            else:
-                ceiling = "charge_cap"
             if request > hi:
                 self.limit = floor
             elif request < lo:
