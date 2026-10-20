@@ -3,6 +3,7 @@
 #define _ModbusFrame_h
 
 #include <stdint.h>
+#include <stdio.h>
 
 // A read reply is slave ID, function code, byte count, the data and two CRC bytes.
 #define MODBUS_READ_REPLY_OVERHEAD 5
@@ -44,6 +45,25 @@ inline bool replyMatchesRequest(const uint8_t* request, const uint8_t* reply)
 
 	// An exception sets the top bit of the code it answers. Any other code is taken as an exception, as before.
 	return (got & 0x80) == 0 || got == (asked | 0x80);
+}
+
+// A reply's data bytes as decimals separated by commas, for a JSON array. Stops before a byte that would not
+// fit, so out always holds whole numbers and a terminator. No bytes leave it empty. outSize is at least 1.
+inline void rawDataList(char* out, unsigned int outSize, const uint8_t* data, unsigned int count)
+{
+	unsigned int used = 0;
+
+	out[0] = '\0';
+	for (unsigned int i = 0; i < count; i++)
+	{
+		int added = snprintf(out + used, outSize - used, i == 0 ? "%u" : ",%u", (unsigned int)data[i]);
+		if (added < 0 || used + added >= outSize)
+		{
+			out[used] = '\0';
+			break;
+		}
+		used += added;
+	}
 }
 
 #endif

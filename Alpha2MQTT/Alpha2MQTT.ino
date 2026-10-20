@@ -1425,9 +1425,8 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 
 	uint8_t registerCount;
 
-	// Bytes are received back as base ten, 0-255, so four chars to account for null terminator
-	char rawByteForPayload[4] = "";
-	char rawDataForPayload[100] = "";
+	// A reply's data bytes as base ten, up to 58 of them as "255," each
+	char rawDataForPayload[(MAX_FRAME_SIZE_ZERO_INDEXED - MODBUS_READ_REPLY_OVERHEAD) * 4] = "";
 	char mqttIncomingPayload[MQTT_REQUEST_PAYLOAD_MAX + 1] = "";
 
 	mqttSubscriptions subScription = mqttSubscriptions::unknown;
@@ -1728,15 +1727,6 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				registerAddressConverted = strtoul(registerAddress, NULL, 16);
 
 				result = _registerHandler->readHandledRegister(registerAddressConverted, &response);
-				if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess || result == modbusRequestAndResponseStatusValues::slaveError)
-				{
-					for (int i = 0; i < response.dataSize; i++)
-					{
-						sprintf(rawByteForPayload, "%u,", response.data[i]);
-						strcat(rawDataForPayload, rawByteForPayload);
-					}
-					rawDataForPayload[strlen(rawDataForPayload) - 1] = '\0';
-				}
 			}
 		}
 		else if (subScription == mqttSubscriptions::readRawRegister)
@@ -1767,16 +1757,6 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 
 				result = _registerHandler->readRawRegister(registerAddressConverted, &response);
 			}
-
-			if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess || result == modbusRequestAndResponseStatusValues::slaveError)
-			{
-				for (int i = 0; i < response.dataSize; i++)
-				{
-					sprintf(rawByteForPayload, "%u,", response.data[i]);
-					strcat(rawDataForPayload, rawByteForPayload);
-				}
-				rawDataForPayload[strlen(rawDataForPayload) - 1] = '\0';
-			}
 		}
 		else if (subScription == mqttSubscriptions::writeRawSingleRegister)
 		{
@@ -1795,16 +1775,6 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				singleRegisterValueConverted = strtoul(value, NULL, 10);
 
 				result = _registerHandler->writeRawSingleRegister(registerAddressConverted, singleRegisterValueConverted, &response);
-			}
-
-			if (result == modbusRequestAndResponseStatusValues::writeSingleRegisterSuccess || result == modbusRequestAndResponseStatusValues::slaveError)
-			{
-				for (int i = 0; i < response.dataSize; i++)
-				{
-					sprintf(rawByteForPayload, "%u,", response.data[i]);
-					strcat(rawDataForPayload, rawByteForPayload);
-				}
-				rawDataForPayload[strlen(rawDataForPayload) - 1] = '\0';
 			}
 		}
 		else if (subScription == mqttSubscriptions::writeRawDataRegister)
@@ -1827,15 +1797,6 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				response.registerCount = registerCount;
 
 				result = _registerHandler->writeRawDataRegister(registerAddressConverted, dataRegisterValueConverted, &response);
-			}
-			if (result == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess || result == modbusRequestAndResponseStatusValues::slaveError)
-			{
-				for (int i = 0; i < response.dataSize; i++)
-				{
-					sprintf(rawByteForPayload, "%u,", response.data[i]);
-					strcat(rawDataForPayload, rawByteForPayload);
-				}
-				rawDataForPayload[strlen(rawDataForPayload) - 1] = '\0';
 			}
 		}
 		else if (subScription == mqttSubscriptions::readHandledRegisterAll)
@@ -2181,7 +2142,8 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		}
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload && (result == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess || result == modbusRequestAndResponseStatusValues::slaveError || result == modbusRequestAndResponseStatusValues::writeSingleRegisterSuccess || result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess))
 		{
-			sprintf(stateAddition, "    \"rawData\": [%s],\r\n", rawDataForPayload);
+			rawDataList(rawDataForPayload, sizeof(rawDataForPayload), response.data, response.dataSize);
+			snprintf(stateAddition, sizeof(stateAddition), "    \"rawData\": [%s],\r\n", rawDataForPayload);
 			resultAddToPayload = addToPayload(stateAddition);
 		}
 		// Horrible, however it sorts out needing to worry about commas from any of the above statements and is little overhead.

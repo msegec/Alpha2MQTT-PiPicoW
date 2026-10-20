@@ -1,6 +1,7 @@
 // Host tests for ModbusFrame.h. Run with tests/firmware/run.
 #include "ModbusFrame.h"
 #include <cstdio>
+#include <cstring>
 
 static int failures = 0;
 
@@ -63,6 +64,23 @@ int main()
 	expect(!replyMatchesRequest(readBattery, writeException), "a write exception does not");
 	expect(replyMatchesRequest(writeBlock, writeException), "a write exception answers a write");
 	expect(replyMatchesRequest(readBattery, oddCode), "an unknown code is still a slave error");
+
+	char list[16] = "stale";
+	const uint8_t bytes[] = { 0, 7, 255, 128 };
+	rawDataList(list, sizeof(list), bytes, 0);
+	expect(strcmp(list, "") == 0, "no bytes give an empty list, not an underflow");
+	rawDataList(list, sizeof(list), bytes, 1);
+	expect(strcmp(list, "0") == 0, "one byte, no comma");
+	rawDataList(list, sizeof(list), bytes, 4);
+	expect(strcmp(list, "0,7,255,128") == 0, "commas between bytes");
+	char shortList[8];
+	rawDataList(shortList, sizeof(shortList), bytes, 4);
+	expect(strcmp(shortList, "0,7,255") == 0, "a byte that would not fit is left off whole");
+	char full[(63 - MODBUS_READ_REPLY_OVERHEAD) * 4];
+	uint8_t most[58];
+	memset(most, 255, sizeof(most));
+	rawDataList(full, sizeof(full), most, sizeof(most));
+	expect(strlen(full) == 58 * 4 - 1, "58 bytes of 255 fit the firmware's buffer");
 
 	if (failures == 0)
 	{
