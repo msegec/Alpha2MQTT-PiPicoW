@@ -207,14 +207,7 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(modbusRequestA
 
 	bool breakOut = false;
 
-	modbusRequestAndResponse dummy;
 	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
-
-
-	if (!resp)
-	{
-		resp = &dummy;
-	}
 
 	resp->dataSize = 0;
 
