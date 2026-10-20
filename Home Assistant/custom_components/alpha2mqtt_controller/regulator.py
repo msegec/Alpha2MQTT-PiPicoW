@@ -26,9 +26,10 @@ MIN_SEND_GAP_S = 2.0
 MAX_INTEGRATE_S = 10.0
 # The inverter cuts discharge about 1 % above its floor, so the hold starts this far above the policy SOC.
 FLOOR_MARGIN = 1.5
-# A battery this far from the last setpoint has not arrived: the integral waits, or the error it sees is the
+# A battery this far short of the last setpoint has not arrived: the integral waits, or the error it sees is the
 # inverter's lag, not a trim. The wait ends after ARRIVE_S regardless, for an inverter that clamps below
-# the request and would otherwise freeze it for good.
+# the request and would otherwise freeze it for good. A battery past the setpoint is not lag (cuts land in
+# about 3 s) but a steady offset, such as a DC reading over an AC setpoint, which only the integral can trim.
 LAG_W, ARRIVE_S = 100.0, 15.0
 # Under this battery power for this long against a real request, the inverter is refusing (at its cutoff,
 # whatever the SOC says): ask for 0 W, drop the integral, try again after the hold. A slow start passes
@@ -129,6 +130,10 @@ class Regulator:
         self._t_ack: float | None = None
         self._ack_power = False
         self._failed = False
+        # A restart forgets what the inverter was told, and a crash sends no release: until the first command,
+        # a release assumes a lease may still be running and hands the inverter back. A stale start does not:
+        # the first sample takes the inverter over within a second.
+        self._lease_unknown = True
         self._t_low: float | None = None  # battery under REFUSED_W against a request, since
         self._t_refused = float("-inf")
         self.integral_w = 0.0
@@ -139,6 +144,7 @@ class Regulator:
         self.output_w = 0.0
         self.sent: Command | None = None
         self.status = "waiting"
+        self.limit = "none"  # what holds the output this step, for diagnosis: see step()
 
     def update_grid(self, t: float, grid_w: float, battery_w: float, fresh: bool = True,
                     soc: float | None = None) -> None:
@@ -150,7 +156,8 @@ class Regulator:
             self.soc = soc
         s = self.settings
         e = self._error(grid_w)
-        arrived = (self.sent is None or self.sent.kind == "normal" or abs(battery_w - self.sent.signed_w) <= LAG_W
+        arrived = (self.sent is None or self.sent.kind == "normal"
+                   or _sign(self.sent.signed_w) * (self.sent.signed_w - battery_w) <= LAG_W
                    or t - self._t_sent >= ARRIVE_S)
         if self._mode == REGULATE and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived:
             # Conditional integration: stop when the output is pinned in the error's direction.
@@ -173,6 +180,14 @@ class Regulator:
 
     def lease_active(self, t: float) -> bool:
         return self.sent is not None and self.sent.kind != "normal" and t < self._t_sent + self.sent.duration
+
+    def _hand_back(self, t: float, unknown: bool) -> Command | None:
+        """A normal while a lease may run, and again after the minimum interval if the last one failed."""
+        retry = (self.sent is not None and self.sent.kind == "normal" and self._failed
+                 and t - self._t_sent >= self.settings.min_interval_s)
+        if self.lease_active(t) or retry or (unknown and self._lease_unknown):
+            return self._send(t, Command("normal"))
+        return None
 
     def ack(self, t: float, power_write: bool = False) -> None:
         """Alpha2MQTT wrote the last command, as one power write or as the whole block."""
@@ -200,16 +215,16 @@ class Regulator:
         if policy.mode == RELEASE:
             # Needs no reading, so it goes out even when the inputs are stale.
             self.status = "released"
+            self.limit = "none"
             self._mode = RELEASE
             self._restart()
             self.output_w = 0.0
-            if self.lease_active(t):
-                return self._send(t, Command("normal"))
-            return None
+            return self._hand_back(t, unknown=True)
         live = self._t_fresh is not None and t - self._t_fresh <= s.stale_after_s
         if policy.mode in (HOLD, FIXED):
             # Fixed watts need no reading, so they hold through stale inputs.
             self.status = policy.mode
+            self.limit = "none"
             self._mode = policy.mode
             self._offset_w = 0.0
             self._restart()
@@ -220,12 +235,11 @@ class Regulator:
             # Hand the inverter back now. Holding the last watts until the lease ran out could mean
             # two minutes at a setpoint chosen for a load that has gone.
             self.status = "stale"
+            self.limit = "none"
             self._mode = RELEASE
             self._restart()
             self.output_w = 0.0
-            if self.lease_active(t):
-                return self._send(t, Command("normal"))
-            return None
+            return self._hand_back(t, unknown=False)
         else:
             if self._mode != REGULATE:
                 # Bumpless start from whatever the inverter is doing on its own.
@@ -243,9 +257,23 @@ class Regulator:
                 request = self._filtered + (request - self._filtered) * min(1.0, dt / s.smoothing_s)
             self._filtered = request
             lo, hi = -policy.max_charge_w, policy.max_discharge_w
-            if (self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN) or self._refused(t):
+            self.limit = "none"
+            if self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN:
                 # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.
-                hi = 0.0
+                hi, floor = 0.0, "floor"
+            elif self._refused(t):
+                hi, floor = 0.0, "refused"
+            else:
+                floor = "discharge_cap"
+            if self.soc is not None and self.soc >= policy.charge_soc:
+                # Full: the same for a charge, so the export it cannot store does not wind the integral.
+                lo, ceiling = 0.0, "full"
+            else:
+                ceiling = "charge_cap"
+            if request > hi:
+                self.limit = floor
+            elif request < lo:
+                self.limit = ceiling
         self.request_w = request
         u = _clip(request, lo, hi)
         self._saturation = _sign(request - u)
@@ -255,13 +283,17 @@ class Regulator:
         if d and d != self._direction:
             if policy.mode == REGULATE and self._direction and (abs(u) < s.flip_hysteresis_w or t - self._t_direction < s.flip_dwell_s):
                 u = 0.0
+                self.limit = "turn_round"
             else:
                 self._direction, self._t_direction = d, t
         if (policy.mode == REGULATE and 0 < s.warm_w <= hi and -WARM_BAND_W < u < s.warm_w
+                and (lo < 0 or request > -WARM_BAND_W)
                 and (self._direction >= 0 or t - self._t_direction >= s.flip_dwell_s)):
             # Idle or a trickle charge: keep a small discharge running instead, see Settings.warm_w. The output
-            # is pinned there, so the export it causes must not wind the integral into a charge.
+            # is pinned there, so the export it causes must not wind the integral into a charge. A surplus that
+            # cannot be stored goes out anyway; warm would only add to it.
             u = s.warm_w
+            self.limit = "warm"
             self._saturation = _sign(request - u)
             if self._direction <= 0:
                 self._direction, self._t_direction = 1, t
@@ -332,4 +364,5 @@ class Regulator:
 
     def _send(self, t: float, cmd: Command) -> Command:
         self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
+        self._lease_unknown = False
         return cmd

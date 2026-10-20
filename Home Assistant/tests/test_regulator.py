@@ -181,7 +181,29 @@ def test_release_sends_normal_once_while_dispatching():
 def test_release_without_dispatch_sends_nothing():
     reg = make()
     reg.update_grid(0, 20, 800)
-    assert reg.step(0, R.Policy(R.RELEASE)) is None
+    reg.step(0, R.Policy(R.RELEASE))  # the start's hand back, below
+    assert reg.step(5, R.Policy(R.RELEASE)) is None
+
+
+def test_a_release_at_start_hands_back_a_lease_a_crash_may_have_left():
+    reg = make()
+    assert reg.step(0, R.Policy(R.RELEASE)) == R.Command("normal")
+    assert reg.step(1, R.Policy(R.RELEASE)) is None
+    reg = make()
+    assert reg.step(0, DISCHARGE) is None  # stale at start: the first sample takes over instead
+
+
+def test_a_failed_normal_is_sent_again_after_the_min_interval():
+    reg = make(min_interval_s=3)
+    reg.update_grid(0, 520, 0)
+    reg.step(0, DISCHARGE)
+    assert reg.step(5, R.Policy(R.RELEASE)) == R.Command("normal")
+    reg.fail()
+    assert reg.step(6, R.Policy(R.RELEASE)) is None
+    assert reg.step(8, R.Policy(R.RELEASE)) == R.Command("normal")
+    assert reg.step(9, R.Policy(R.RELEASE)) is None
+    reg.fail()
+    assert reg.step(200, DISCHARGE) == R.Command("normal")  # stale by now: still owed
 
 
 def test_lease_expiry_means_no_normal_needed():
@@ -715,3 +737,87 @@ def test_keep_warm_only_replaces_requests_within_fifty_watts_of_idle():
     assert reg.step(0, BOTH) == R.Command("charge", 40, 100, 120)
     reg.update_grid(6, 20, -40, soc=50)
     assert reg.step(6, BOTH) == R.Command("discharge", 50, 20, 120)
+
+
+def test_small_trims_do_not_hold_the_integral_off_for_good():
+    # The battery reads 200 W over the command at high power. Every 50 W trim restarted the arrival clock, so the
+    # integral never ran and the house exported the gap. Only a move bigger than the lag restarts it now.
+    reg = make(ki=0.01)
+    load = 3000.0
+    sent_w = 0
+    for t in range(0, 900):
+        noise = 60 if t % 4 < 2 else -60
+        battery = sent_w + 200 if sent_w else 0
+        reg.update_grid(t, load + noise - battery, battery, soc=50)
+        cmd = reg.step(t, BOTH)
+        if cmd is not None:
+            sent_w = cmd.signed_w
+    late = []
+    for t in range(900, 1000):
+        noise = 60 if t % 4 < 2 else -60
+        battery = sent_w + 200
+        reg.update_grid(t, load + noise - battery, battery, soc=50)
+        late.append(load - battery)
+        cmd = reg.step(t, BOTH)
+        if cmd is not None:
+            sent_w = cmd.signed_w
+    assert sum(late) / len(late) > -60
+    assert reg.integral_w < -100
+
+
+def test_a_big_move_still_waits_for_the_inverter_to_arrive():
+    reg = make(ki=0.1)
+    reg.update_grid(0, 20, 0, soc=50)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(20, 1020, 0, soc=50)
+    reg.step(20, DISCHARGE)  # asks about 980 W
+    for t in range(21, 30):
+        reg.update_grid(t, 520, 500, soc=50)  # halfway there
+        reg.step(t, DISCHARGE)
+    assert reg.integral_w == 0
+
+
+def test_keep_warm_does_not_pad_a_surplus_that_cannot_be_stored():
+    reg = make(warm_w=50)
+    reg.update_grid(0, -300, 0, soc=50)  # discharge only: the surplus goes out, warm must not add to it
+    assert reg.step(0, DISCHARGE) == R.Command("charge", 0, 100, 120)
+    assert reg.limit == "charge_cap"
+    reg = make(warm_w=50)
+    reg.update_grid(0, -30, 0, soc=50)  # within the band of idle it stays warm
+    assert reg.step(0, DISCHARGE) == R.Command("discharge", 50, 20, 120)
+    assert reg.limit == "warm"
+
+
+def test_a_full_battery_is_not_asked_to_charge():
+    reg = make(ki=0.1)
+    reg.update_grid(0, -600, 0, soc=100)
+    assert reg.step(0, CHARGE) == R.Command("charge", 0, 100, 120)
+    assert reg.limit == "full"
+    for t in range(1, 60):
+        reg.update_grid(t, -600, 0, soc=100)
+        reg.step(t, CHARGE)
+    assert reg.integral_w == 0  # no windup to turn into an import at the next load
+    reg.update_grid(60, -600, 0, soc=99)
+    assert reg.step(60, CHARGE).watts > 500
+
+
+def test_limit_names_what_holds_the_output():
+    reg = make()
+    reg.update_grid(0, 20, 500, soc=50)
+    reg.step(0, DISCHARGE)
+    assert reg.limit == "none"
+    reg.update_grid(5, 5000, 2000, soc=50)
+    reg.step(5, DISCHARGE)
+    assert reg.limit == "discharge_cap"
+    reg = make()
+    reg.update_grid(0, 520, 0, soc=21.2)
+    reg.step(0, DISCHARGE)
+    assert reg.limit == "floor"
+    reg = make(flip_hysteresis_w=150)
+    reg.update_grid(0, 520, 0, soc=50)
+    reg.step(0, BOTH)
+    reg.update_grid(10, -600, 500, soc=50)  # wants a 100 W charge: under the margin
+    reg.step(10, BOTH)
+    assert reg.limit == "turn_round"
+    reg.step(10, R.Policy(R.RELEASE))
+    assert reg.limit == "none"
