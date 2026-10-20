@@ -1095,6 +1095,13 @@ modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, char
 
 	if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 	{
+		// The inverter has left dispatch: the lease ran out, or something else stopped it. The cached block no
+		// longer runs, so the next charge or discharge writes it in full rather than only the power.
+		if (registerAddress == REG_DISPATCH_RW_DISPATCH_START && response.unsignedShortValue != DISPATCH_START_START)
+		{
+			_activeDispatch.valid = false;
+		}
+
 		// Add a quote if the return data type is character or has been converted from lookup to description.
 		addQuote = (response.returnDataType == modbusReturnDataType::character || response.hasLookup);
 
