@@ -17,6 +17,7 @@ First, go and customise options at the top of Definitions.h!
 #include "Definitions.h"
 #include "Dispatch.h"
 #include "ModbusFrame.h"
+#include "Timer.h"
 #include <Arduino.h>
 #if defined MP_ESP8266
 #include <ESP8266WiFi.h>
@@ -689,25 +690,15 @@ void setupWifi()
 checkTimer
 
 Check to see if the elapsed interval has passed since the passed in millis() value. If it has, return true and update the lastRun.
-Note that millis() overflows after 50 days, so we need to deal with that too... in our case we just zero the last run, which means the timer
-could be shorter but it's not critical... not worth the extra effort of doing it properly for once in 50 days.
+See timerDue in Timer.h, which also handles the millis() wrap.
 */
 bool checkTimer(unsigned long *lastRun, unsigned long interval)
 {
-	unsigned long now = millis();
+	uint32_t last = *lastRun;
+	bool due = timerDue(&last, millis(), interval);
 
-	if (*lastRun > now)
-		*lastRun = 0;
-
-	if (now >= *lastRun + interval)
-	{
-		// Keep the phase, so a run that was held up (a two second dispatch write, say) does not shift every
-		// run after it. One catch up run at most: the modulo drops any whole intervals missed.
-		*lastRun = now - ((now - *lastRun) % interval);
-		return true;
-	}
-
-	return false;
+	*lastRun = last;
+	return due;
 }
 
 /*
