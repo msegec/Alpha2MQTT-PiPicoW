@@ -121,7 +121,7 @@ class Regulator:
         self._t_measure: float | None = None
         self._t_fresh: float | None = None
         self._t_step: float | None = None
-        self._mode = RELEASE
+        self._regulating = False  # the last step regulated: the integral runs, the next step needs no bumpless start
         self._filtered: float | None = None
         self._saturation = 0
         self._direction = 0
@@ -130,10 +130,6 @@ class Regulator:
         self._t_ack: float | None = None
         self._ack_power = False
         self._failed = False
-        # A restart forgets what the inverter was told, and a crash sends no release: until the first command,
-        # a release assumes a lease may still be running and hands the inverter back. A stale start does not:
-        # the first sample takes the inverter over within a second.
-        self._lease_unknown = True
         self._t_low: float | None = None  # battery under REFUSED_W against a request, since
         self._t_refused = float("-inf")
         self.integral_w = 0.0
@@ -159,7 +155,7 @@ class Regulator:
         arrived = (self.sent is None or self.sent.kind == "normal"
                    or _sign(self.sent.signed_w) * (self.sent.signed_w - battery_w) <= LAG_W
                    or t - self._t_sent >= ARRIVE_S)
-        if self._mode == REGULATE and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived:
+        if self._regulating and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived:
             # Conditional integration: stop when the output is pinned in the error's direction.
             if _sign(e) != self._saturation:
                 dt = min(t - self._t_measure, MAX_INTEGRATE_S)
@@ -185,7 +181,10 @@ class Regulator:
         """A normal while a lease may run, and again after the minimum interval if the last one failed."""
         retry = (self.sent is not None and self.sent.kind == "normal" and self._failed
                  and t - self._t_sent >= self.settings.min_interval_s)
-        if self.lease_active(t) or retry or (unknown and self._lease_unknown):
+        # A restart forgets what the inverter was told, and a crash sends no release: until the first command,
+        # a release assumes a lease may still be running and hands the inverter back. A stale start does not:
+        # the first sample takes the inverter over within a second.
+        if self.lease_active(t) or retry or (unknown and self.sent is None):
             return self._send(t, Command("normal"))
         return None
 
@@ -199,6 +198,7 @@ class Regulator:
         self._failed = True
 
     def _restart(self) -> None:
+        self._regulating = False
         self.integral_w = 0.0
         self._t_low = None
         self._filtered = None
@@ -216,7 +216,6 @@ class Regulator:
             # Needs no reading, so it goes out even when the inputs are stale.
             self.status = "released"
             self.limit = "none"
-            self._mode = RELEASE
             self._restart()
             self.output_w = 0.0
             return self._hand_back(t, unknown=True)
@@ -225,8 +224,6 @@ class Regulator:
             # Fixed watts need no reading, so they hold through stale inputs.
             self.status = policy.mode
             self.limit = "none"
-            self._mode = policy.mode
-            self._offset_w = 0.0
             self._restart()
             self.ff_w = 0.0
             self.error_w = 0.0 if self.grid_w is None else self.grid_w - s.target_w
@@ -236,16 +233,15 @@ class Regulator:
             # two minutes at a setpoint chosen for a load that has gone.
             self.status = "stale"
             self.limit = "none"
-            self._mode = RELEASE
             self._restart()
             self.output_w = 0.0
             return self._hand_back(t, unknown=False)
         else:
-            if self._mode != REGULATE:
+            if not self._regulating:
                 # Bumpless start from whatever the inverter is doing on its own.
                 self.output_w = self.battery_w
                 self._direction = _sign(self.battery_w)
-            self._mode = policy.mode
+            self._regulating = policy.mode == REGULATE
             self._offset_w = policy.target_offset_w
             e = self._error(self.grid_w)
             self.error_w = self.grid_w - s.target_w - self._offset_w
@@ -364,5 +360,4 @@ class Regulator:
 
     def _send(self, t: float, cmd: Command) -> Command:
         self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
-        self._lease_unknown = False
         return cmd
