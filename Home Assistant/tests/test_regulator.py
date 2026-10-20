@@ -618,8 +618,9 @@ def test_keep_warm_replaces_a_trickle_charge_after_the_dwell():
     reg.update_grid(6, 0, -40, soc=50)
     assert reg.step(6, BOTH) == R.Command("discharge", 80, 20, 120)
     reg.update_grid(9, -200, 80, soc=50)  # a surplus under the margin does not pull it back into a charge
-    assert reg.step(9, BOTH) is None and reg.output_w == 80
-    reg.update_grid(12, -500, 80, soc=50)  # one past the margin does
+    assert reg.step(9, BOTH) == R.Command("discharge", 0, 20, 120)  # but it is not padded with the warm discharge
+    assert reg.limit == "turn_round"
+    reg.update_grid(12, -500, 0, soc=50)  # one past the margin does
     cmd = reg.step(12, BOTH)
     assert cmd.kind == "charge" and cmd.watts >= 400
 
@@ -794,6 +795,19 @@ def test_keep_warm_does_not_pad_a_surplus_that_cannot_be_stored():
     reg.update_grid(0, -30, 0, soc=50)  # within the band of idle it stays warm
     assert reg.step(0, DISCHARGE) == R.Command("discharge", 50, 20, 120)
     assert reg.limit == "warm"
+
+
+def test_keep_warm_does_not_pad_a_surplus_the_turn_round_holds():
+    # After a discharge, a surplus under the margin is held at 0 W; warm on top of it exported the surplus plus 50 W.
+    reg = make(warm_w=50, flip_hysteresis_w=150, flip_dwell_s=3)
+    reg.update_grid(0, 520, 0, soc=50)
+    assert reg.step(0, BOTH).kind == "discharge"
+    reg.update_grid(10, -620, 500, soc=50)  # the load has gone and 120 W of surplus is left: under the margin
+    assert reg.step(10, BOTH) == R.Command("discharge", 0, 20, 120)
+    assert reg.limit == "turn_round"
+    reg.update_grid(20, -120, 0, soc=50)  # still under the margin: 0 W, not 50 W of discharge on top
+    assert reg.step(20, BOTH) is None and reg.output_w == 0
+    assert reg.limit == "turn_round"
 
 
 def test_a_full_battery_is_not_asked_to_charge():

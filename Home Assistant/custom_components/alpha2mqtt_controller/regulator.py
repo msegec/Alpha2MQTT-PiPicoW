@@ -277,11 +277,12 @@ class Regulator:
             else:
                 self._direction, self._t_direction = d, t
         if (policy.mode == REGULATE and 0 < s.warm_w <= hi and -WARM_BAND_W < u < s.warm_w
-                and (lo < 0 or request > -WARM_BAND_W)
+                and request > -WARM_BAND_W
                 and (self._direction >= 0 or t - self._t_direction >= s.flip_dwell_s)):
             # Idle or a trickle charge: keep a small discharge running instead, see Settings.warm_w. The output
-            # is pinned there, so the export it causes must not wind the integral into a charge. A surplus that
-            # cannot be stored goes out anyway; warm would only add to it.
+            # is pinned there, so the export it causes must not wind the integral into a charge. A surplus the
+            # output does not take, because it cannot be stored or the turn round holds it under the margin,
+            # goes out anyway; warm would only add to it.
             u = s.warm_w
             self.limit = "warm"
             self._saturation = _sign(request - u)
