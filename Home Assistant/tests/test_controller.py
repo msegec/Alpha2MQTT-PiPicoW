@@ -13,7 +13,7 @@ import pytest
 
 for _name in ("homeassistant", "homeassistant.components", "homeassistant.config_entries", "homeassistant.core",
               "homeassistant.helpers", "homeassistant.helpers.device_registry", "homeassistant.helpers.entity_platform",
-              "homeassistant.helpers.event", "homeassistant.util"):
+              "homeassistant.helpers.event", "homeassistant.util", "voluptuous"):
     sys.modules.setdefault(_name, MagicMock())
 
 
@@ -22,7 +22,25 @@ class _RestoreNumber:
         pass
 
 
+class _Flow:
+    """A config or options flow handler: the form and the result are returned as plain dicts."""
+
+    def __init_subclass__(cls, **kwargs):
+        pass
+
+    def async_show_form(self, **kwargs):
+        return kwargs
+
+    def async_create_entry(self, **kwargs):
+        return kwargs
+
+    def add_suggested_values_to_schema(self, schema, values):
+        return dict(values)
+
+
 sys.modules["homeassistant.components.number"] = types.SimpleNamespace(NumberMode=MagicMock(), RestoreNumber=_RestoreNumber)
+sys.modules["homeassistant.config_entries"].ConfigFlow = _Flow
+sys.modules["homeassistant.config_entries"].OptionsFlow = _Flow
 sys.modules["homeassistant.core"].callback = lambda f: f
 sys.modules["homeassistant.components"].mqtt.async_publish = AsyncMock()
 
@@ -30,6 +48,7 @@ _pkg = types.ModuleType("a2m_controller")
 _pkg.__path__ = [str(Path(__file__).parents[1] / "custom_components" / "alpha2mqtt_controller")]
 sys.modules["a2m_controller"] = _pkg
 C = importlib.import_module("a2m_controller.controller")
+F = importlib.import_module("a2m_controller.config_flow")
 N = importlib.import_module("a2m_controller.number")
 R = sys.modules["a2m_controller.regulator"]
 DISCHARGE = R.Policy(R.REGULATE, max_discharge_w=3000, discharge_soc=20)
@@ -133,6 +152,28 @@ def test_a_failed_write_of_the_newest_command_is_retried():
 def test_state_topic_defaults_to_the_fast_state_and_keeps_an_explicit_one():
     assert subscribed_state_topic({}) == "Alpha2MQTT/state/fast"
     assert subscribed_state_topic({"state_topic": "Alpha2MQTT/state/second/ten"}) == "Alpha2MQTT/state/second/ten"
+
+
+def options_flow(data):
+    entry = MagicMock(entry_id="entry", data=data)
+    flow = F.Alpha2MqttControllerFlow.async_get_options_flow(entry)
+    flow.hass = MagicMock()
+    return entry, flow
+
+
+def test_the_options_form_offers_the_entry_as_it_is():
+    _, flow = options_flow({"base_topic": "Alpha2MQTT", "policy_entity": "sensor.policy"})
+    form = asyncio.run(flow.async_step_init())
+    assert form["step_id"] == "init"
+    assert form["data_schema"] == {"base_topic": "Alpha2MQTT", "policy_entity": "sensor.policy"}
+
+
+def test_saved_options_replace_the_entry_data_and_reload_it():
+    entry, flow = options_flow({"base_topic": "Alpha2MQTT"})
+    new = {"base_topic": "Alpha2MQTT", "correction_entity": "sensor.net_demand"}
+    asyncio.run(flow.async_step_init(new))
+    flow.hass.config_entries.async_update_entry.assert_called_once_with(entry, data=new)
+    flow.hass.config_entries.async_schedule_reload.assert_called_once_with("entry")
 
 
 NOW = C.datetime(2026, 1, 1)

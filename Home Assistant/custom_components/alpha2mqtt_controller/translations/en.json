@@ -24,6 +24,28 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Alpha2MQTT battery controller",
+        "description": "Saving reloads the controller with these settings. The tuning numbers are entities and change at once.",
+        "data": {
+          "state_topic": "State topic (Alpha2MQTT/state/second/ten before the fast firmware)",
+          "base_topic": "Base topic",
+          "policy_entity": "Policy sensor (state charge, discharge, hold or normal; attribute soc_target, optional grid_offset)",
+          "grid_source": "Grid power from",
+          "grid_scale": "Grid clamp scale",
+          "grid_scale_entity": "Grid clamp scale entity (overrides the scale)",
+          "correction_entity": "Correction entity: W added to the scaled clamp, or with estimate the house load less solar",
+          "load_entity": "Fast load entity for feed forward",
+          "max_charge_entity": "Maximum charge rate entity",
+          "max_discharge_entity": "Maximum discharge rate entity",
+          "log_dir": "Step log directory (empty for alpha2mqtt_controller in the config directory)",
+          "log_entities": "Entities to log (each change goes in the step log)"
+        }
+      }
+    }
+  },
   "selector": {
     "grid_source": {
       "options": {
