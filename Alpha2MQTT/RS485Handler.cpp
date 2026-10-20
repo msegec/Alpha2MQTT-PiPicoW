@@ -128,6 +128,10 @@ modbusRequestAndResponseStatusValues RS485Handler::sendModbus(uint8_t frame[], b
 {
 	modbusRequestAndResponseStatusValues result;
 
+	// Once per exchange, which takes about 0.6 s when the inverter is silent, so any run of reads or writes keeps
+	// the watchdog fed. Not per byte, so a line that never stops sending still reboots.
+	feedWatchdog();
+
 	//Calculate the CRC and overwrite the last two bytes.
 	calcCRC(frame, actualFrameSize);
 

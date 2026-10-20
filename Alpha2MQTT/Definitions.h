@@ -90,6 +90,16 @@ Customise these options as per README.txt.  Please read README.txt before contin
 //#define FORCE_RESTART
 #define FORCE_RESTART_HOURS 49
 
+// The Pico W's hardware watchdog reboots it if nothing feeds it for WATCHDOG_TIMEOUT ms, so a hang restarts
+// instead of stopping for good. The RP2040 allows up to about 8.3 s. Every wait that can run long feeds it.
+#define WATCHDOG_TIMEOUT 8000
+inline void feedWatchdog()
+{
+#if defined MP_PICOW
+	rp2040.wdt_reset();
+#endif
+}
+
 
 //#if (!defined INVERTER_SMILE_B3) && (!defined INVERTER_SMILE5) && (!defined INVERTER_SMILE_T10) && (!defined INVERTER_STORION_T30)
 //#error You must specify the inverter type.

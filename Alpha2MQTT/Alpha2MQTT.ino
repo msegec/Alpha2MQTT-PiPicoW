@@ -462,7 +462,10 @@ void setup()
 	char baudRateString[10] = "";
 	int baudRateIterator = -1;
 
-
+#if defined MP_PICOW
+	// First, so a hang anywhere in setup reboots too. See feedWatchdog.
+	rp2040.wdt_begin(WATCHDOG_TIMEOUT);
+#endif
 
 	// Set up serial for debugging using an appropriate baud rate
 	// This is for communication with the development environment, NOT the Alpha system
@@ -495,6 +498,8 @@ void setup()
 	// The image is staged in LittleFS, so build with a filesystem, see README.md.
 	ArduinoOTA.setHostname(DEVICE_NAME);
 	ArduinoOTA.setPassword(OTA_PASSWORD);
+	// An upload takes longer than WATCHDOG_TIMEOUT. It reports progress after every chunk, at most about 6 s apart.
+	ArduinoOTA.onProgress([](unsigned int, unsigned int) { feedWatchdog(); });
 	ArduinoOTA.begin();
 #endif
 
@@ -615,6 +620,8 @@ The loop function runs overand over again until power down or reset
 */
 void loop()
 {
+	feedWatchdog();
+
 	// Refresh LED Screen, will cause the status asterisk to flicker
 	updateOLED(true, "", "", "");
 
@@ -746,6 +753,7 @@ void waitServicingOta(unsigned long ms)
 
 	while (millis() - start < ms)
 	{
+		feedWatchdog();
 		setupWifi();
 #if defined MP_PICOW
 		ArduinoOTA.handle();
@@ -762,6 +770,7 @@ or the fast state. The RS485 bus is idle here, so they can use it. Each builds i
 */
 void serviceBetweenReads()
 {
+	feedWatchdog();
 #if defined MP_PICOW
 	ArduinoOTA.handle();
 #endif
@@ -1044,6 +1053,9 @@ void mqttReconnect()
 
 	updateOLED(false, "Connecting", "MQTT...", _version);
 	delay(100);
+
+	// One attempt takes up to MQTT_CLIENT_TIMEOUT plus MQTT_REPLY_TIMEOUT, so start it with a fresh watchdog
+	feedWatchdog();
 
 	// Attempt to connect
 	// An empty MQTT_USERNAME means connect without credentials
@@ -2210,6 +2222,9 @@ Sends whatever is in the modular level payload to the specified topic.
 */
 void sendMqtt(char *topic)
 {
+	// A stalled broker holds a publish for up to MQTT_CLIENT_TIMEOUT
+	feedWatchdog();
+
 	// Attempt a send
 	if (!_mqtt.publish(topic, _mqttPayload))
 	{
