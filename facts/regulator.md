@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: dee06df plus the feed forward guard, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 281 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: b9cad9a plus the integral reset, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 283 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -123,6 +123,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `warm_w` | 0.0 W | Ready floor ("Keep warm"). 0 is off. |
 | `full_register` | 252 | Not used by the regulator. The controller publishes a charge to 100 % as `socPercent` this minus 150, since register 250 stopped the battery at 99.2 %. |
 | `spike_confirm_w` | 0.0 W | Above 0, a sample whose net demand (`grid_w + battery_w`) moved more than this from the last sample is held: every step on it returns None with `limit = "spike"`, and the integral skips it. The next sample always acts. 0 is off. |
+| `integral_reset_w` | 0.0 W | Above 0, `_send` sets the integral to 0 when the new command's `signed_w` moves this much or more from the last one's: what it held trimmed the old level. 0 is off. |
 | `offset_comp` | 0.0 | Share of the table the command allows for under `REGULATE`: it asks for `setpoint_for(output_w, offset_comp)`, so the battery lands on the output. 0 is off, 1 full. |
 
 The test file's `LIVE` dict, labelled "the live tuning": `target_w=-20, deadband_w=5, ki=0.01, write_threshold_w=20, min_interval_s=2.5, slew_w_per_s=2400, flip_hysteresis_w=150, flip_dwell_s=3, keepalive_s=40, power_write_gap_s=0.5, warm_w=20`. Whether it matches the deployed config: unknown.
@@ -209,6 +210,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_the_proportional_term_*`, `test_the_caps_after_*`, `test_the_output_before_the_slew_*`, `test_the_direction_and_*`, `test_the_refusal_clock_*` | Diagnosis fields and properties. |
 | `test_the_inverter_offset_*`, `test_offset_correction_*`, `test_a_plant_on_the_table_*`, `test_the_caps_stay_battery_watts_*`, `test_under_offset_correction_*` | Table, a plant on the table lands within 5.9 W from -4000 to 4000 W for `offset_comp` 0, 0.5 and 1, off by default, caps in battery watts, no change to HOLD/FIXED, arrival gate and slew against `_sent_w`. The ready floor fuzz also runs with `offset_comp=1`. |
 | `test_with_the_guard_*`, `test_the_feed_forward_guard_is_off_by_default` | Guard off by default; on, feed forward never turns a discharge round alone but still leads a ramp in the running direction. |
+| `test_a_big_move_starts_the_integral_from_zero`, `test_the_integral_reset_is_off_by_default` | Integral reset on a command move of `integral_reset_w`, off by default. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |

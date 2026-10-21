@@ -107,6 +107,9 @@ class Settings:
     # sample whose net demand moved more than this from the last one is held a sample: the output stays, and the
     # next sample acts as usual, so a jump that lasts goes out a sample late. 0 is off.
     spike_confirm_w: float = 0.0
+    # Above 0, a command that moves this much starts the integral from 0: what it held trimmed the old level, and the
+    # offset table owns the new one. 0 is off.
+    integral_reset_w: float = 0.0
     # Dispatch SOC register sent for a charge to 100 %. The register is 0.4 % a step, but 250 stopped the
     # battery at 99.2 % and 252 is full, so 100 % goes as this, as socPercent register - 150.
     full_register: int = 252
@@ -493,6 +496,10 @@ class Regulator:
         return since >= MIN_SEND_GAP_S and cmd.signed_w > last.signed_w
 
     def _send(self, t: float, cmd: Command) -> Command:
+        last = self.sent
+        if (self.settings.integral_reset_w > 0 and last is not None
+                and abs(cmd.signed_w - last.signed_w) >= self.settings.integral_reset_w):
+            self.integral_w = 0.0
         self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
         self._sent_w = cmd.signed_w + self.settings.offset_comp * inverter_offset(cmd.signed_w)
         return cmd

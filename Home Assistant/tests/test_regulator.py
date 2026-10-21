@@ -1316,3 +1316,31 @@ def test_the_feed_forward_guard_is_off_by_default():
     reg.update_grid(1, 0, 100, solar_w=1300)
     reg.step(1, BOTH)
     assert reg.ff_w == -300
+
+
+# Integral reset: a big move starts the integral from 0.
+
+def test_a_big_move_starts_the_integral_from_zero():
+    reg = make(integral_reset_w=300, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0, write_threshold_w=10)
+    reg.update_grid(0, 0, 500)
+    reg.step(0, BOTH)
+    for t in range(1, 30):  # the battery reads 40 W short: the integral winds
+        reg.update_grid(t, 40, 460)
+        reg.step(t, BOTH)
+    assert reg.integral_w > 20
+    reg.update_grid(30, 2000, 460)  # a kettle
+    reg.step(30, BOTH)
+    assert reg.integral_w == 0
+
+
+def test_the_integral_reset_is_off_by_default():
+    assert R.Settings().integral_reset_w == 0
+    reg = make(ki=0.05, deadband_w=0, target_w=0, min_interval_s=0, write_threshold_w=10)
+    reg.update_grid(0, 0, 500)
+    reg.step(0, BOTH)
+    for t in range(1, 30):
+        reg.update_grid(t, 40, 460)
+        reg.step(t, BOTH)
+    reg.update_grid(30, 2000, 460)
+    reg.step(30, BOTH)
+    assert reg.integral_w > 20

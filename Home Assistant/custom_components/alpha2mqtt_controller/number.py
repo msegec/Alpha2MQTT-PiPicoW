@@ -33,6 +33,7 @@ NUMBERS = [
     ("warm_w", "Keep warm", 0, 500, 5, "W", BASIC),  # the ready floor; 0 is off: the battery idles at 0 W between loads
     ("offset_comp", "Offset correction", 0, 1.5, 0.05, None, BASIC),  # 0 is off, 1 takes the measured offset off in full
     ("spike_confirm_w", "Spike confirm", 0, 3000, 50, "W", ADVANCED),  # 0 is off: every jump in demand goes out at once
+    ("integral_reset_w", "Integral reset step", 0, 2000, 50, "W", ADVANCED),  # 0 is off: the integral carries across levels
     ("full_register", "Full charge register", 250, 255, 1, None, SAFETY),  # dispatch SOC register for a 100 % charge
 ]
 
