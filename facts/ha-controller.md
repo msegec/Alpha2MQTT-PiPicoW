@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 851230d plus the loop version stamp, 2026-10-22. `python3 -m pytest "Home Assistant/tests/test_controller.py" -q`: 49 passed in 0.09s.
+Last verified: 3fecf03 plus the number groups, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 273 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -156,20 +156,30 @@ Off -> on: just sets `enabled`. On -> off: `regulator.step(now, Policy(RELEASE))
 regulator returns one, even if MQTT is down the switch still turns off; the 120 s lease then ends dispatch.
 
 Numbers (`TuningNumber`, `RestoreNumber`, box mode): each writes `regulator.settings.<key>` via `set_setting` and logs `cfg`.
-Restore: last value, else the `Settings` default, clamped into the current range.
+Restore: last value, else the `Settings` default, clamped into the current range. Each row of `NUMBERS` in
+`number.py` is `(key, name, min, max, step, unit, group)`; the group (`Basic`, `Safety` or `Advanced`) is the
+entity's only attribute, `group`, so a dashboard can build its sections from the entities.
 
-| Key | Range, step | Key | Range, step |
-|---|---|---|---|
-| target_w | -500..500 W, 5 | keepalive_s | 10..100 s, 0.5 |
-| kp | 0..1.5, 0.05 | flip_hysteresis_w | 0..1000 W, 10 |
-| ki | 0..0.2, 0.005 | flip_dwell_s | 0..600 s, 0.5 |
-| kff ("Solar feed forward gain") | 0..2, 0.05 | stale_after_s | 3..100 s, 0.5 |
-| deadband_w | 0..200 W, 5 | power_write_gap_s | 0..5 s, 0.5 (0 off) |
-| smoothing_s | 0..300 s, 0.5 | warm_w | 0..500 W, 5 (0 off) |
-| slew_w_per_s | 50..5000 W/s, 50 | min_interval_s | 2..30 s, 0.5 |
-| offset_comp ("Offset correction") | 0..1.5, 0.05 (0 off) | spike_confirm_w ("Spike confirm") | 0..3000 W, 50 (0 off) |
-| full_register ("Full charge register") | 250..255, 1; a charge to 100 % is published as socPercent register - 150 | | |
-| write_threshold_w | 10..500 W, 10 | | |
+| Key | Name | Range, step | Group | Note |
+|---|---|---|---|---|
+| target_w | Grid target | -500..500 W, 5 | Basic | |
+| kp | Proportional gain | 0..1.5, 0.05 | Basic | |
+| ki | Integral gain | 0..0.2, 0.005 | Basic | |
+| kff | Solar feed forward gain | 0..2, 0.05 | Basic | |
+| deadband_w | Deadband | 0..200 W, 5 | Basic | |
+| smoothing_s | Smoothing | 0..300 s, 0.5 | Advanced | |
+| slew_w_per_s | Slew limit | 50..5000 W/s, 50 | Advanced | |
+| write_threshold_w | Write threshold | 10..500 W, 10 | Advanced | |
+| min_interval_s | Minimum command interval | 2..30 s, 0.5 | Advanced | |
+| keepalive_s | Keepalive | 10..100 s, 0.5 | Advanced | |
+| flip_hysteresis_w | Charge discharge margin | 0..1000 W, 10 | Advanced | |
+| flip_dwell_s | Charge discharge dwell | 0..600 s, 0.5 | Advanced | |
+| stale_after_s | Stale after | 3..100 s, 0.5 | Safety | |
+| power_write_gap_s | Power write gap | 0..5 s, 0.5 | Advanced | 0 off |
+| warm_w | Keep warm | 0..500 W, 5 | Basic | 0 off |
+| offset_comp | Offset correction | 0..1.5, 0.05 | Basic | 0 off |
+| spike_confirm_w | Spike confirm | 0..3000 W, 50 | Advanced | 0 off |
+| full_register | Full charge register | 250..255, 1 | Safety | a charge to 100 % is published as socPercent register - 150 |
 
 Not numbers: `integral_band_w`, `integral_limit_w`, `duration_s` (120 s lease). They show read only on the status sensor.
 
@@ -246,7 +256,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_solar_comes_from_*` | solar from `west` + `east`, None when either is missing or not a number; `ff_w` in the step |
 | `test_net_demand_*`, `test_a_sample_waits_*`, `test_without_*seq*`, `test_a_new_sample_steps_on_one_still_waiting_first` | seq matching and 0.5 s wait |
 | `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_start_record_and_the_loop_version_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
-| `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w` | numbers |
+| `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
 | `test_the_status_says_*`, `test_the_output_shows_*`, `test_the_limit_shows_*` | diagnosis attributes, wall times worked out once |

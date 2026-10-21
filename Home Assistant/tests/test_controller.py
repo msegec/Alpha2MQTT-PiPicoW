@@ -472,8 +472,16 @@ def test_a_tuning_change_logs_every_setting(monkeypatch):
 
 
 def test_the_ready_floor_can_be_set_down_to_10_w():
-    _, _, lo, hi, step, unit = next(n for n in N.NUMBERS if n[0] == "warm_w")
+    _, _, lo, hi, step, unit, _ = next(n for n in N.NUMBERS if n[0] == "warm_w")
     assert lo == 0 and step <= 5 and unit == "W" and (10 - lo) % step == 0
+
+
+def test_every_number_names_its_section_as_an_attribute():
+    entry = MagicMock(entry_id="entry", runtime_data=C.Controller(MagicMock(), {}, "entry"))
+    for row in N.NUMBERS:
+        assert row[6] in (N.BASIC, N.SAFETY, N.ADVANCED), row
+        assert N.TuningNumber(entry, *row)._attr_extra_state_attributes == {"group": row[6]}
+    assert {n[0]: n[6] for n in N.NUMBERS}["target_w"] == "Basic"
 
 
 @pytest.mark.parametrize("warm_w, logged", [(20, [{"from_w": 960, "to_w": -1000}]), (0, [])])
