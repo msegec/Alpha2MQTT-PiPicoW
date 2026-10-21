@@ -884,3 +884,12 @@ def test_a_frozen_correction_is_a_gap_on_the_clamp_too(monkeypatch):
     house.set("sensor.net_demand", "100", age_s=91)
     house.second()
     assert house.c.grid_w is None
+
+
+def test_a_response_that_is_json_but_not_an_object_is_ignored(monkeypatch):
+    house = House(monkeypatch)
+    house.second()
+    ack = dict(house.c.ack)
+    for payload in ("[]", "1", "null", '"x"'):
+        house.c._on_response(types.SimpleNamespace(topic="Alpha2MQTT/response/set/charge", payload=payload))
+    assert house.c.ack == ack

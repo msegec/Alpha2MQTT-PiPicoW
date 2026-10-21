@@ -624,6 +624,8 @@ class Controller:
             data = json.loads(msg.payload)
         except ValueError:
             return
+        if not isinstance(data, dict):
+            return  # anything may publish on the response topic; [] or 1 has no fields
         seq = data.get("seq")
         if seq is not None:
             self._seq_echo = True

@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 2622170 plus the discharge needs SOC switch, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 310 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 20fe252 plus the response shape check, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 311 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -122,7 +122,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 
 ## Responses (`_on_response`, `_check_ack`)
 
-- Every message on `{base}/response/set/+` is logged raw as `ack`. Non-JSON is then ignored.
+- Every message on `{base}/response/set/+` is logged raw as `ack`. Non-JSON, or JSON that is not an object (`[]`, `1`, `null`), is then ignored.
 - Any response with a `seq` sets `_seq_echo`: the firmware echoes seq.
 - `ack` dict (shown on the Last command sensor): `ack_seq`, `ack_status` (`responseStatus`), `ack_detail`
   (`failureDetail`), `ack_after_ms`, `ack_write` (`write`: power, block or absent on older firmware).
@@ -292,6 +292,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_negative_cap_reads_as_0_w`, `test_an_unreadable_cap_keeps_*` | cap clamp, last readable cap |
 | `test_a_policy_soc_the_firmware_would_refuse_is_unreadable`, `test_an_other_soc_the_firmware_would_refuse_*` | SOC range |
 | `test_a_correction_with_a_frozen_input_is_a_gap`, `test_a_frozen_correction_is_a_gap_on_the_clamp_too` | `age_s` |
+| `test_a_response_that_is_json_but_not_an_object_is_ignored` | response shape |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
