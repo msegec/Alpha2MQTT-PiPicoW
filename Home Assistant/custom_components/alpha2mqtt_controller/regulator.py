@@ -48,6 +48,12 @@ SMALL_TRIM_W, TRIM_GAP_S = 50.0, 6.0
 WARM_BAND_W = 50.0
 # Solar changes this small between samples are noise, as at night, and get no feed forward.
 SOLAR_DEADBAND_W = 20.0
+# The inverter's steady offset, battery reading minus setpoint, against the signed setpoint (positive is discharge).
+# Measured on an AlphaESS SMILE-B3 over 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, rising
+# about linearly to +198 W at 2750 W and +220 W at 3000 W. Linear between the points, flat past the ends. The integral
+# alone held it, so after a 2 kW load it wound to about -155 W and gave back about +175 W of import when the load
+# stopped.
+INVERTER_OFFSET = ((-100.0, -8.0), (0.0, 0.0), (100.0, -25.0), (1500.0, -25.0), (2500.0, 210.0))
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,8 @@ class Settings:
     # battery never idles and the next load step goes out at full rate. Only a surplus the battery can store takes
     # it under, into a charge. 0 is off.
     warm_w: float = 0.0
+    # Share of INVERTER_OFFSET taken off each regulated command, so the battery lands on the output: 0 off, 1 full.
+    offset_comp: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -118,6 +126,18 @@ def estimate_grid(correction_w: float, battery_w: float, clamp_w: float | None =
     return scale * clamp_w + correction_w
 
 
+def inverter_offset(w: float) -> float:
+    """The battery reading minus the setpoint expected at setpoint w, from INVERTER_OFFSET."""
+    (x0, y0), *rest = INVERTER_OFFSET
+    if w <= x0:
+        return y0
+    for x1, y1 in rest:
+        if w <= x1:
+            return y0 + (y1 - y0) * (w - x0) / (x1 - x0)
+        x0, y0 = x1, y1
+    return y0
+
+
 def _clip(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
@@ -143,6 +163,7 @@ class Regulator:
         self._direction = 0
         self._t_direction = float("-inf")
         self._t_sent = float("-inf")
+        self._sent_w = 0.0  # the battery watts the last command should deliver: its watts less the offset correction
         self._t_ack: float | None = None
         self._ack_power = False
         self._failed = False
@@ -156,6 +177,7 @@ class Regulator:
         self.ff_w = 0.0
         self.request_w = 0.0
         self.output_w = 0.0
+        self.offset_w = 0.0  # the offset correction: the command asks for output_w + offset_w
         self.sent: Command | None = None
         self.status = "waiting"
         self.limit = "none"  # what holds the output this step, for diagnosis: see step()
@@ -203,7 +225,7 @@ class Regulator:
         s = self.settings
         e = self._error(grid_w)
         arrived = (self.sent is None or self.sent.kind == "normal"
-                   or _sign(self.sent.signed_w) * (self.sent.signed_w - battery_w) <= LAG_W
+                   or _sign(self._sent_w) * (self._sent_w - battery_w) <= LAG_W
                    or t - self._t_sent >= ARRIVE_S)
         if self._regulating and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived:
             # Conditional integration: stop when the output is pinned in the error's direction.
@@ -226,7 +248,7 @@ class Regulator:
         last one failed."""
         self.status = status
         self._restart()
-        self.output_w = 0.0
+        self.output_w = self.offset_w = 0.0
         self.p_w, self.lo_w, self.hi_w, self.u_w, self.slewed = 0.0, None, None, None, False
         retry = (self.sent is not None and self.sent.kind == "normal" and self._failed
                  and t - self._t_sent >= self.settings.min_interval_s)
@@ -343,11 +365,13 @@ class Regulator:
             self.output_w = u
         else:
             step_max = s.slew_w_per_s * (t - self._t_sent)
-            self.output_w = _clip(u, self.sent.signed_w - step_max, self.sent.signed_w + step_max)
+            self.output_w = _clip(u, self._sent_w - step_max, self._sent_w + step_max)
         self.slewed = self.output_w != u
         if ready_w and u >= ready_w and self.output_w > -WARM_BAND_W:
             # A turn out of a charge that the slew cuts short lands on the floor, not at idle or under it.
             self.output_w = max(self.output_w, ready_w)
+        # Everything above is battery watts. Only the command asks for less where the inverter gives more.
+        self.offset_w = -s.offset_comp * inverter_offset(self.output_w) if policy.mode == REGULATE else 0.0
         return self._maybe_send(t, policy)
 
     def _refused(self, t: float, policy: Policy) -> bool:
@@ -371,7 +395,8 @@ class Regulator:
 
     def _command(self, policy: Policy) -> Command:
         s = self.settings
-        w = int(round(abs(self.output_w) / 10.0)) * 10
+        ask = self.output_w + self.offset_w
+        w = int(round(abs(ask) / 10.0)) * 10
         if policy.mode == REGULATE and self.output_w >= s.warm_w > 0:
             w = max(w, math.ceil(s.warm_w))  # rounding to 10 W must not take a discharge under the ready floor
         last = self.sent
@@ -382,7 +407,7 @@ class Regulator:
             if last is not None and last.kind != "normal":
                 return Command(last.kind, 0, last.soc, s.duration_s)
             return Command("charge", 0, 100, s.duration_s)
-        if self.output_w > 0:
+        if ask > 0:
             return Command("discharge", w, policy.discharge_soc, s.duration_s)
         return Command("charge", w, policy.charge_soc, s.duration_s)
 
@@ -422,4 +447,5 @@ class Regulator:
 
     def _send(self, t: float, cmd: Command) -> Command:
         self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
+        self._sent_w = cmd.signed_w - self.offset_w
         return cmd

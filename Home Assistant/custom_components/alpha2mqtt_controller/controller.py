@@ -358,7 +358,7 @@ class Controller:
         r = self.regulator
         watts = {k: None if v is None else round(v, 1) for k, v in (
             ("grid_w", self.grid_w), ("solar_w", r.solar_w), ("error_w", r.error_w), ("integral_w", r.integral_w),
-            ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w))}
+            ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w), ("offset_w", r.offset_w))}
         self._log("step", **{name: data.get(key) for name, key in FAST_FIELDS},
                   wait_ms=round((time.monotonic() - t_seen) * 1000), status=self.status, **watts,
                   sent=None if cmd is None else {"kind": cmd.kind, "watts": cmd.watts, "soc": cmd.soc,

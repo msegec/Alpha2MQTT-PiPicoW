@@ -60,6 +60,7 @@ Dates are author dates. Several commits authored 2026-10-13 and 10-14 sit after 
 | Boot loop with AP down | Pico rebooted every 8 s until the AP returned. | `WiFi.begin` blocks up to 15 s in `CYW43::begin`; nothing feeds the watchdog. | 3a6e951 (`WIFI_JOIN_TIMEOUT` 3000 ms) |
 | Dead after AP reboot | Broker attempts failed for good; idle hold wrote 0 W; OTA unreachable. | lwIP keeps the address after link loss, so `WiFi.status()` stays connected. | 86412e8 (`wifiJoined` reads `cyw43_wifi_link_status`) |
 | Retry at cutoff | An inverter at its cutoff was asked again each minute for about 2 h. | `REFUSED_HOLD_S` retry. | 75e08a8 (`REFUSED_NEAR_SOC` 3, `REARM_SOC` 1) |
+| Integral holds the inverter offset | About -155 W of integral after a 2 kW load, then about +175 W of import decaying over 3 min once it stopped. | The inverter lands off its setpoint by a level dependent offset (-25 W to +220 W); one integral holds one level. | 2026-10-22 (`INVERTER_OFFSET`, `offset_comp`) |
 | Trim noise on the bus | Three commands in four moved under 50 W. | Noise and integral creep. | 75e08a8 (`SMALL_TRIM_W` 50, `TRIM_GAP_S` 6 s; replay 810 to 531 commands an hour for 0.6 W more mean import) |
 
 ## Tried and reverted or replaced

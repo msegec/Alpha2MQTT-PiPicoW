@@ -398,7 +398,7 @@ def test_every_fast_message_logs_a_step_enabled_or_not(monkeypatch, enabled):
     assert {k: steps[0][k] for k in ("grid", "pv", "battery", "soc", "dispatch", "ms", "read_ms")} == {
         "grid": 0, "pv": -120, "battery": 500, "soc": 55.0, "dispatch": "Start", "ms": 1000500, "read_ms": 150}
     assert steps[0]["grid_w"] == 500 and steps[0]["status"] == ("regulating" if enabled else "disabled")
-    assert {"error_w", "integral_w", "ff_w", "request_w", "output_w", "solar_w", "wait_ms"} <= steps[0].keys()
+    assert {"error_w", "integral_w", "ff_w", "request_w", "output_w", "offset_w", "solar_w", "wait_ms"} <= steps[0].keys()
     sent = [step["sent"] for step in steps]
     assert sent == ([{"kind": "discharge", "watts": 960, "soc": 20, "power_only": False}, None, None] if enabled
                     else [None, None, None])
@@ -635,7 +635,7 @@ def test_the_status_says_when_the_last_sample_came_once_it_is_late(monkeypatch):
 def test_the_output_shows_the_proportional_term_and_the_output_before_the_slew(monkeypatch):
     house = House(monkeypatch)
     house.second()  # grid 1000 - 500 = 500 W, 460 W off target after the deadband, from 500 W
-    assert attributes(house.c, "output") == {"request": 960, "integral": 0, "feed_forward": 0, "p": 460,
+    assert attributes(house.c, "output") == {"request": 960, "integral": 0, "feed_forward": 0, "offset": 0, "p": 460,
                                              "u": 960, "slewed": False}
 
 

@@ -166,6 +166,7 @@ Restore: last value, else the `Settings` default, clamped into the current range
 | deadband_w | 0..200 W, 5 | power_write_gap_s | 0..5 s, 0.5 (0 off) |
 | smoothing_s | 0..300 s, 0.5 | warm_w | 0..500 W, 5 (0 off) |
 | slew_w_per_s | 50..5000 W/s, 50 | min_interval_s | 2..30 s, 0.5 |
+| offset_comp ("Offset correction") | 0..1.5, 0.05 (0 off) | | |
 | write_threshold_w | 10..500 W, 10 | | |
 
 Not numbers: `integral_band_w`, `integral_limit_w`, `duration_s` (120 s lease). They show read only on the status sensor.
@@ -176,7 +177,7 @@ Sensors (`ControllerSensor`, push only, all attributes unrecorded via `MATCH_ALL
 |---|---|
 | status | `regulator.status`, or `disabled`; attrs `policy_gap_since`, `sample_gap_since`, `integral_band_w`, `integral_limit_w`, `lease_s` |
 | grid (power) | `grid_w` rounded |
-| error, output, battery, integral (power) | regulator fields; output attrs request, integral, feed_forward, `p`, `u`, `slewed` |
+| error, output, battery, integral (power) | regulator fields; output attrs request, integral, feed_forward, offset, `p`, `u`, `slewed` |
 | limit | `regulator.limit` when enabled, else None; attrs `lo`, `hi`, `direction`, `direction_since`, `refusal_since`, `refused_soc` |
 
 Diagnosis attributes (all for display, control never reads them):

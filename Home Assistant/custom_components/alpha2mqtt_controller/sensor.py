@@ -43,6 +43,7 @@ SENSORS = [
         "request": _round(c.regulator.request_w),
         "integral": _round(c.regulator.integral_w),
         "feed_forward": _round(c.regulator.ff_w),
+        "offset": _round(c.regulator.offset_w),  # the offset correction: the command asks for output + offset
         # The proportional term, and the output before the slew. These move with every step, so they ride on this
         # power sensor's own writes (MOVE_W or EVERY_S) and add none.
         "p": _round(c.regulator.p_w),

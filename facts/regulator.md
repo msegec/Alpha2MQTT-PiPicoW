@@ -19,6 +19,7 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 
 | Symbol | Inputs | Output / effect |
 |---|---|---|
+| `inverter_offset(w)` | signed setpoint W | Expected battery reading minus setpoint, linear between the `INVERTER_OFFSET` points, flat past the ends. |
 | `estimate_grid(correction_w, battery_w, clamp_w=None, scale=None)` | watts | Grid estimate. Without `scale`: `correction_w - battery_w`, where correction is house demand net of solar. With `scale`: `scale * clamp_w + correction_w`. |
 | `Policy` (frozen) | `mode`, `max_charge_w`, `max_discharge_w`, `charge_soc` (100), `discharge_soc` (10), `fixed_w`, `target_offset_w`, `reason` | What is allowed. The regulator only clamps to it. |
 | `Settings` (mutable) | tuning, table below | The controller changes fields live with `setattr`. |
@@ -29,7 +30,7 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | `Regulator.fail()` | | The last command was not published or not written. |
 | `Regulator.lease_active(t)` | | True while a non-normal command's `duration` has not run out. |
 
-Readable fields for status: `status`, `limit`, `error_w` (raw, before the deadband), `request_w`, `output_w`, `integral_w`, `ff_w`, `sent`, `refused_soc`, `soc`, `grid_w`, `battery_w`, `solar_w` (the last sample's solar, None when unknown).
+Readable fields for status: `status`, `limit`, `error_w` (raw, before the deadband), `request_w`, `output_w`, `integral_w`, `ff_w`, `sent`, `refused_soc`, `soc`, `grid_w`, `battery_w`, `solar_w` (the last sample's solar, None when unknown), `offset_w` (the offset correction this step: the command asks for `output_w + offset_w`; 0 outside `REGULATE` and after a hand back).
 
 Diagnosis only, never read back by `step`: `p_w` (`kp * e`, 0 outside regulating), `lo_w` and `hi_w` (caps after floor, refusal and full; `fixed_w` under HOLD/FIXED), `u_w` (output after caps, turn round and ready floor, before the slew), `slewed` (the slew clip changed it). A hand back sets `lo_w`, `hi_w`, `u_w` to None, `p_w` to 0, `slewed` to False. Properties: `direction`, `direction_since` (`_t_direction`, None while it is still `-inf`), `refusal_since` (`_t_low`), `fresh_at` (`_t_fresh`). Adding them left `GOLDEN_FLOOR_OFF` unchanged.
 
@@ -92,6 +93,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `SMALL_TRIM_W` | 50 W | Moves under this are trims. |
 | `TRIM_GAP_S` | 6.0 s | Trims wait this long since the last command. |
 | `WARM_BAND_W` | 50 W | Ready floor replaces only requests above -50 W (trickle charge, idle, small discharge). |
+| `INVERTER_OFFSET` | (-100, -8), (0, 0), (100, -25), (1500, -25), (2500, 210) | Battery reading minus setpoint by signed setpoint, measured 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, +198 W at 2750 W, +220 W at 3000 W. |
 | `SOLAR_DEADBAND_W` | 20 W | A solar change this small between samples gets no feed forward, so night noise stays out. |
 
 ## Settings defaults
@@ -116,6 +118,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `stale_after_s` | 30 s | No fresh sample this long: hand back. |
 | `power_write_gap_s` | 0.0 s | 0 means every command is a full block write. Above 0: same-block changes go `power_only`, and after a power write ack the next may follow after this gap. |
 | `warm_w` | 0.0 W | Ready floor ("Keep warm"). 0 is off. |
+| `offset_comp` | 0.0 | Share of `inverter_offset(output_w)` taken off the command under `REGULATE`, so the battery lands on the output. 0 is off, 1 full. |
 
 The test file's `LIVE` dict, labelled "the live tuning": `target_w=-20, deadband_w=5, ki=0.01, write_threshold_w=20, min_interval_s=2.5, slew_w_per_s=2400, flip_hysteresis_w=150, flip_dwell_s=3, keepalive_s=40, power_write_gap_s=0.5, warm_w=20`. Whether it matches the deployed config: unknown.
 
@@ -125,7 +128,7 @@ The integral runs only if all hold:
 
 1. The previous step regulated (`_regulating`) and there was an earlier sample.
 2. Deadbanded error `|e| <= integral_band_w`. `e` uses the offset from the last regulating step.
-3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short of it in its own direction, or `ARRIVE_S` has passed since it was sent. A battery past its setpoint counts as arrived.
+3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: its `signed_w` less the offset correction it went out with), or `ARRIVE_S` has passed since it was sent. A battery past its setpoint counts as arrived.
 4. `sign(e) != _saturation`: conditional integration, frozen when the output is pinned in the error's direction.
 
 Then `integral += ki * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit_w`.
@@ -142,10 +145,11 @@ Then `integral += ki * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit
 8. `u = clip(request, lo, hi)`, `_saturation = sign(request - u)`.
 9. Turn round check (above).
 10. Ready floor: `ready_w = warm_w` if `REGULATE` and `0 < warm_w <= hi`. If `-WARM_BAND_W < u < ready_w` and (direction >= 0 or the dwell has passed): `u = ready_w`, `limit = "warm"`, saturation recomputed, direction forced to +1.
-11. Slew: `output_w = clip(u, sent.signed_w +/- slew_w_per_s * (t - t_sent))`. No limit before the first send.
+11. Slew: `output_w = clip(u, _sent_w +/- slew_w_per_s * (t - t_sent))`. No limit before the first send.
 12. If the ready floor applies and `u >= ready_w` and output > -50 W: `output_w = max(output_w, ready_w)`.
-13. `_command`: watts rounded to 10 W. Under `REGULATE`, an output at or over `warm_w` is lifted to `ceil(warm_w)`. `HOLD` is `charge 0 W SOC 100`. 0 W keeps the last kind and SOC, or `charge 0 W SOC 100` if there is none. Positive is discharge with `discharge_soc`, else charge with `charge_soc`.
-14. `_maybe_send`, in order:
+13. Offset correction: under `REGULATE`, `offset_w = -offset_comp * inverter_offset(output_w)`, else 0. Everything before this is battery watts: caps, turn round, ready floor and slew all mean what the battery gives. Only the command is moved.
+14. `_command` on `ask = output_w + offset_w`: watts rounded to 10 W. Under `REGULATE`, an output at or over `warm_w` is lifted to `ceil(warm_w)`. `HOLD` is `charge 0 W SOC 100`. 0 W keeps the last kind and SOC, or `charge 0 W SOC 100` if there is none. Positive is discharge with `discharge_soc`, else charge with `charge_soc`.
+15. `_maybe_send`, in order (it compares commands, so its thresholds are command watts):
     1. Within `min_interval_s` and no early send: None.
     2. No last command, last failed, lease over, or keepalive due: send full.
     3. Kind changed and either side is non-zero: send full.
@@ -178,6 +182,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | Release `reason` | 8259b36 | An unknown policy state released silently. |
 | Warm only within 50 W of idle, also under turn round | 9ef2224 | Warm pinned on top of a held surplus exported about 130 W at crossovers. |
 | Ready floor | 9684b66 | Near 0 W the discharge ceiling restarts low; never idle while discharge is allowed. A surplus that cannot be stored holds the floor and exports a little. |
+| Offset correction, `_sent_w` | 2026-10-22 | The integral alone held a level dependent inverter offset: after a 2 kW load it wound to about -155 W and gave about +175 W of import back when the load stopped. |
 | Latched refusal near floor; small trims wait | 75e08a8 | An inverter at cutoff was asked again for 2 h. Trim gating cut commands from 810 to 531 an hour for 0.6 W more mean import. |
 
 ## Invariants the tests pin
@@ -196,12 +201,15 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_keep_warm_*`, `test_the_ready_floor_*`, `test_the_floor_hold_wins_*`, `test_the_slew_does_not_leave_*` | Ready floor. Seeded fuzz: no discharge under `warm_w`, no charge under a discharge-only policy. |
 | `test_a_trim_under_fifty_watts_*`, `test_a_load_step_still_follows_*` | Trim gap vs load steps. |
 | `test_the_proportional_term_*`, `test_the_caps_after_*`, `test_the_output_before_the_slew_*`, `test_the_direction_and_*`, `test_the_refusal_clock_*` | Diagnosis fields and properties. |
+| `test_the_inverter_offset_*`, `test_offset_correction_*`, `test_the_caps_stay_battery_watts_*`, `test_under_offset_correction_*` | Table, off by default, caps in battery watts, no change to HOLD/FIXED, arrival gate and slew against `_sent_w`. The ready floor fuzz also runs with `offset_comp=1`. |
 | `test_with_the_ready_floor_at_zero_*` | Golden hash `GOLDEN_FLOOR_OFF = (265, "fba5a193a8a348a0")` of the full command list with `warm_w=0` against `RampingInverter`. Any behaviour change with the floor off breaks it. |
 
 ## Gotchas
 
 - `HOLD` always sends `charge 0 W SOC 100`, even when the running block is a discharge. A 0 W regulate output keeps the last kind instead.
 - Python `round` is half to even: 25 W rounds to 20 W. Hence `ceil(warm_w)` in `_command`.
+- Rounding to 10 W eats the offset correction under about 200 W of discharge, where it is 25 W or less.
+- With `offset_comp` 1, between 1500 and 2500 W a move of the output moves the command about 0.77 times as far, so the write threshold and trim gate need a slightly larger output move there. The command stays monotonic in the output for `offset_comp` up to the number's 1.5.
 - At default `write_threshold_w = 50 = SMALL_TRIM_W` the trim gate changes nothing. It only bites with a lower threshold, as in `LIVE`.
 - A stop at 0 W skips the trim gate but still needs the write threshold, a kind change, or keepalive.
 - Release and stale hand backs call `_send` directly and skip `min_interval_s`. The next command after them still waits it.

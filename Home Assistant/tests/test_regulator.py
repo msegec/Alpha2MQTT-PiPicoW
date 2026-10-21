@@ -979,14 +979,15 @@ def test_the_ready_floor_keeps_a_slow_starting_inverter_ready_for_a_load_step(po
     assert rows[604][1] >= 0.9 * (demand(604) - LIVE["target_w"])  # within 4 s of the step
 
 
+@pytest.mark.parametrize("offset_comp", [0.0, 1.0])
 @pytest.mark.parametrize("policy", [DISCHARGE, BOTH])
 @pytest.mark.parametrize("seed", range(10))
-def test_the_ready_floor_is_never_undercut_while_discharge_is_allowed(policy, seed):
+def test_the_ready_floor_is_never_undercut_while_discharge_is_allowed(policy, seed, offset_comp):
     rnd = random.Random(seed)
     levels = [rnd.choice([-600, -300, -160, -120, -80, -40, -10, 0, 15, 40, 80, 300, 1500, 2500])
               for _ in range(40)]
     demand = lambda t: levels[t // 45] + rnd.randint(-30, 30)
-    rows = on_inverter(make(**LIVE), demand, policy, 45 * 40)
+    rows = on_inverter(make(**LIVE, offset_comp=offset_comp), demand, policy, 45 * 40)
     sent = [cmd for _, _, cmd in rows if cmd is not None]
     for last, cmd in zip([None] + sent, sent):
         if cmd.kind == "discharge":
@@ -1128,3 +1129,63 @@ def test_the_refusal_clock_and_the_last_fresh_sample_are_readable():
     reg.update_grid(2, 20, 500, fresh=False)
     reg.step(2, DISCHARGE)
     assert reg.refusal_since is None and reg.fresh_at == 1
+
+
+# Inverter offset correction: the command asks for the setpoint that lands the battery on the output.
+
+@pytest.mark.parametrize("w, offset", [(-3000, -8), (-100, -8), (0, 0), (100, -25), (1500, -25), (2000, 92.5),
+                                       (2500, 210), (3000, 210)])
+def test_the_inverter_offset_is_read_off_the_measured_table(w, offset):
+    assert R.inverter_offset(w) == pytest.approx(offset)
+
+
+def test_offset_correction_is_off_by_default():
+    reg = make(deadband_w=0, target_w=0)
+    reg.update_grid(0, 2500, 0)
+    assert reg.step(0, DISCHARGE).watts == 2500
+    assert reg.offset_w == 0
+
+
+@pytest.mark.parametrize("comp, watts", [(1.0, 2290), (0.5, 2400)])
+def test_offset_correction_asks_for_what_lands_the_battery_on_the_output(comp, watts):
+    reg = make(offset_comp=comp, deadband_w=0, target_w=0)
+    reg.update_grid(0, 2500, 0)
+    assert reg.step(0, DISCHARGE).watts == watts
+    assert (reg.output_w, reg.offset_w) == (2500, pytest.approx(-210 * comp))
+
+
+def test_the_caps_stay_battery_watts_under_offset_correction():
+    reg = make(offset_comp=1.0, deadband_w=0, target_w=0)
+    reg.update_grid(0, 5000, 0)
+    assert reg.step(0, DISCHARGE).watts == 2790  # 3000 W of battery
+    assert (reg.output_w, reg.limit) == (3000, "discharge_cap")
+    reg = make(offset_comp=1.0, deadband_w=0, target_w=0)
+    reg.update_grid(0, 1000, 0)
+    assert reg.step(0, R.Policy(R.REGULATE, max_discharge_w=1000)).watts == 1020  # a 1000 W cap reads 975 at 1000
+
+
+def test_offset_correction_does_not_touch_hold_or_fixed():
+    reg = make(offset_comp=1.0)
+    reg.update_grid(0, 0, 0)
+    assert reg.step(0, R.Policy(R.FIXED, fixed_w=3000)).watts == 3000
+    assert reg.offset_w == 0
+
+
+def test_under_offset_correction_the_integral_waits_for_the_battery_to_reach_the_output():
+    reg = make(offset_comp=1.0, deadband_w=0, target_w=0, min_interval_s=0)
+    reg.update_grid(0, 2500, 0)
+    assert reg.step(0, DISCHARGE).watts == 2290
+    reg.update_grid(1, 100, 2350)  # past the command but 150 W short of the 2500 W it should give
+    reg.step(1, DISCHARGE)
+    assert reg.integral_w == 0
+    reg.update_grid(2, 100, 2450)
+    assert reg.integral_w > 0
+
+
+def test_under_offset_correction_the_slew_counts_from_the_battery_watts_asked_for():
+    reg = make(offset_comp=1.0, deadband_w=0, target_w=0, slew_w_per_s=100, ki=0)
+    reg.update_grid(0, 2500, 0)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(1, 0, 2500)  # landed: the output holds, it is not slewed back towards the 2290 W command
+    reg.step(1, DISCHARGE)
+    assert (reg.output_w, reg.slewed) == (2500, False)

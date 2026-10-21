@@ -56,7 +56,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `grid`, `pv`, `battery`, `soc`, `dispatch` | fast message keys in `FAST_FIELDS` | raw values (W, %, dispatch start as sent, `"Start"` in tests); null if absent |
 | `wait_ms` | `time.monotonic() - t_seen` | int ms the sample waited for its correction (up to `MATCH_WAIT_S`, 0.5 s) |
 | `status` | `Controller.status` | str, `"disabled"` when off, else regulator status |
-| `grid_w`, `solar_w`, `error_w`, `integral_w`, `ff_w`, `request_w`, `output_w` | controller and regulator after this step | float W rounded to 0.1, or null |
+| `grid_w`, `solar_w`, `error_w`, `integral_w`, `ff_w`, `request_w`, `output_w`, `offset_w` | controller and regulator after this step | float W rounded to 0.1, or null |
 | `sent` | `Command` returned by this step's `_run` | null or `{kind, watts, soc, power_only}` |
 
 Not in `step`: firmware `haIdle`, regulator `limit`, ack round trip (`ack_after_ms` lives only in `Controller.ack`, shown as attributes of the `last_command` sensor).
@@ -113,7 +113,7 @@ Sensors: `step_response` state is `last_response["t80_s"]` (null after a timeout
 | Did the battery follow? | `step.battery` over following steps against the signed setpoint; `resp.result` |
 | How long did it take? | `resp.t80_s`, `elapsed_s`, `slope_w_s` (about 9 W/s is the slow ramp; hundreds is healthy); `ack.p.ms` minus the matching `step.ms` window; `t` gap between `cmd` and `ack` |
 | Was the sample late or stale? | `step.wait_ms`, `read_ms`, `seq` gaps, `ms` resets (reboot) |
-| Why did the regulator do X? | `step.status`, `error_w`, `integral_w`, `ff_w`, `request_w`, `output_w`, `grid_w`, `solar_w`; `cfg` in force; `gap`, `refused`, `rearmed`, `cross`; `e` for policy or input entities |
+| Why did the regulator do X? | `step.status`, `error_w`, `integral_w`, `ff_w`, `offset_w`, `request_w`, `output_w`, `grid_w`, `solar_w`; `cfg` in force; `gap`, `refused`, `rearmed`, `cross`; `e` for policy or input entities |
 | Who wrote the inverter? | `cmd` records with no matching `step.sent` came from a tick, an entity change, a person or a script |
 
 ## History
