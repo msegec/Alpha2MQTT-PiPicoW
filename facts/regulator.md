@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: 1e0ac66 plus the import trim wait, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 288 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 4ddb237 plus the learned offset table, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 300 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -20,7 +20,6 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | Symbol | Inputs | Output / effect |
 |---|---|---|
 | `inverter_offset(w)` | signed setpoint W | Expected battery reading minus setpoint, linear between the `INVERTER_OFFSET` points, flat past the ends. |
-| `setpoint_for(w, k)` | battery W, share | The setpoint `c` with `c + k * inverter_offset(c) = w`, solved exactly on the piecewise linear table. Unique for `k` under 4. |
 | `estimate_grid(correction_w, battery_w, clamp_w=None, scale=None)` | watts | Grid estimate. Without `scale`: `correction_w - battery_w`, where correction is house demand net of solar. With `scale`: `scale * clamp_w + correction_w`. |
 | `Policy` (frozen) | `mode`, `max_charge_w`, `max_discharge_w`, `charge_soc` (100), `discharge_soc` (10), `fixed_w`, `target_offset_w`, `reason` | What is allowed. The regulator only clamps to it. |
 | `Settings` (mutable) | tuning, table below | The controller changes fields live with `setattr`. |
@@ -30,8 +29,12 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | `Regulator.ack(t, power_write=False)` | | The firmware wrote the last command. |
 | `Regulator.fail()` | | The last command was not published or not written. |
 | `Regulator.lease_active(t)` | | True while a non-normal command's `duration` has not run out. |
+| `Regulator.table(w)` | signed setpoint W | Expected battery reading minus setpoint: `offset_comp * inverter_offset(w)` plus the learned trim at `w`. |
+| `Regulator.trim_points()` | | The learned table as `[[node W, trim W], ...]` over `TRIM_NODES`, trims rounded to 0.1 W. |
+| `Regulator.load_trim(points)` | pairs | Restores a saved table; False and no change for a malformed table, other nodes, a non-finite value, a value past `trim_limit_w` or a non-zero 0 W node. |
+| `Regulator.reset_trim()` | | Zeroes the learned table. |
 
-Readable fields for status: `status`, `limit`, `error_w` (raw, before the deadband), `request_w`, `output_w`, `integral_w`, `ff_w`, `sent`, `refused_soc`, `soc`, `grid_w`, `battery_w`, `solar_w` (the last sample's solar, None when unknown), `offset_w` (the offset correction this step: the command asks for `output_w + offset_w`; 0 outside `REGULATE` and after a hand back).
+Readable fields for status: `trim` (learned W per `TRIM_NODES` node), `trim_moves` (count of learning moves, for the controller to notice a change), `status`, `limit`, `error_w` (raw, before the deadband), `request_w`, `output_w`, `integral_w`, `ff_w`, `sent`, `refused_soc`, `soc`, `grid_w`, `battery_w`, `solar_w` (the last sample's solar, None when unknown), `offset_w` (the offset correction this step: the command asks for `output_w + offset_w`; 0 outside `REGULATE` and after a hand back).
 
 Diagnosis only, never read back by `step`: `p_w` (`kp * e`, 0 outside regulating), `lo_w` and `hi_w` (caps after floor, refusal and full; `fixed_w` under HOLD/FIXED), `u_w` (output after caps, turn round and ready floor, before the slew), `slewed` (the slew clip changed it). A hand back sets `lo_w`, `hi_w`, `u_w` to None, `p_w` to 0, `slewed` to False. Properties: `direction`, `direction_since` (`_t_direction`, None while it is still `-inf`), `refusal_since` (`_t_low`), `fresh_at` (`_t_fresh`). Adding them left `GOLDEN_FLOOR_OFF` unchanged.
 
@@ -95,6 +98,8 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `TRIM_GAP_S` | 6.0 s | Trims wait this long since the last command. |
 | `WARM_BAND_W` | 50 W | Ready floor replaces only requests above -50 W (trickle charge, idle, small discharge). |
 | `INVERTER_OFFSET` | (-100, -8), (0, 0), (100, -25), (1500, -25), (2750, 198), (3000, 220) | Battery reading minus setpoint, indexed by the signed setpoint. Measured 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, +198 W at 2750 W, +220 W at 3000 W. Chosen: 0 at 0 W, the ramps either side of it, the line from 1500 to 2750 W, flat past the ends. |
+| `TRIM_NODES` | -4000, -3500, -3000, -2500, -2000, -1500, -1000, -750, -500, -250, -100, 0, 100, 250, 500, 750, 1000, 1500, 2000, 2500, 2750, 3000, 3500, 4000 W | Nodes of the learned table, linear between, flat past the ends. They index the saved table, so changing them discards it. The 0 W node stays 0. |
+| `TRIM_SLOPE` | 0.5 | Neighbouring learned nodes differ by at most this times their spacing, so the table stays monotonic and each output has one command. A maths bound, not a tuning choice. |
 | `SOLAR_DEADBAND_W` | 20 W | A solar change this small between samples gets no feed forward, so night noise stays out. |
 | `SOLAR_MAX_GAP_S` | 2.0 s | A solar change over a longer gap gets no feed forward: after a 20 s gap while solar fell 2500 W it would have asked for 2500 W more discharge. Older firmware's 10 s samples get none. |
 
@@ -126,7 +131,14 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `spike_confirm_w` | 0.0 W | Above 0, a sample whose net demand (`grid_w + battery_w`) moved more than this from the last sample is held: every step on it returns None with `limit = "spike"`, and the integral skips it. The next sample always acts. 0 is off. |
 | `integral_reset_w` | 0.0 W | Above 0, `_send` sets the integral to 0 when the new command's `signed_w` moves this much or more from the last one's: what it held trimmed the old level. 0 is off. |
 | `import_trim_gap_s` | 6.0 s | A small trim that raises `signed_w` (cuts import) waits this long instead of `TRIM_GAP_S`; a trim towards export keeps `TRIM_GAP_S`. 6 is the old rule. |
-| `offset_comp` | 0.0 | Share of the table the command allows for under `REGULATE`: it asks for `setpoint_for(output_w, offset_comp)`, so the battery lands on the output. 0 is off, 1 full. |
+| `offset_comp` | 0.0 | Share of `INVERTER_OFFSET` in `table`. Under `REGULATE` the command asks for the setpoint whose battery reading on `table` is the output (`_setpoint`), so the battery lands on the output. 0 is off, 1 full. |
+| `trim_learn` | False | Long term trim on: learning moves the integral into the learned table. Off: nothing is learned, the table is still used. |
+| `trim_rate` | 0.0 /s | Share of the integral moved into the table per settled second. 0 learns nothing, even with `trim_learn` on. |
+| `trim_limit_w` | 100 W | Bound on each learned node, and on a table that loads. |
+| `trim_settle_s` | 20 s | The command's kind and watts unchanged this long before learning. |
+| `trim_band_w` | 50 W | Raw grid error (before the deadband) within this to learn. |
+| `trim_min_w` | 50 W | Setpoints under this teach nothing. |
+| `trim_max_soc` | 97 % | SOC at or over this teaches nothing (BMS taper). |
 
 The test file's `LIVE` dict, labelled "the live tuning": `target_w=-20, deadband_w=5, ki=0.01, write_threshold_w=20, min_interval_s=2.5, slew_w_per_s=2400, flip_hysteresis_w=150, flip_dwell_s=3, keepalive_s=40, power_write_gap_s=0.5, warm_w=20`. Whether it matches the deployed config: unknown.
 
@@ -136,11 +148,13 @@ The integral runs only if all hold:
 
 1. The previous step regulated (`_regulating`) and there was an earlier sample.
 2. Deadbanded error `|e| <= integral_band_w`. `e` uses the policy's grid offset from the last regulating step (`_target_offset_w`; not `offset_w`, the inverter correction).
-3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: `signed_w + offset_comp * inverter_offset(signed_w)`, also after a HOLD or FIXED command), or `ARRIVE_S` has passed since it was sent. A battery past its setpoint counts as arrived.
+3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: `signed_w + table(signed_w)`, also after a HOLD or FIXED command), or `ARRIVE_S` has passed since it was sent. A battery past its setpoint counts as arrived.
 4. `sign(e) != _saturation`: conditional integration, frozen when the output is pinned in the error's direction.
 5. Not a held spike (`_spike`, see `spike_confirm_w`).
 
 Then `integral += g * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit_w`, with `g = ki * ki_import_x` on import (`e > 0`) and `ki` otherwise.
+
+Learning (long term trim) runs next, on `c`, the running command's `signed_w` (0 for none or normal). It needs `trim_learn`, `trim_rate > 0`, `_learn_ok` (the last step regulated with `limit` none, no saturation, no slew, SOC known and between `discharge_soc + FLOOR_MARGIN + 1` and `charge_soc`), arrived, no held spike, `|c| >= trim_min_w`, `trim_settle_s` since the command last changed (`_t_change`), raw error within `trim_band_w`, no policy offset and SOC under `trim_max_soc`. Then `_teach(c, -trim_rate * dt * integral)` moves the two nodes around `c` (never the 0 W node), each within `trim_limit_w` and `TRIM_SLOPE`, and the integral gets the actual move added, so the command does not change. After that, with `c` non-zero, the integral is clipped so integral plus the trim at `c` stays within `integral_limit_w`.
 
 ## Decision order in `step` (regulating path)
 
@@ -156,7 +170,7 @@ Then `integral += g * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit_
 10. Ready floor: `ready_w = warm_w` if `REGULATE` and `0 < warm_w <= hi`. If `-WARM_BAND_W < u < ready_w` and (direction >= 0 or the dwell has passed): `u = ready_w`, `limit = "warm"`, saturation recomputed, direction forced to +1.
 11. Slew: `output_w = clip(u, _sent_w +/- slew_w_per_s * (t - t_sent))`. No limit before the first send. Under `REGULATE` the output is then clipped back into `[lo, hi]`, so a cut to a cap goes out whole; HOLD and FIXED keep the slew.
 12. If the ready floor applies and `u >= ready_w` and output > -50 W: `output_w = max(output_w, ready_w)`.
-13. Offset correction: under `REGULATE` with `offset_comp` above 0, `offset_w = setpoint_for(output_w, offset_comp) - output_w`, else 0. The table is indexed by setpoint, so it is solved for the command, not read at the output. Everything before this is battery watts: caps, turn round, ready floor and slew all mean what the battery gives. Only the command is moved.
+13. Offset correction: under `REGULATE` with `offset_comp` above 0 or any learned trim, `offset_w = _setpoint(output_w) - output_w`, else 0. `_setpoint` solves `x + table(x) = w` on the merged nodes of `TRIM_NODES` and `INVERTER_OFFSET`, slope 1 past the ends. Then `_learn_ok` is set for the next sample. The table is indexed by setpoint, so it is solved for the command, not read at the output. Everything before this is battery watts: caps, turn round, ready floor and slew all mean what the battery gives. Only the command is moved.
 14. `_command` on `ask = output_w + offset_w`: watts rounded to 10 W. Under `REGULATE`, an output at or over `warm_w` is lifted to `ceil(warm_w)`. `HOLD` is `charge 0 W SOC 100`. 0 W keeps the last kind and SOC, or `charge 0 W SOC 100` if there is none. Positive is discharge with `discharge_soc`, else charge with `charge_soc`.
 15. `_maybe_send`, in order (it compares commands, so its thresholds are command watts):
     1. Within `min_interval_s` and no early send: None.
@@ -215,6 +229,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_a_big_move_starts_the_integral_from_zero`, `test_the_integral_reset_is_off_by_default` | Integral reset on a command move of `integral_reset_w`, off by default. |
 | `test_the_integral_winds_faster_on_import_than_on_export`, `test_the_integral_import_factor_is_1_by_default` | Import factor on the integral gain, symmetric by default. |
 | `test_a_small_import_cut_goes_out_after_the_import_trim_gap`, `test_a_small_export_cut_still_waits_the_trim_gap`, `test_the_import_trim_wait_is_the_trim_gap_by_default` | Import trim wait for moves up only, equal to the trim gap by default. |
+| `test_learning_*`, `test_a_learned_table_*`, `test_nothing_is_learned_*`, `test_forgetting_the_table_zeroes_it` | Learning moves the integral into the table and keeps the command, off by default (and at rate 0), a loaded table applies with learning off, bad tables do not load, nodes stay in bounds, nothing is learned at a cap or under a policy offset. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |

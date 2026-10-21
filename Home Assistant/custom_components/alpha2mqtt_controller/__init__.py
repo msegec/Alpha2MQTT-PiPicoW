@@ -32,7 +32,7 @@ from .controller import (
     Controller,
 )
 
-PLATFORMS = [Platform.NUMBER, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH]
 
 CONFIG_SCHEMA = vol.Schema(
     {

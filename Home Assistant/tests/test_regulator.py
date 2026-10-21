@@ -1381,3 +1381,87 @@ def test_a_small_export_cut_still_waits_the_trim_gap():
 
 def test_the_import_trim_wait_is_the_trim_gap_by_default():
     assert R.Settings().import_trim_gap_s == R.TRIM_GAP_S
+
+
+# Learned offset table, the long term trim: the integral is the short term trim.
+
+def _settle(reg, short_w, t0=0, n=200, battery=500):
+    """Hold a settled discharge where the battery reads short_w under the command."""
+    reg.update_grid(t0, 0, battery, soc=50)
+    reg.step(t0, BOTH)
+    for t in range(t0 + 1, t0 + n):
+        sent = reg.sent.signed_w
+        reg.update_grid(t, battery - (sent - short_w), sent - short_w, soc=50)  # demand = battery
+        reg.step(t, BOTH)
+    return reg
+
+
+def test_learning_moves_the_integral_into_the_table_and_keeps_the_command():
+    reg = _settle(make(trim_learn=True, trim_rate=0.05, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0,
+                       write_threshold_w=10), short_w=40)
+    i = R.TRIM_NODES.index(500.0)
+    assert reg.trim[i] < -25  # the table learned that the battery gives about 40 W less at 500 W
+    assert abs(reg.integral_w) < 10  # and the integral gave it up
+    assert abs(reg.sent.signed_w - 540) <= 10  # the command still asks for what the battery needs
+    assert reg.trim_moves > 0
+
+
+def test_learning_is_off_by_default_and_frozen_learning_still_applies_the_table():
+    s = R.Settings()
+    assert s.trim_learn is False and s.trim_rate == 0
+    reg = _settle(make(ki=0.05, deadband_w=0, target_w=0, min_interval_s=0), short_w=40)
+    assert not any(reg.trim)
+    reg = _settle(make(trim_learn=True, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0), short_w=40)
+    assert not any(reg.trim)  # the switch alone learns nothing at the default rate of 0
+    reg = make(offset_comp=0)
+    pts = reg.trim_points()
+    for w in (250.0, 500.0, 750.0):
+        pts[R.TRIM_NODES.index(w)][1] = -40.0
+    assert reg.load_trim(pts)
+    reg.update_grid(0, 0, 500, soc=50)
+    assert reg.step(0, BOTH).watts == 540
+
+
+def test_a_learned_table_past_its_bound_or_off_the_nodes_does_not_load():
+    reg = make(trim_limit_w=150)
+    pts = reg.trim_points()
+    pts[3][1] = 151.0
+    assert not reg.load_trim(pts)
+    assert not reg.load_trim(pts[:-1])
+    assert not reg.load_trim("junk")
+    pts[3][1] = 0.0
+    pts[R.TRIM_NODES.index(0.0)][1] = 5.0  # the 0 W node stays 0 so a stop stays a stop
+    assert not reg.load_trim(pts)
+    assert not any(reg.trim)
+
+
+def test_learning_never_takes_a_node_past_its_bound():
+    reg = _settle(make(trim_learn=True, trim_rate=0.2, trim_limit_w=30, ki=0.2, deadband_w=0, target_w=0,
+                       min_interval_s=0, write_threshold_w=10), short_w=200, n=400)
+    assert max(abs(y) for y in reg.trim) <= 30
+
+
+def test_nothing_is_learned_at_a_cap_or_under_a_policy_offset():
+    pol = replace(BOTH, max_discharge_w=400)
+    reg = make(trim_learn=True, trim_rate=0.05, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0)
+    reg.update_grid(0, 200, 400, soc=50)
+    for t in range(1, 100):
+        reg.update_grid(t, 200, 360, soc=50)
+        reg.step(t, pol)
+    assert not any(reg.trim)
+    reg = make(trim_learn=True, trim_rate=0.05, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0)
+    pol = replace(BOTH, target_offset_w=100)
+    reg.update_grid(0, 100, 500, soc=50)
+    reg.step(0, pol)
+    for t in range(1, 200):
+        sent = reg.sent.signed_w
+        reg.update_grid(t, 100 + 40, sent - 40, soc=50)
+        reg.step(t, pol)
+    assert not any(reg.trim)
+
+
+def test_forgetting_the_table_zeroes_it():
+    reg = _settle(make(trim_learn=True, trim_rate=0.05, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0,
+                       write_threshold_w=10), short_w=40)
+    reg.reset_trim()
+    assert not any(reg.trim) and reg.table(500) == 0

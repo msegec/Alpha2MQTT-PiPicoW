@@ -17,6 +17,7 @@ from .regulator import Settings
 # key, name, group. Each writes a Settings flag, goes in the step log and survives a restart, as a number does.
 SWITCHES = [
     ("ff_guard", "Feed forward guard", BASIC),  # off: the solar lead may turn the battery round
+    ("trim_learn", "Learn offsets", BASIC),  # off: nothing is learned, what was learned is still used
 ]
 
 _DEFAULTS = {f.name: f.default for f in fields(Settings)}

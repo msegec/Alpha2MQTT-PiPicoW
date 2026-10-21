@@ -17,6 +17,7 @@ from homeassistant.components import mqtt
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .regulator import FIXED, HOLD, REGULATE, RELEASE, Command, Policy, Regulator, estimate_grid
@@ -60,6 +61,9 @@ ACK_TIMEOUT_S = 10.0
 # Samples come every second. Once the last is this old, the status sensor says when it came; under it, nothing, so
 # the attribute changes at the edges of a gap and not with every sample.
 SAMPLE_LATE_S = 3.0
+# While learning moves the offset table, it is saved this long after a move and goes in the step log at most this
+# often. A restart within it loses at most this much learning.
+TRIM_SAVE_S = 60.0
 
 GRID_KEY = "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1"
 BATTERY_KEY = "REG_BATTERY_HOME_R_BATTERY_POWER"
@@ -137,6 +141,10 @@ class Controller:
         self.last_response: dict | None = None  # the last step response timed out or reached, not cancelled
         self._slow: tuple[object, int] = (None, 0)  # local date, slow responses on it
         self._walls: dict[str, tuple[float, str]] = {}  # name: (monotonic time, the same as wall clock text)
+        self._store = Store(hass, 1, f"{DOMAIN}.{entry_id}.learned_offsets")  # the long term trim, across restarts
+        self._trim_moves = 0  # regulator.trim_moves when last seen, so a move is noticed once
+        self._trim_unsaved = False
+        self._t_trim_log = float("-inf")
 
     @property
     def status(self) -> str:
@@ -209,6 +217,7 @@ class Controller:
             if cfg.get(CONF_LOG_ENTITIES):
                 self._unsubs.append(async_track_state_change_event(
                     self.hass, cfg[CONF_LOG_ENTITIES], self._on_log_entity))
+        await self._load_trim()
         watched = [cfg.get(k) for k in (CONF_POLICY_ENTITY, CONF_GRID_SCALE_ENTITY, CONF_CORRECTION_ENTITY,
                                         CONF_MAX_CHARGE_ENTITY, CONF_MAX_DISCHARGE_ENTITY)]
         self._unsubs.append(async_track_state_change_event(
@@ -224,6 +233,9 @@ class Controller:
             if self._cancel_wait is not None:
                 self._cancel_wait()
                 self._cancel_wait = None
+            if self._trim_unsaved:
+                await self._store.async_save(self._trim_data())
+                self._trim_unsaved = False
             if self._steplog is not None:
                 self._log("stop")
                 steplog, self._steplog = self._steplog, None
@@ -237,6 +249,39 @@ class Controller:
             cmd = self.regulator.step(time.monotonic(), Policy(RELEASE))
             if cmd is not None:
                 await self._publish(cmd)
+        self._notify()
+
+    async def _load_trim(self) -> None:
+        """Restores the learned offset table saved by an earlier run. Nothing saved logs nothing."""
+        data = await self._store.async_load()
+        if not isinstance(data, dict) or "points" not in data:
+            return
+        loaded = self.regulator.load_trim(data["points"])
+        self._trim_moves = self.regulator.trim_moves
+        self._log("trim_load", loaded=loaded, points=self.regulator.trim_points())
+
+    def _trim_data(self) -> dict:
+        self._trim_unsaved = False
+        return {"points": self.regulator.trim_points()}
+
+    def _trim_moved(self) -> None:
+        """Saves the table TRIM_SAVE_S after learning moved it, and logs it at most that often."""
+        if self.regulator.trim_moves == self._trim_moves:
+            return
+        self._trim_moves = self.regulator.trim_moves
+        self._trim_unsaved = True
+        self._store.async_delay_save(self._trim_data, TRIM_SAVE_S)
+        now = time.monotonic()
+        if now - self._t_trim_log >= TRIM_SAVE_S:
+            self._t_trim_log = now
+            self._log("trim", points=self.regulator.trim_points())
+
+    async def async_forget_trim(self) -> None:
+        """Zeroes the learned offset table and saves it at once."""
+        self.regulator.reset_trim()
+        self._trim_moves = self.regulator.trim_moves
+        await self._store.async_save(self._trim_data())
+        self._log("trim", points=self.regulator.trim_points(), forgot=True)
         self._notify()
 
     def set_setting(self, key: str, value: float) -> None:
@@ -406,6 +451,7 @@ class Controller:
         if self.grid_w is not None and self._battery_w is not None:
             self.regulator.update_grid(time.monotonic(), self.grid_w, self._battery_w, fresh=fresh,
                                        soc=self._soc, solar_w=self._solar())
+            self._trim_moved()
         return self._run()
 
     @callback

@@ -55,6 +55,15 @@ SOLAR_DEADBAND_W, SOLAR_MAX_GAP_S = 20.0, 2.0
 # it, the line from 1500 to 2750 W, and flat past the ends. The integral alone held it, so after a 2 kW load it
 # wound to about -155 W and gave back about +175 W of import when the load stopped.
 INVERTER_OFFSET = ((-100.0, -8.0), (0.0, 0.0), (100.0, -25.0), (1500.0, -25.0), (2750.0, 198.0), (3000.0, 220.0))
+# Learned offset table (long term trim): watts added to offset_comp x INVERTER_OFFSET at these signed setpoints, linear
+# between them, flat past the ends. They index the persisted table, so changing them discards what was learned. The
+# 0 W node stays 0 so a stop stays a stop.
+TRIM_NODES = (-4000.0, -3500.0, -3000.0, -2500.0, -2000.0, -1500.0, -1000.0, -750.0, -500.0, -250.0, -100.0, 0.0,
+              100.0, 250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 2500.0, 2750.0, 3000.0, 3500.0, 4000.0)
+# Neighbouring nodes differ by at most this times their spacing. With the static table's steepest fall (0.25 W per W,
+# times offset_comp up to 1.5) the table falls under 1 W per W, so each output has one command. A maths bound, not a
+# tuning choice.
+TRIM_SLOPE = 0.5
 
 
 @dataclass(frozen=True)
@@ -116,6 +125,20 @@ class Settings:
     # Small trims that cut import (raise the signed command) wait this long instead of TRIM_GAP_S. Trims towards
     # export keep TRIM_GAP_S: export is the cheap side. Equal to TRIM_GAP_S is the old rule.
     import_trim_gap_s: float = 6.0
+    # Long term trim (learned offset table, see TRIM_NODES). trim_learn on: while settled, trim_rate of the integral
+    # per second moves into the two nodes around the running setpoint, and the integral gives up the same watts, so
+    # the command does not move. Off: nothing is learned, what was learned is still used. Learning needs the command
+    # unchanged trim_settle_s, the raw grid error within trim_band_w, a setpoint of at least trim_min_w, SOC under
+    # trim_max_soc and over the floor hold, no cap, hold, slew or policy offset. Each node stays within
+    # trim_limit_w, and the integral plus the trim at the running setpoint stay within integral_limit_w. A rate of 0
+    # learns nothing.
+    trim_learn: bool = False
+    trim_rate: float = 0.0
+    trim_limit_w: float = 100.0
+    trim_settle_s: float = 20.0
+    trim_band_w: float = 50.0
+    trim_min_w: float = 50.0
+    trim_max_soc: float = 97.0
     # Dispatch SOC register sent for a charge to 100 %. The register is 0.4 % a step, but 250 stopped the
     # battery at 99.2 % and 252 is full, so 100 % goes as this, as socPercent register - 150.
     full_register: int = 252
@@ -158,18 +181,23 @@ def inverter_offset(w: float) -> float:
     return y0
 
 
-def setpoint_for(w: float, k: float) -> float:
-    """The setpoint c with c + k * inverter_offset(c) = w: what to ask for so the battery gives w. Exact on the
-    piecewise linear table, which rises with c for k up to 4 (its steepest fall is 0.25 W per W)."""
-    points = [(x, x + k * y) for x, y in INVERTER_OFFSET]
-    (x0, f0), *rest = points
-    if w <= f0:
-        return w - k * INVERTER_OFFSET[0][1]
-    for x1, f1 in rest:
-        if w <= f1:
-            return x0 + (x1 - x0) * (w - f0) / (f1 - f0)
-        x0, f0 = x1, f1
-    return w - k * INVERTER_OFFSET[-1][1]
+def _interp(xs, ys, w: float) -> float:
+    if w <= xs[0]:
+        return ys[0]
+    for i in range(1, len(xs)):
+        if w <= xs[i]:
+            return ys[i - 1] + (ys[i] - ys[i - 1]) * (w - xs[i - 1]) / (xs[i] - xs[i - 1])
+    return ys[-1]
+
+
+def _solve(xs, fs, w: float) -> float:
+    """x with f(x) = w on the rising piecewise linear f through (xs, fs), slope 1 past the ends."""
+    if w <= fs[0]:
+        return xs[0] + w - fs[0]
+    for i in range(1, len(xs)):
+        if w <= fs[i]:
+            return xs[i - 1] + (xs[i] - xs[i - 1]) * (w - fs[i - 1]) / (fs[i] - fs[i - 1])
+    return xs[-1] + w - fs[-1]
 
 
 def _clip(x: float, lo: float, hi: float) -> float:
@@ -213,8 +241,13 @@ class Regulator:
         self.ff_w = 0.0
         self.request_w = 0.0
         self.output_w = 0.0
-        self.offset_w = 0.0  # the offset correction: the command asks for output_w + offset_w, see setpoint_for
+        self.offset_w = 0.0  # the offset correction: the command asks for output_w + offset_w, see _setpoint
         self.sent: Command | None = None
+        self.trim = [0.0] * len(TRIM_NODES)  # learned watts at TRIM_NODES: trim_points, load_trim, reset_trim
+        self.trim_moves = 0  # times learning moved the table, so the controller can log and persist on change
+        self._t_change = float("-inf")  # when the command's watts or kind last changed
+        self._learn_ok = False  # the last step regulated free of every cap, hold, slew and policy offset
+        self._grid: tuple | None = None  # (offset_comp, nodes, battery watts at them) for the solve; None when moved
         self.status = "waiting"
         self.limit = "none"  # what holds the output this step, for diagnosis: see step()
         # Also for diagnosis only, never read back: the proportional term, the caps after floor, refusal and full,
@@ -244,6 +277,61 @@ class Regulator:
     def fresh_at(self) -> float | None:
         """When the last fresh sample came in."""
         return self._t_fresh
+
+    def table(self, w: float) -> float:
+        """Expected battery reading minus setpoint at setpoint w: offset_comp x INVERTER_OFFSET plus the trim."""
+        return self.settings.offset_comp * inverter_offset(w) + _interp(TRIM_NODES, self.trim, w)
+
+    def _setpoint(self, w: float) -> float:
+        """The setpoint whose battery reading, on the table, is w."""
+        if self._grid is None or self._grid[0] != self.settings.offset_comp:
+            xs = sorted(set(TRIM_NODES) | {x for x, _ in INVERTER_OFFSET})
+            self._grid = (self.settings.offset_comp, xs, [x + self.table(x) for x in xs])
+        return _solve(self._grid[1], self._grid[2], w)
+
+    def trim_points(self) -> list[list[float]]:
+        """The learned table as [setpoint W, trim W] pairs, for the controller to persist and show."""
+        return [[x, round(y, 1)] for x, y in zip(TRIM_NODES, self.trim)]
+
+    def load_trim(self, points) -> bool:
+        """Restore a persisted table. A malformed table, other nodes, a non-zero 0 W node or a value past
+        trim_limit_w loads nothing and returns False."""
+        try:
+            pts = [(float(x), float(y)) for x, y in points]
+        except (TypeError, ValueError):
+            return False
+        lim = self.settings.trim_limit_w
+        if ([x for x, _ in pts] != list(TRIM_NODES) or any(not math.isfinite(y) or abs(y) > lim for _, y in pts)
+                or pts[TRIM_NODES.index(0.0)][1] != 0):
+            return False
+        self.trim, self._grid = [y for _, y in pts], None
+        return True
+
+    def reset_trim(self) -> None:
+        self.trim, self._grid = [0.0] * len(TRIM_NODES), None
+
+    def _teach(self, c: float, d: float) -> float:
+        """Move the trim at setpoint c by d watts over its two nodes, within the bounds. Returns the move made."""
+        xs, ys = TRIM_NODES, self.trim
+        before = _interp(xs, ys, c)
+        i = next((j for j in range(1, len(xs)) if c <= xs[j]), len(xs) - 1)
+        a = _clip((c - xs[i - 1]) / (xs[i] - xs[i - 1]), 0.0, 1.0)
+        share = {i - 1: 1 - a, i: a}
+        n2 = sum(w * w for w in share.values())
+        lim = self.settings.trim_limit_w
+        for j, w in share.items():
+            if xs[j] == 0 or not w:
+                continue
+            y = _clip(ys[j] + d * w / n2, -lim, lim)
+            for k in (j - 1, j + 1):
+                if 0 <= k < len(xs):
+                    gap = TRIM_SLOPE * abs(xs[k] - xs[j])
+                    y = _clip(y, ys[k] - gap, ys[k] + gap)
+            ys[j] = y
+        self._grid = None
+        moved = _interp(xs, ys, c) - before
+        self.trim_moves += moved != 0
+        return moved
 
     def update_grid(self, t: float, grid_w: float, battery_w: float, fresh: bool = True,
                     soc: float | None = None, solar_w: float | None = None) -> None:
@@ -275,6 +363,19 @@ class Regulator:
                 dt = min(t - self._t_measure, MAX_INTEGRATE_S)
                 g = s.ki * (s.ki_import_x if e > 0 else 1.0)
                 self.integral_w = _clip(self.integral_w + g * e * dt, -s.integral_limit_w, s.integral_limit_w)
+        c = self.sent.signed_w if self.sent is not None and self.sent.kind != "normal" else 0
+        raw = grid_w - s.target_w - self._target_offset_w
+        if (s.trim_learn and s.trim_rate > 0 and self._learn_ok and arrived and not self._spike
+                and self._t_measure is not None and abs(c) >= s.trim_min_w and t - self._t_change >= s.trim_settle_s
+                and abs(raw) <= s.trim_band_w and self._target_offset_w == 0 and self.soc is not None
+                and self.soc < s.trim_max_soc):
+            # Settled, the integral holds minus what the table misses at c: move a share of it into the table.
+            dt = min(t - self._t_measure, MAX_INTEGRATE_S)
+            self.integral_w += self._teach(c, -s.trim_rate * dt * self.integral_w)
+        if c:
+            # Trim and integral together have no more authority than the integral alone.
+            tr = _interp(TRIM_NODES, self.trim, c)
+            self.integral_w = _clip(self.integral_w, -s.integral_limit_w - tr, s.integral_limit_w - tr)
         self.grid_w, self.battery_w, self._t_measure = grid_w, battery_w, t
         if fresh:
             self._t_fresh = t
@@ -313,6 +414,7 @@ class Regulator:
 
     def _restart(self) -> None:
         self._regulating = False
+        self._learn_ok = False
         self.integral_w = 0.0
         self._t_low = None
         self.refused_soc = None
@@ -427,8 +529,11 @@ class Regulator:
             # A turn out of a charge that the slew cuts short lands on the floor, not at idle or under it.
             self.output_w = max(self.output_w, ready_w)
         # Everything above is battery watts. Only the command asks for less where the inverter gives more.
-        k = s.offset_comp if policy.mode == REGULATE else 0.0
-        self.offset_w = setpoint_for(self.output_w, k) - self.output_w if k else 0.0
+        on = policy.mode == REGULATE and (s.offset_comp or any(self.trim))
+        self.offset_w = self._setpoint(self.output_w) - self.output_w if on else 0.0
+        self._learn_ok = (policy.mode == REGULATE and self.limit == "none" and self._saturation == 0
+                          and not self.slewed and self.soc is not None
+                          and policy.discharge_soc + FLOOR_MARGIN + 1 < self.soc < policy.charge_soc)
         return self._maybe_send(t, policy)
 
     def _refused(self, t: float, policy: Policy) -> bool:
@@ -507,6 +612,8 @@ class Regulator:
         if (self.settings.integral_reset_w > 0 and last is not None
                 and abs(cmd.signed_w - last.signed_w) >= self.settings.integral_reset_w):
             self.integral_w = 0.0
+        if last is None or (last.kind, last.signed_w) != (cmd.kind, cmd.signed_w):
+            self._t_change = t
         self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
-        self._sent_w = cmd.signed_w + self.settings.offset_comp * inverter_offset(cmd.signed_w)
+        self._sent_w = cmd.signed_w + self.table(cmd.signed_w)
         return cmd

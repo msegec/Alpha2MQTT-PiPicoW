@@ -63,7 +63,10 @@ SENSORS = [
     }),
     ("battery", "Battery", True, lambda c: _round(c.regulator.battery_w), None),
     ("sent", "Sent", True, lambda c: c.last_command.signed_w if c.last_command else None, None),
-    ("integral", "Integral", True, lambda c: _round(c.regulator.integral_w), None),
+    # The learned offset table as [setpoint W, trim W] pairs, for a chart. It rides on this power sensor's writes.
+    ("integral", "Integral", True, lambda c: _round(c.regulator.integral_w), lambda c: {
+        "learned_offsets": c.regulator.trim_points(),
+    }),
     ("commands", "Commands in the last hour", False, lambda c: c.commands_last_hour, None),
     ("last_command", "Last command", False, _last_command, lambda c: {
         "soc": c.last_command.soc if c.last_command else None,

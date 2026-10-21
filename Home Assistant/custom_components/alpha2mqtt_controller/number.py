@@ -36,6 +36,12 @@ NUMBERS = [
     ("spike_confirm_w", "Spike confirm", 0, 3000, 50, "W", ADVANCED),  # 0 is off: every jump in demand goes out at once
     ("integral_reset_w", "Integral reset step", 0, 2000, 50, "W", ADVANCED),  # 0 is off: the integral carries across levels
     ("import_trim_gap_s", "Import trim wait", 0, 30, 0.5, "s", ADVANCED),  # 6 is the trim gap: the old rule
+    ("trim_rate", "Offset learning rate", 0, 0.2, 0.005, None, ADVANCED),  # share of the integral moved per settled second; 0 off
+    ("trim_limit_w", "Learned offset limit", 0, 400, 10, "W", SAFETY),  # bound on each learned node
+    ("trim_settle_s", "Offset learning settle", 2, 120, 1, "s", ADVANCED),  # command unchanged this long before learning
+    ("trim_band_w", "Offset learning band", 10, 300, 5, "W", ADVANCED),  # raw grid error must be within this to learn
+    ("trim_min_w", "Offset learning minimum", 20, 1000, 10, "W", ADVANCED),  # smaller setpoints teach nothing
+    ("trim_max_soc", "Offset learning top SOC", 50, 100, 1, "%", ADVANCED),  # BMS taper above this teaches nothing
     ("full_register", "Full charge register", 250, 255, 1, None, SAFETY),  # dispatch SOC register for a 100 % charge
 ]
 

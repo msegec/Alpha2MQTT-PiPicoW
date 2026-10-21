@@ -1,9 +1,9 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 1e0ac66 plus the import trim wait, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 288 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 4ddb237 plus the learned offset table, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 300 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
-`config_flow.py`, `number.py`, `switch.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
+`config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
 Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `MagicMock`, no HA install needed).
 
 ## Conventions
@@ -24,9 +24,9 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
 - `async_setup_entry`:
   1. `mqtt.async_wait_for_mqtt_client`; if false, raises `ConfigEntryNotReady` and HA retries.
   2. Builds `Controller(hass, dict(entry.data), entry.entry_id)` and stores it in `entry.runtime_data`.
-  3. Forwards to platforms NUMBER, SENSOR, SWITCH.
+  3. Forwards to platforms BUTTON, NUMBER, SENSOR, SWITCH.
   4. `Controller.async_start`.
-- `Controller.__init__`: fresh `Regulator()`, `enabled = False`, `ResponseMonitor()`. Device name is
+- `Controller.__init__`: fresh `Regulator()`, `enabled = False`, `ResponseMonitor()`, and a Home Assistant `Store` (version 1, key `alpha2mqtt_controller.<entry_id>.learned_offsets`) for the learned offset table. Device name is
   "Alpha2MQTT battery controller", plus " (<base>)" when the base topic is not `Alpha2MQTT`, so a shadow
   controller gets its own entity ids (24f5a85).
 - `async_start` creates, in order:
@@ -35,10 +35,11 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
   - MQTT subscribe: state topic -> `_on_state`.
   - MQTT subscribe: `{base}/response/set/+` -> `_on_response`.
   - Only with a step log: logs `start` (with `code`) and `cfg`, subscribes `{base}/request/#` -> `_on_request` (raw log only), and tracks `log_entities` state changes -> `_on_log_entity`.
+  - `_load_trim`: loads the store; with a saved `points` list, `regulator.load_trim(points)` and a `trim_load` record. Nothing saved logs nothing.
   - State change tracking of the configured policy, grid scale, correction, max charge, max discharge entities -> `_on_entity`.
   - `async_track_time_interval` 1 s -> `_on_tick`.
 - `async_unload_entry`: `Controller.async_stop`, then unload platforms.
-- `async_stop`: `async_set_enabled(False)` (may publish normal), then in `finally` drops every subscription, cancels a pending match wait timer, logs `stop`, closes the step log on the executor.
+- `async_stop`: `async_set_enabled(False)` (may publish normal), then in `finally` drops every subscription, cancels a pending match wait timer, saves the learned table at once if a move is still waiting to be saved, logs `stop`, closes the step log on the executor.
 
 ## Triggers of a regulation step
 
@@ -158,6 +159,14 @@ Setting switches (`SettingSwitch`, `SWITCHES` in `switch.py`, rows `(key, name, 
 | Key | Name | Group | Default |
 |---|---|---|---|
 | ff_guard | Feed forward guard | Basic | off |
+| trim_learn | Learn offsets | Basic | off |
+
+Button `Forget learned offsets` (`ForgetTrimButton`, `{entry_id}_forget_trim`, attribute `group` Basic): `async_forget_trim`
+zeroes the regulator's learned table, saves it at once and logs `trim` with `forgot: true`.
+
+Learned table persistence: after each `update_grid` in `_measure`, `_trim_moved` compares `regulator.trim_moves` with the
+last seen count. On a move it schedules `Store.async_delay_save` `TRIM_SAVE_S` (60 s) later and logs `trim` at most once
+per `TRIM_SAVE_S`, so the log can trail the table by up to 60 s. Saved data: `{"points": regulator.trim_points()}`.
 
 Switch `Enabled` (`{entry_id}_enabled`): off by default. Restores `on` after restart via `RestoreEntity`.
 Off -> on: just sets `enabled`. On -> off: `regulator.step(now, Policy(RELEASE))`, publishes normal if the
@@ -190,6 +199,12 @@ entity's only attribute, `group`, so a dashboard can build its sections from the
 | spike_confirm_w | Spike confirm | 0..3000 W, 50 | Advanced | 0 off |
 | integral_reset_w | Integral reset step | 0..2000 W, 50 | Advanced | 0 off |
 | import_trim_gap_s | Import trim wait | 0..30 s, 0.5 | Advanced | 6 is the old rule |
+| trim_rate | Offset learning rate | 0..0.2, 0.005 | Advanced | 0 off |
+| trim_limit_w | Learned offset limit | 0..400 W, 10 | Safety | |
+| trim_settle_s | Offset learning settle | 2..120 s, 1 | Advanced | |
+| trim_band_w | Offset learning band | 10..300 W, 5 | Advanced | |
+| trim_min_w | Offset learning minimum | 20..1000 W, 10 | Advanced | |
+| trim_max_soc | Offset learning top SOC | 50..100 %, 1 | Advanced | |
 | full_register | Full charge register | 250..255, 1 | Safety | a charge to 100 % is published as socPercent register - 150 |
 
 Not numbers: `integral_band_w`, `integral_limit_w`, `duration_s` (120 s lease). They show read only on the status sensor.
@@ -200,7 +215,8 @@ Sensors (`ControllerSensor`, push only, all attributes unrecorded via `MATCH_ALL
 |---|---|
 | status | `regulator.status`, or `disabled`; attrs `policy_gap_since`, `sample_gap_since`, `integral_band_w`, `integral_limit_w`, `lease_s` |
 | grid (power) | `grid_w` rounded |
-| error, output, battery, integral (power) | regulator fields; output attrs request, integral, feed_forward, offset, `p`, `u`, `slewed` |
+| integral (power) | `integral_w`; attr `learned_offsets`, `regulator.trim_points()` for a chart, riding on this sensor's writes |
+| error, output, battery (power) | regulator fields; output attrs request, integral, feed_forward, offset, `p`, `u`, `slewed` |
 | limit | `regulator.limit` when enabled, else None; attrs `lo`, `hi`, `direction`, `direction_since`, `refusal_since`, `refused_soc` |
 
 Diagnosis attributes (all for display, control never reads them):
@@ -245,7 +261,7 @@ Non-power sensors without attributes write only on change.
 ## Step log records written by controller.py
 
 `start`, `stop`, `cfg` (all settings), `step` (every fast message, enabled or not, 19c820f), `cmd` (every
-`{base}/request/#`), `ack`, `ack_timeout`, `gap`, `refused`, `rearmed`, `cross`, `resp`, `e`. Each record
+`{base}/request/#`), `ack`, `ack_timeout`, `gap`, `refused`, `rearmed`, `cross`, `resp`, `trim_load`, `trim`, `e`. Each record
 has `k` and `t`. File format and rotation belong to `steplog.py`.
 
 ## Tests to behaviour
@@ -268,6 +284,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_net_demand_*`, `test_a_sample_waits_*`, `test_without_*seq*`, `test_a_new_sample_steps_on_one_still_waiting_first` | seq matching and 0.5 s wait |
 | `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_start_record_and_the_loop_version_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
 | `test_a_setting_switch_*` | switch restore, default, cfg log, group |
+| `test_a_saved_table_*`, `test_a_bad_saved_table_*`, `test_a_moved_table_*`, `test_a_stop_saves_*`, `test_the_forget_button_*`, `test_the_integral_sensor_carries_*` | learned table load, save, log cadence, forget, chart attribute |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |

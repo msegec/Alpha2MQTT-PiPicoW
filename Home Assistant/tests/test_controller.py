@@ -44,6 +44,26 @@ sys.modules["homeassistant.components.sensor"] = types.SimpleNamespace(
     SensorDeviceClass=MagicMock(), SensorEntity=object, SensorStateClass=MagicMock())
 sys.modules["homeassistant.components.switch"] = types.SimpleNamespace(SwitchEntity=type("SwitchEntity", (), {}))
 sys.modules["homeassistant.helpers.restore_state"] = types.SimpleNamespace(RestoreEntity=type("RestoreEntity", (), {}))
+sys.modules["homeassistant.components.button"] = types.SimpleNamespace(ButtonEntity=type("ButtonEntity", (), {}))
+
+
+class _Store:
+    """Home Assistant's Store, in memory: data is what is on disk, delayed a save waiting to run."""
+
+    def __init__(self, hass, version, key):
+        self.key, self.data, self.delayed = key, None, None
+
+    async def async_load(self):
+        return self.data
+
+    async def async_save(self, data):
+        self.data, self.delayed = data, None
+
+    def async_delay_save(self, func, delay):
+        self.delayed = (func, delay)
+
+
+sys.modules["homeassistant.helpers.storage"] = types.SimpleNamespace(Store=_Store)
 sys.modules["homeassistant.config_entries"].ConfigFlow = _Flow
 sys.modules["homeassistant.config_entries"].OptionsFlow = _Flow
 sys.modules["homeassistant.core"].callback = lambda f: f
@@ -57,6 +77,7 @@ F = importlib.import_module("a2m_controller.config_flow")
 N = importlib.import_module("a2m_controller.number")
 S = importlib.import_module("a2m_controller.sensor")
 W = importlib.import_module("a2m_controller.switch")
+B = importlib.import_module("a2m_controller.button")
 R = sys.modules["a2m_controller.regulator"]
 DISCHARGE = R.Policy(R.REGULATE, max_discharge_w=3000, discharge_soc=20)
 
@@ -586,6 +607,78 @@ def test_the_start_record_and_the_loop_version_sensor_name_the_loop_code(tmp_pat
     sensor = S.ControllerSensor(MagicMock(runtime_data=c), key, *rest)
     assert (sensor._attr_name, sensor._value(c)) == ("Loop version", "abc")
     assert sensor._attr_entity_category == S.EntityCategory.DIAGNOSTIC
+
+
+def learned(c, w=500.0, y=-30.0):
+    """A table with y W learned at the w W node, as the regulator's points."""
+    points = c.regulator.trim_points()
+    points[R.TRIM_NODES.index(w)][1] = y
+    return points
+
+
+def test_a_saved_table_of_learned_offsets_loads_at_start_and_is_logged(monkeypatch):
+    house = logged_house(monkeypatch)
+    house.c._store.data = {"points": learned(house.c)}
+    asyncio.run(house.c._load_trim())
+    assert house.c.regulator.trim[R.TRIM_NODES.index(500.0)] == -30.0
+    (record,) = house.log.kind("trim_load")
+    assert record == {"loaded": True, "points": learned(house.c)}
+
+
+def test_a_bad_saved_table_loads_nothing_and_none_saved_logs_nothing(monkeypatch):
+    house = logged_house(monkeypatch)
+    asyncio.run(house.c._load_trim())
+    assert house.log.kind("trim_load") == []
+    house.c._store.data = {"points": learned(house.c, y=900.0)}  # past trim_limit_w
+    asyncio.run(house.c._load_trim())
+    assert not any(house.c.regulator.trim)
+    assert house.log.kind("trim_load")[0]["loaded"] is False
+
+
+def test_a_moved_table_is_saved_later_and_logged_at_most_once_a_minute(monkeypatch):
+    house = logged_house(monkeypatch)
+    house.second()
+    assert house.c._store.delayed is None and house.log.kind("trim") == []
+    house.c.regulator.trim = [y for _, y in learned(house.c)]
+    house.c.regulator.trim_moves += 1
+    house.second()
+    func, delay = house.c._store.delayed
+    assert delay == C.TRIM_SAVE_S and func() == {"points": learned(house.c)}
+    for _ in range(30):
+        house.c.regulator.trim_moves += 1
+        house.second()
+    assert len(house.log.kind("trim")) == 1
+    house.t += 60
+    house.c.regulator.trim_moves += 1
+    house.second()
+    assert len(house.log.kind("trim")) == 2 and house.log.kind("trim")[-1]["points"] == learned(house.c)
+
+
+def test_a_stop_saves_a_table_still_waiting_to_be_saved(monkeypatch):
+    house = logged_house(monkeypatch)
+    house.c.regulator.trim = [y for _, y in learned(house.c)]
+    house.c.regulator.trim_moves += 1
+    house.second()
+    house.c._steplog = None
+    asyncio.run(house.c.async_stop())
+    assert house.c._store.data == {"points": learned(house.c)}
+
+
+def test_the_forget_button_zeroes_the_table_saves_and_logs_it(monkeypatch):
+    house = logged_house(monkeypatch)
+    house.c.regulator.load_trim(learned(house.c))
+    button = B.ForgetTrimButton(MagicMock(entry_id="entry", runtime_data=house.c))
+    assert button._attr_name == "Forget learned offsets" and button._attr_extra_state_attributes == {"group": "Basic"}
+    asyncio.run(button.async_press())
+    assert not any(house.c.regulator.trim)
+    assert house.c._store.data == {"points": house.c.regulator.trim_points()}
+    assert house.log.kind("trim")[-1] == {"points": house.c.regulator.trim_points(), "forgot": True}
+
+
+def test_the_integral_sensor_carries_the_learned_offsets_for_a_chart(monkeypatch):
+    house = House(monkeypatch)
+    house.c.regulator.load_trim(learned(house.c))
+    assert attributes(house.c, "integral") == {"learned_offsets": learned(house.c)}
 
 
 def test_the_log_directory_can_be_set(tmp_path):
