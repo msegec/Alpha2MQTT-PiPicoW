@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: d2f26ab plus the regulator limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 322 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: f7a5380 plus the controller limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 328 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 ## Files
 
@@ -35,11 +35,11 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `k` | Written when | Fields |
 |---|---|---|
 | `start` | `async_start`, log open | `code`: first 12 hex of a sha256 over `regulator.py` and `controller.py`, also the Loop version sensor |
-| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `solar_ff_min_w`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register`, `discharge_needs_soc`, `arrive_restart_w`, `floor_margin_soc`, `refused_w`, `refused_after_s`, `refused_hold_s`, `refused_ask_w`, `refused_near_soc`, `rearm_soc`, `min_send_gap_s`, `max_integrate_s`, `lag_w`, `arrive_s`, `small_trim_w`, `small_trim_gap_s`, `warm_band_w`, `solar_deadband_w`, `solar_max_gap_s`, `command_step_w` |
+| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `solar_ff_min_w`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register`, `discharge_needs_soc`, `arrive_restart_w`, `floor_margin_soc`, `refused_w`, `refused_after_s`, `refused_hold_s`, `refused_ask_w`, `refused_near_soc`, `rearm_soc`, `min_send_gap_s`, `max_integrate_s`, `lag_w`, `arrive_s`, `small_trim_w`, `small_trim_gap_s`, `warm_band_w`, `solar_deadband_w`, `solar_max_gap_s`, `command_step_w`, `default_max_w`, `max_plausible_w`, `correction_max_age_s`, `ack_timeout_s`, `match_wait_s` |
 | `step` | each new fast message (`_take`), enabled or not | see below |
 | `cmd` | every message on `<base>/request/#` | `topic` (str), `p` (raw payload) |
 | `ack` | every message on `<base>/response/set/+` | `topic`, `p` (raw payload) |
-| `ack_timeout` | seq echoed but no response in `ACK_TIMEOUT_S` (10 s) | `seq` |
+| `ack_timeout` | seq echoed but no response in `ack_timeout_s` (10 s) | `seq` |
 | `resp` | a step response finishes (see monitor) | `result`, `slow`, `from_w`, `to_w`, `rise_w`, `t80_s`, `elapsed_s`, `slope_w_s` |
 | `gap` | an input goes missing or returns, once each | `what` (`"policy"`, `"grid estimate"`, `"policy state"`), `missing` (bool), `reason` (only for `policy state`: str or null) |
 | `refused` | regulator `refused_soc` goes from None to set | `soc`, `floor` (policy `discharge_soc`) |
@@ -56,7 +56,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 |---|---|---|
 | `seq`, `ms`, `read_ms` | fast message, firmware `sendFastState` | int; `ms` is Pico `millis()` when reads started, `read_ms` their duration in ms |
 | `grid`, `pv`, `battery`, `soc`, `dispatch` | fast message keys in `FAST_FIELDS` | raw values (W, %, dispatch start as sent, `"Start"` in tests); null if absent |
-| `wait_ms` | `time.monotonic() - t_seen` | int ms the sample waited for its correction (up to `MATCH_WAIT_S`, 0.5 s) |
+| `wait_ms` | `time.monotonic() - t_seen` | int ms the sample waited for its correction (up to `match_wait_s`, 0.5 s) |
 | `status` | `Controller.status` | str, `"disabled"` when off, else regulator status |
 | `limit` | `Regulator.limit` | str: what held the output (`none`, `floor`, `soc_unknown`, `refused`, `full`, `warm`, `discharge_cap`, `charge_cap`, `turn_round`, `spike`); kept from the last step while disabled |
 | `grid_w`, `solar_w`, `error_w`, `integral_w`, `ff_w`, `request_w`, `output_w`, `offset_w` | controller and regulator after this step | float W rounded to 0.1, or null. `solar_w` is the solar the feed forward used (null when unknown), `ff_w` the feed forward, `offset_w` the offset correction (the command asks for `output_w + offset_w`) |

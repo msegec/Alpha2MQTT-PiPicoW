@@ -2,7 +2,7 @@
 
 Every topic between the Pico firmware and Home Assistant, who writes and reads it, and what the HA package wires up.
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101, plus the correction entity's `west` and `east` attributes on 2026-10-22; package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
+Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101, plus the correction entity's `west` and `east` attributes on 2026-10-22, plus its `age_s` and `west_fallback` attributes and the controller limits as settings (read from `controller.py`, same day); package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
 
 ## Ground rules
 
@@ -123,14 +123,14 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 | `state_topic` | `Alpha2MQTT/state/fast` | firmware | keys `GRID_KEY`, `BATTERY_KEY`, `SOC_KEY`, `seq`; logs the rest of `FAST_FIELDS` |
 | `base_topic` | `Alpha2MQTT` | firmware | publishes `request/set/{kind}`, subscribes `response/set/+` |
 | `policy_entity` | `sensor.battery_auto_action` | no, only in tests | state `charge`, `discharge`, `hold`, `normal`; attributes `soc_target`, `fixed`, `watts`, `both`, `other_soc`, `grid_offset` |
-| `correction_entity` | none | no (`sensor.net_demand` in tests) | number in W; optional attribute `seq` matching the fast message; optional attributes `west` and `east`, solar in W, summed for the solar feed forward (both must be numbers) |
+| `correction_entity` | none | no (`sensor.net_demand` in tests) | number in W; optional attribute `seq` matching the fast message; optional attributes `west` and `east`, solar in W, summed for the solar feed forward (both must be numbers); optional `west_fallback`, true when West is the 10 s value, which drops solar for that sample; optional `age_s`, the age of its oldest input, over `correction_max_age_s` (90 s) a gap in either grid source |
 | `grid_scale_entity`, `max_charge_entity`, `max_discharge_entity` | none | no | numbers |
 
 Grid estimate (`estimate_grid` in `regulator.py`, positive on import):
 
 - `grid_source: clamp`: `scale * fast grid + correction`. Correction is 0 when no entity is set.
-- `grid_source: estimate`: `correction - fast battery power`. Correction older than 90 s (`CORRECTION_MAX_AGE_S`) is a gap.
-- Readings over 20000 W or not finite are dropped (`MAX_PLAUSIBLE_W`).
+- `grid_source: estimate`: `correction - fast battery power`. Correction older than 90 s (`correction_max_age_s`) is a gap.
+- Readings over 20000 W or not finite are dropped (`max_plausible_w`).
 
 ## Who decides what
 

@@ -64,6 +64,11 @@ NUMBERS = [
     ("solar_deadband_w", "Solar feed forward deadband", 0, 200, 5, "W", ADVANCED),  # smaller solar steps are noise
     ("solar_max_gap_s", "Solar feed forward gap", 1, 15, 0.5, "s", ADVANCED),  # no feed forward over a longer gap
     ("integral_band_w", "Integral band", 0, 2000, 10, "W", ADVANCED),  # bigger errors are load steps: no integral
+    ("default_max_w", "Default cap", 0, 5000, 50, "W", SAFETY),  # a cap entity not configured or never read
+    ("max_plausible_w", "Plausible limit", 1000, 30000, 500, "W", SAFETY),  # a bigger reading is dropped
+    ("correction_max_age_s", "Correction max age", 5, 300, 5, "s", SAFETY),  # an older correction is a gap
+    ("ack_timeout_s", "Response timeout", 2, 60, 1, "s", SAFETY),  # no response this long: sent again in full
+    ("match_wait_s", "Correction match wait", 0, 2, 0.1, "s", ADVANCED),  # a sample waits this long for its correction
     ("command_step_w", "Command rounding", 1, 50, 1, "W", ADVANCED),  # commands go out in steps of this
 ]
 

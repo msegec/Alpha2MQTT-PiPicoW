@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d2f26ab plus the regulator limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 322 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: f7a5380 plus the controller limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 328 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -146,6 +146,7 @@ former constants are `Settings` fields since this round.
 | `solar_deadband_w` | 20 W | A solar change this small between samples gets no feed forward, so night noise stays out. |
 | `solar_max_gap_s` | 2.0 s | A solar change over a longer gap gets no feed forward: after a 20 s gap while solar fell 2500 W it would have asked for 2500 W more discharge. Older firmware's 10 s samples get none. |
 | `command_step_w` | 10 W | Commands go out rounded to this (`_command`). |
+| `default_max_w`, `max_plausible_w`, `correction_max_age_s`, `ack_timeout_s`, `match_wait_s` | 3000 W, 20000 W, 90 s, 10 s, 0.5 s | Read by the controller only; see `ha-controller.md`. |
 
 The test file's `LIVE` dict, labelled "the live tuning": `target_w=-20, deadband_w=5, ki=0.01, write_threshold_w=20, min_interval_s=2.5, slew_w_per_s=2400, flip_hysteresis_w=150, flip_dwell_s=3, keepalive_s=40, power_write_gap_s=0.5, warm_w=20`. Whether it matches the deployed config: unknown.
 

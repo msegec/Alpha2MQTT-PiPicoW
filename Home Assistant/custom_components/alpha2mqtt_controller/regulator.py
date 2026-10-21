@@ -160,6 +160,22 @@ class Settings:
     solar_deadband_w: float = 20.0
     solar_max_gap_s: float = 2.0
     command_step_w: int = 10  # commands go out rounded to this many watts
+    # Read by the controller only, kept here so every limit has one owner and one cfg record.
+    # A cap entity configured but never read yet, or not configured, is this.
+    default_max_w: float = 3000.0
+    # A plausible reading is finite and under this. A kW value read as W, or a NaN, would otherwise drive the battery.
+    max_plausible_w: float = 20000.0
+    # Net demand rewrites every few seconds, 26 s at most over a measured day. Older than this, a plug or template has
+    # frozen and its last value is not the house any more. So is a correction whose optional age_s attribute, the age
+    # of its oldest input, is over this: a template re-rendered every second stays fresh by last_reported even when
+    # an input under it froze.
+    correction_max_age_s: float = 90.0
+    # A block write is acked within about 2 s. No response this long after a publish means the request or its
+    # response was lost, as in a Pico reconnecting: the command counts as failed and goes again in full.
+    ack_timeout_s: float = 10.0
+    # A correction rendered from the fast message, such as a net demand template, carries its seq and may update just
+    # after the controller sees the message. A sample waits this long for it, then steps on the value it has.
+    match_wait_s: float = 0.5
 
 
 @dataclass(frozen=True)

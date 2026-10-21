@@ -843,7 +843,7 @@ def test_an_unreadable_cap_keeps_its_last_value_not_3000_w(monkeypatch):
     house.set("input_number.discharge_max_rate", "800")
     assert house.c._read_policy().max_discharge_w == 800
     house.set("sensor.battery_auto_action", "charge", soc_target=100)
-    assert house.c._read_policy().max_charge_w == C.DEFAULT_MAX_W  # never read yet
+    assert house.c._read_policy().max_charge_w == R.Settings().default_max_w  # never read yet
 
 
 @pytest.mark.parametrize("state, soc, net", [("charge", 110, "-1000"), ("discharge", -5, "1000")])
@@ -865,7 +865,7 @@ def test_an_other_soc_the_firmware_would_refuse_closes_the_other_direction(monke
     house.set("sensor.battery_auto_action", "discharge", soc_target=20, both="true", other_soc=110)
     assert house.c._read_policy().max_charge_w == 0
     house.set("sensor.battery_auto_action", "discharge", soc_target=20, both="true", other_soc=105)
-    assert house.c._read_policy().max_charge_w == C.DEFAULT_MAX_W
+    assert house.c._read_policy().max_charge_w == R.Settings().default_max_w
 
 
 def test_a_correction_with_a_frozen_input_is_a_gap(monkeypatch):
@@ -917,3 +917,65 @@ def test_west_from_the_10_s_fallback_gives_no_solar_step(monkeypatch, flag):
     house.set("sensor.net_demand", "820", west=980, east=200, west_fallback=False)
     house.second()
     assert house.c.regulator.solar_w == 1180
+
+
+# The controller's limits are settings too.
+
+def test_the_controller_limits_are_settings_with_the_old_values():
+    s = R.Settings()
+    assert (s.default_max_w, s.max_plausible_w, s.correction_max_age_s, s.ack_timeout_s, s.match_wait_s) == (
+        3000, 20000, 90, 10, 0.5)
+
+
+def test_the_default_cap_is_a_setting(monkeypatch):
+    house = caps_house(monkeypatch)
+    house.c.set_setting("default_max_w", 1000)
+    house.set("sensor.battery_auto_action", "discharge", soc_target=20, both="true", other_soc=100)
+    assert house.c._read_policy().max_charge_w == 1000  # no charge cap entity
+
+
+def test_the_plausible_limit_is_a_setting(monkeypatch):
+    house = House(monkeypatch)
+    house.c.set_setting("max_plausible_w", 1000)
+    house.set("sensor.net_demand", "1500")
+    house.second()
+    assert house.c.grid_w is None
+    house.c.set_setting("max_plausible_w", 2000)
+    house.second()
+    assert house.c.grid_w == 1000
+    house.second(**{C.BATTERY_KEY: 2500})  # an implausible sample is dropped
+    assert house.c.regulator.battery_w == 500
+
+
+def test_the_correction_max_age_is_a_setting(monkeypatch):
+    house = House(monkeypatch)
+    house.set("sensor.net_demand", "1000", age_s=60)
+    house.second()
+    assert house.c.grid_w is not None
+    house.c.set_setting("correction_max_age_s", 30)
+    house.second()
+    assert house.c.grid_w is None
+
+
+def test_the_response_timeout_is_a_setting(monkeypatch):
+    t = [0.0]
+    monkeypatch.setattr(C.time, "monotonic", lambda: t[0])
+    c = sent_controller()
+    c.set_setting("ack_timeout_s", 30)
+    c.regulator.fail = MagicMock()
+    respond(c, 0, "setDishargeSuccess")  # the firmware echoes seq
+    t[0] = 20
+    c._check_ack()
+    c.regulator.fail.assert_not_called()
+    t[0] = 31
+    c._check_ack()
+    c.regulator.fail.assert_called_once()
+
+
+def test_the_correction_match_wait_is_a_setting(monkeypatch):
+    house = House(monkeypatch)
+    house.c.set_setting("match_wait_s", 1.5)
+    house.set("sensor.net_demand", "1000", seq=0)
+    house.seq = 5
+    house.sample()
+    assert house.timers[-1].delay == 1.5

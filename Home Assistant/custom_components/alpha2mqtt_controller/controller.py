@@ -43,25 +43,11 @@ CONF_LOG_ENTITIES = "log_entities"  # also logged on every change, for replay
 DEFAULT_STATE_TOPIC = "Alpha2MQTT/state/fast"  # every second; older firmware has only state/second/ten
 DEFAULT_BASE_TOPIC = "Alpha2MQTT"
 DEFAULT_POLICY_ENTITY = "sensor.battery_auto_action"
-DEFAULT_MAX_W = 3000.0
 # The firmware refuses a socPercent over 105 (dispatchRequestValid), and a negative one wraps to the same refusal.
 SOC_MAX = 105
 # clamp: scale x grid clamp + correction. estimate: correction - battery, for a clamp that cannot see the house.
 GRID_SOURCES = ["clamp", "estimate"]
 
-# A plausible reading is finite and under this. A kW value read as W, or a NaN, would otherwise drive the battery.
-MAX_PLAUSIBLE_W = 20000.0
-# Net demand rewrites every few seconds, 26 s at most over a measured day. Older than this, a plug or
-# template has frozen and its last value is not the house any more. So is a correction whose optional age_s
-# attribute, the age of its oldest input, is over this: a template re-rendered every second stays fresh by
-# last_reported even when an input under it froze.
-CORRECTION_MAX_AGE_S = 90.0
-# A correction rendered from the fast message, such as a net demand template, carries its seq and may update just
-# after the controller sees the message. A sample waits this long for it, then steps on the value it has.
-MATCH_WAIT_S = 0.5
-# A block write is acked within about 2 s. No response this long after a publish means the request or its
-# response was lost, as in a Pico reconnecting: the command counts as failed and goes again in full.
-ACK_TIMEOUT_S = 10.0
 # Samples come every second. Once the last is this old, the status sensor says when it came; under it, nothing, so
 # the attribute changes at the edges of a gap and not with every sample.
 SAMPLE_LATE_S = 3.0
@@ -78,8 +64,8 @@ FAST_FIELDS = (("seq", "seq"), ("ms", "ms"), ("read_ms", "read_ms"), ("grid", GR
                ("dispatch", "REG_DISPATCH_RW_DISPATCH_START"))
 
 
-def _plausible(x: float) -> bool:
-    return math.isfinite(x) and abs(x) <= MAX_PLAUSIBLE_W
+def _plausible(x: float, limit: float) -> bool:
+    return math.isfinite(x) and abs(x) <= limit
 
 
 def _code_version() -> str:
@@ -92,7 +78,7 @@ def _code_version() -> str:
     return digest.hexdigest()[:12]
 
 
-def _number(hass: HomeAssistant, entity_id: str | None, max_age_s: float | None = None) -> float | None:
+def _number(hass: HomeAssistant, entity_id: str | None, limit: float, max_age_s: float | None = None) -> float | None:
     if not entity_id:
         return None
     state = hass.states.get(entity_id)
@@ -100,7 +86,7 @@ def _number(hass: HomeAssistant, entity_id: str | None, max_age_s: float | None 
         x = float(state.state)
     except (AttributeError, TypeError, ValueError):
         return None
-    if not _plausible(x):
+    if not _plausible(x, limit):
         return None
     if max_age_s is not None and (dt_util.utcnow() - state.last_reported).total_seconds() > max_age_s:
         return None
@@ -154,6 +140,11 @@ class Controller:
     @property
     def status(self) -> str:
         return self.regulator.status if self.enabled else "disabled"
+
+    @property
+    def _limit(self) -> float:
+        """The largest plausible reading, see Settings.max_plausible_w."""
+        return self.regulator.settings.max_plausible_w
 
     @property
     def commands_last_hour(self) -> int:
@@ -305,9 +296,9 @@ class Controller:
         if self._raw_grid is None:
             return None
         if self.config.get(CONF_GRID_SOURCE) == "estimate":
-            correction = self._correction(CORRECTION_MAX_AGE_S)
+            correction = self._correction(self.regulator.settings.correction_max_age_s)
             return None if correction is None else estimate_grid(correction, self._battery_w)
-        scale = _number(self.hass, self.config.get(CONF_GRID_SCALE_ENTITY))
+        scale = _number(self.hass, self.config.get(CONF_GRID_SCALE_ENTITY), self._limit)
         if scale is None:
             if self.config.get(CONF_GRID_SCALE_ENTITY):
                 return None
@@ -321,16 +312,16 @@ class Controller:
 
     def _correction(self, max_age_s: float | None = None) -> float | None:
         """The correction entity's watts, None when unreadable, older than max_age_s or with age_s over
-        CORRECTION_MAX_AGE_S."""
+        correction_max_age_s."""
         entity_id = self.config.get(CONF_CORRECTION_ENTITY)
-        correction = _number(self.hass, entity_id, max_age_s)
+        correction = _number(self.hass, entity_id, self._limit, max_age_s)
         if correction is None:
             return None
         try:
             age = float(self.hass.states.get(entity_id).attributes["age_s"])
         except (AttributeError, KeyError, TypeError, ValueError):
             return correction  # no age_s, or not a number: the entity makes no claim
-        return None if age > CORRECTION_MAX_AGE_S else correction
+        return None if age > self.regulator.settings.correction_max_age_s else correction
 
     def _policy(self) -> Policy:
         """The policy now. A policy that is missing or unreadable for a moment, as in a template reload,
@@ -347,11 +338,11 @@ class Controller:
 
     def _cap(self, key: str) -> float:
         """A cap entity's watts, 0 or more. Unreadable, it keeps its last value: a cap set low on purpose must not
-        jump to DEFAULT_MAX_W in a template reload. One never read yet, or not configured, is DEFAULT_MAX_W."""
-        cap = _number(self.hass, self.config.get(key))
+        jump to default_max_w in a template reload. One never read yet, or not configured, is default_max_w."""
+        cap = _number(self.hass, self.config.get(key), self._limit)
         if cap is not None:
             self._caps[key] = max(0.0, cap)  # a negative cap is 0 W
-        return self._caps.get(key, DEFAULT_MAX_W)
+        return self._caps.get(key, self.regulator.settings.default_max_w)
 
     def _read_policy(self) -> Policy | None:
         """None when the policy cannot be read; normal is a release, and so is a state it does not know."""
@@ -376,7 +367,7 @@ class Controller:
                 watts = float(state.attributes.get("watts"))
             except (TypeError, ValueError):
                 return None
-            if not _plausible(watts):
+            if not _plausible(watts, self._limit):
                 return None
             if state.state == "charge":
                 return Policy(FIXED, fixed_w=-watts, charge_soc=soc)
@@ -399,7 +390,7 @@ class Controller:
                 offset = float(state.attributes.get("grid_offset", 0))
             except (TypeError, ValueError):
                 offset = 0.0
-            if not _plausible(offset):
+            if not _plausible(offset, self._limit):
                 offset = 0.0
             return Policy(REGULATE, max_charge_w=charge_cap, charge_soc=soc, target_offset_w=offset,
                           max_discharge_w=discharge_cap if both else 0.0, discharge_soc=other_soc if both else 10)
@@ -413,7 +404,7 @@ class Controller:
             raw_grid, battery = float(data[GRID_KEY]), float(data[BATTERY_KEY])
         except (ValueError, KeyError, TypeError):
             return
-        if not (_plausible(raw_grid) and _plausible(battery)):
+        if not (_plausible(raw_grid, self._limit) and _plausible(battery, self._limit)):
             return
         seq = data.get("seq")
         if seq is not None and seq == self._sample_seq:
@@ -423,7 +414,7 @@ class Controller:
             self._take(*self._waiting)  # it has waited long enough
         if self._correction_behind(seq):
             self._waiting = (data, raw_grid, battery, time.monotonic())
-            self._cancel_wait = async_call_later(self.hass, MATCH_WAIT_S, self._on_wait_over)
+            self._cancel_wait = async_call_later(self.hass, self.regulator.settings.match_wait_s, self._on_wait_over)
         else:
             self._take(data, raw_grid, battery, time.monotonic())
 
@@ -475,7 +466,7 @@ class Controller:
             solar = float(state.attributes["west"]) + float(state.attributes["east"])
         except (AttributeError, KeyError, TypeError, ValueError):
             return None
-        return solar if _plausible(solar) else None
+        return solar if _plausible(solar, self._limit) else None
 
     def _correction_behind(self, seq) -> bool:
         """True while the correction comes from an older message. Without a seq on either side it never waits."""
@@ -516,7 +507,8 @@ class Controller:
         seq = self.last_seq
         if not self._seq_echo or seq is None or seq == self._answered_seq:
             return
-        if self.regulator.sent is self.last_command and time.monotonic() - self._sent_mono[seq] > ACK_TIMEOUT_S:
+        timeout = self.regulator.settings.ack_timeout_s
+        if self.regulator.sent is self.last_command and time.monotonic() - self._sent_mono[seq] > timeout:
             self._answered_seq = seq
             self._log("ack_timeout", seq=seq)
             self.regulator.fail()

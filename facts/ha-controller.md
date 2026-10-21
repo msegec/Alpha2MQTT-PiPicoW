@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d2f26ab plus the regulator limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 322 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: f7a5380 plus the controller limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 328 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -60,21 +60,21 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
 
 1. `_on_state`: `json.loads(msg.payload)`. Reads `REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1` (raw grid) and
    `REG_BATTERY_HOME_R_BATTERY_POWER` as float. Parse error, missing key or implausible value: message dropped silently.
-2. `_plausible`: finite and `abs(x) <= MAX_PLAUSIBLE_W` (20000 W). Guards a kW value read as W, and NaN (e0e291d).
+2. `_plausible`: finite and `abs(x) <= max_plausible_w` (20000 W). Guards a kW value read as W, and NaN (e0e291d).
 3. Same `seq` as the last sample: ignored as a repeat. No `seq`: never deduped.
 4. A sample still waiting is stepped first. Then, if `_correction_behind(seq)` (correction entity has a `seq`
-   attribute that differs from the sample's, compared as strings), the sample waits up to `MATCH_WAIT_S` 0.5 s.
+   attribute that differs from the sample's, compared as strings), the sample waits up to `match_wait_s` 0.5 s.
    Otherwise `_take` at once (8aa10b6).
 5. `_take`: stores raw grid and battery; SOC from `REG_BATTERY_HOME_R_SOC`, or `None` when absent (the regulator keeps
    its last SOC, 7603b02); feeds `ResponseMonitor.sample(t_seen, battery)`; calls `_measure(fresh=True)`; logs a `step` record.
 6. `_grid_estimate` by `grid_source`:
-   - `estimate`: correction via `_number(..., CORRECTION_MAX_AGE_S=90)`; `None` if missing or older than 90 s
+   - `estimate`: correction via `_number(..., correction_max_age_s=90)`; `None` if missing or older than 90 s
      by `last_reported`. Result `estimate_grid(correction, battery)` = correction - battery.
    - `clamp` (default): scale from `grid_scale_entity`, else `grid_scale` config (1.0). A configured scale
      entity that is unreadable gives `None`. Correction entity optional (0 if unset, `None` if set and unreadable,
      no age check). Result `scale * raw_grid + correction`.
    - Both read the correction through `_correction`: an optional `age_s` attribute (the age of the template's oldest
-     input) over `CORRECTION_MAX_AGE_S` makes it missing, a gap like any other. No `age_s`, or one that is not a
+     input) over `correction_max_age_s` makes it missing, a gap like any other. No `age_s`, or one that is not a
      number, makes no claim.
 7. `_measure`: grid `None` logs a `grid estimate` gap and skips `update_grid`; the regulator then holds its last
    command until `stale_after_s` (70fe0e2). Else `regulator.update_grid(now, grid_w, battery_w, fresh, soc, solar_w)`.
@@ -102,7 +102,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 | `charge` | `REGULATE`, `max_charge_w=cap`, `charge_soc=soc_target`, `target_offset_w=grid_offset` (0 if bad or implausible, 8feffdc) |
 | `discharge` | `REGULATE`, `max_discharge_w=cap`, `discharge_soc=soc_target` |
 
-- Caps come from `max_charge_entity` / `max_discharge_entity` through `_cap`: a negative reading is 0 W; an unreadable one keeps the last readable value (`_caps`, per config key, in memory only); one not configured or never read yet is `DEFAULT_MAX_W` 3000 W.
+- Caps come from `max_charge_entity` / `max_discharge_entity` through `_cap`: a negative reading is 0 W; an unreadable one keeps the last readable value (`_caps`, per config key, in memory only); one not configured or never read yet is `default_max_w` 3000 W.
 - `both` == "true" plus a numeric `other_soc` within 0..105 opens the other direction with its cap and `other_soc` as its limit
   (4aa846d). Otherwise the other direction gets 0 W with charge_soc 100 or discharge_soc 10.
 - `_policy`: an unreadable policy reuses the last good one until `settings.stale_after_s` (default 30 s), then
@@ -131,7 +131,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 - Success means `"success"` in `responseStatus` lowercased; the firmware spells it `setDishargeSuccess`.
 - Only the newest counts: `seq == last_seq` and `regulator.sent is last_command`. Then success calls
   `regulator.ack(now, power_write=(write == "power"))` (754c81d, a3a20a7); failure calls `regulator.fail()`.
-- `_check_ack` each tick: once `_seq_echo`, a newest command unanswered for `ACK_TIMEOUT_S` 10 s calls
+- `_check_ack` each tick: once `_seq_echo`, a newest command unanswered for `ack_timeout_s` 10 s calls
   `regulator.fail()` once and logs `ack_timeout` (cff2ebf). Firmware that never echoed seq is never timed out.
 
 ## Config options (`config_flow.SCHEMA`, YAML `CONFIG_SCHEMA`)
@@ -234,6 +234,14 @@ entity's only attribute, `group`, so a dashboard can build its sections from the
 | solar_max_gap_s | Solar feed forward gap | 1..15 s, 0.5 | Advanced | |
 | integral_band_w | Integral band | 0..2000 W, 10 | Advanced | |
 | command_step_w | Command rounding | 1..50 W, 1 | Advanced | int |
+| default_max_w | Default cap | 0..5000 W, 50 | Safety | controller only |
+| max_plausible_w | Plausible limit | 1000..30000 W, 500 | Safety | controller only |
+| correction_max_age_s | Correction max age | 5..300 s, 5 | Safety | controller only |
+| ack_timeout_s | Response timeout | 2..60 s, 1 | Safety | controller only |
+| match_wait_s | Correction match wait | 0..2 s, 0.1 | Advanced | controller only |
+
+The last five are `Settings` fields the regulator never reads: the controller reads them from
+`regulator.settings`, so every limit has one owner and goes in the `cfg` record.
 
 `set_setting` keeps a field whose current value is an int (`duration_s`, `full_register`, `command_step_w`) an int,
 rounding what Home Assistant gives, and a bool a bool: the firmware strips a `.` from a value, so a lease of `120.0`
@@ -321,6 +329,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_response_that_is_json_but_not_an_object_is_ignored` | response shape |
 | `test_west_from_the_10_s_fallback_gives_no_solar_step` | `west_fallback` |
 | `test_a_whole_number_setting_stays_a_whole_number` | int settings stay int, duration published without a `.` |
+| `test_the_controller_limits_are_settings_*`, `test_the_default_cap_*`, `test_the_plausible_limit_*`, `test_the_correction_max_age_*`, `test_the_response_timeout_*`, `test_the_correction_match_wait_*` | controller limits as settings |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
