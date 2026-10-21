@@ -45,7 +45,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `refused` | regulator `refused_soc` goes from None to set | `soc`, `floor` (policy `discharge_soc`) |
 | `rearmed` | `refused_soc` clears | `soc` |
 | `cross` | `warm_w > 0` and a command turns between charge and discharge | `from_w`, `to_w` (signed W, positive is discharge) |
-| `trim_load` | `async_start` found a saved learned table | `loaded` (bool: it passed `load_trim`), `points` (the table now in force, `[[node W, trim W], ...]`) |
+| `trim_load` | `async_start` found a saved learned table, or could not read the store (`loaded` false, empty table) | `loaded` (bool: it passed `load_trim`), `points` (the table now in force, `[[node W, trim W], ...]`) |
 | `trim` | learning moved the table, at most once per `TRIM_SAVE_S` (60 s); or the Forget learned offsets button | `points`; `forgot: true` from the button |
 | `e` | change of an entity in option `log_entities` | `e` (entity id), `s` (state or null), `a` (attributes dict, `{}` when removed) |
 | `stop` | `async_stop` | none |

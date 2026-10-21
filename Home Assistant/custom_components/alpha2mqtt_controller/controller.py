@@ -249,7 +249,12 @@ class Controller:
 
     async def _load_trim(self) -> None:
         """Restores the learned offset table saved by an earlier run. Nothing saved logs nothing."""
-        data = await self._store.async_load()
+        try:
+            data = await self._store.async_load()
+        except Exception:  # an unreadable store must not stop the start: learning starts from zero
+            _LOGGER.exception("Battery controller learned offsets unreadable, starting from zero")
+            self._log("trim_load", loaded=False, points=self.regulator.trim_points())
+            return
         if not isinstance(data, dict) or "points" not in data:
             return
         loaded = self.regulator.load_trim(data["points"])
@@ -289,6 +294,8 @@ class Controller:
         elif isinstance(current, int):
             value = int(round(value))
         setattr(self.regulator.settings, key, value)
+        if key == "trim_limit_w":
+            self.regulator.load_trim(self.regulator.trim_points())  # clip the learned table to the new limit
         self._log("cfg", **asdict(self.regulator.settings))
 
     def _grid_estimate(self) -> float | None:

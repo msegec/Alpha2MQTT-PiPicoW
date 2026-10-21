@@ -1422,11 +1422,15 @@ def test_learning_is_off_by_default_and_frozen_learning_still_applies_the_table(
     assert reg.step(0, BOTH).watts == 540
 
 
-def test_a_learned_table_past_its_bound_or_off_the_nodes_does_not_load():
+def test_a_learned_table_off_the_nodes_does_not_load_and_one_past_its_bound_loads_clipped():
     reg = make(trim_limit_w=150)
     pts = reg.trim_points()
     pts[3][1] = 151.0
+    assert reg.load_trim(pts) and reg.trim[3] == 150.0  # a lowered limit must not cost the whole table
+    reg.reset_trim()
+    pts[3][1] = float("nan")
     assert not reg.load_trim(pts)
+    pts[3][1] = 151.0
     assert not reg.load_trim(pts[:-1])
     assert not reg.load_trim("junk")
     pts[3][1] = 0.0
@@ -1595,3 +1599,11 @@ def test_the_refusal_time_is_a_setting():
         reg.update_grid(t, 1020, 0, soc=60)
         reg.step(t, DISCHARGE)
     assert reg.limit == "refused"
+
+
+def test_nothing_is_learned_while_a_refusal_holds_the_discharge_at_0_w():
+    reg = make(trim_learn=True, trim_rate=0.01, deadband_w=0, target_w=0)
+    reg._refused = lambda t, policy: True
+    reg.update_grid(0, -500, -500, soc=50)  # a charge, under the refusal's 0 W ceiling
+    reg.step(0, BOTH)
+    assert reg.limit == "none" and not reg._learn_ok

@@ -646,10 +646,28 @@ def test_a_bad_saved_table_loads_nothing_and_none_saved_logs_nothing(monkeypatch
     house = logged_house(monkeypatch)
     asyncio.run(house.c._load_trim())
     assert house.log.kind("trim_load") == []
-    house.c._store.data = {"points": learned(house.c, y=900.0)}  # past trim_limit_w
+    house.c._store.data = {"points": learned(house.c, w=0.0, y=30.0)}  # a 0 W node that is not 0
     asyncio.run(house.c._load_trim())
     assert not any(house.c.regulator.trim)
     assert house.log.kind("trim_load")[0]["loaded"] is False
+
+
+def test_an_unreadable_store_starts_from_an_empty_table(monkeypatch):
+    house = logged_house(monkeypatch)
+
+    async def broken():
+        raise OSError("disk")
+    house.c._store.async_load = broken
+    asyncio.run(house.c._load_trim())
+    assert not any(house.c.regulator.trim)
+    assert house.log.kind("trim_load")[0]["loaded"] is False
+
+
+def test_lowering_the_learned_offset_limit_clips_the_table_at_once(monkeypatch):
+    house = logged_house(monkeypatch)
+    house.c.regulator.load_trim(learned(house.c, y=-90.0))
+    house.c.set_setting("trim_limit_w", 50.0)
+    assert house.c.regulator.trim[R.TRIM_NODES.index(500.0)] == -50.0
 
 
 def test_a_moved_table_is_saved_later_and_logged_at_most_once_a_minute(monkeypatch):

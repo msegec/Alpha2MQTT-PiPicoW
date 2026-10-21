@@ -62,7 +62,10 @@ def coerce(mod, values: dict) -> tuple[dict, list[str]]:
             unknown.append(k)
             continue
         kind = type(getattr(defaults, k))
-        out[k] = kind(float(v)) if kind in (int, float) else v
+        if kind is bool:
+            out[k] = v if isinstance(v, bool) else str(v).strip().lower() in ("1", "true", "on", "yes")
+        else:
+            out[k] = kind(round(float(v))) if kind is int else kind(float(v)) if kind is float else v
     return out, unknown
 
 

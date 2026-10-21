@@ -336,17 +336,17 @@ class Regulator:
         return [[x, round(y, 1)] for x, y in zip(TRIM_NODES, self.trim)]
 
     def load_trim(self, points) -> bool:
-        """Restore a persisted table. A malformed table, other nodes, a non-zero 0 W node or a value past
-        trim_limit_w loads nothing and returns False."""
+        """Restore a persisted table. A malformed table, other nodes or a non-zero 0 W node loads nothing and
+        returns False. A value past trim_limit_w loads clipped to it, so a lowered limit keeps the table."""
         try:
             pts = [(float(x), float(y)) for x, y in points]
         except (TypeError, ValueError):
             return False
         lim = self.settings.trim_limit_w
-        if ([x for x, _ in pts] != list(TRIM_NODES) or any(not math.isfinite(y) or abs(y) > lim for _, y in pts)
+        if ([x for x, _ in pts] != list(TRIM_NODES) or any(not math.isfinite(y) for _, y in pts)
                 or pts[TRIM_NODES.index(0.0)][1] != 0):
             return False
-        self.trim, self._grid = [y for _, y in pts], None
+        self.trim, self._grid = [_clip(y, -lim, lim) for _, y in pts], None
         return True
 
     def reset_trim(self) -> None:
@@ -490,6 +490,7 @@ class Regulator:
             self.error_w = 0.0 if self.grid_w is None else self.grid_w - s.target_w
             self.p_w = 0.0
             request = lo = hi = policy.fixed_w
+            held = False
         elif not live:
             # Hand the inverter back now. Holding the last watts until the lease ran out could mean
             # two minutes at a setpoint chosen for a load that has gone.
@@ -536,6 +537,7 @@ class Regulator:
                 self.limit = floor
             elif request < lo:
                 self.limit = ceiling
+            held = floor != "discharge_cap" or ceiling != "charge_cap"  # in force, whether or not it clips this step
         self.request_w = request
         self.lo_w, self.hi_w = lo, hi
         u = _clip(request, lo, hi)
@@ -581,7 +583,7 @@ class Regulator:
         # Everything above is battery watts. Only the command asks for less where the inverter gives more.
         on = policy.mode == REGULATE and (s.offset_comp or any(self.trim))
         self.offset_w = self._setpoint(self.output_w) - self.output_w if on else 0.0
-        self._learn_ok = (policy.mode == REGULATE and self.limit == "none" and self._saturation == 0
+        self._learn_ok = (policy.mode == REGULATE and not held and self.limit == "none" and self._saturation == 0
                           and not self.slewed and self.soc is not None
                           and policy.discharge_soc + s.floor_margin_soc + 1 < self.soc < policy.charge_soc)
         return self._maybe_send(t, policy)
