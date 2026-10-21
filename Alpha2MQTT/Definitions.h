@@ -16,8 +16,11 @@ Customise these options as per README.txt.  Please read README.txt before contin
 
 #if defined(ARDUINO) && ARDUINO >= 100
 	#include "Arduino.h"
-#else
+#elif defined(ARDUINO)
 	#include "WProgram.h"
+#else
+	// tests/firmware reads the register map on the host, without the Arduino core or Secrets.h
+	#include <stdint.h>
 #endif
 
 
@@ -55,7 +58,9 @@ Customise these options as per README.txt.  Please read README.txt before contin
 
 // WiFi and MQTT broker details live in Secrets.h, which git ignores.
 // Copy Secrets.example.h to Secrets.h and fill it in.
+#if defined(ARDUINO)
 #include "Secrets.h"
+#endif
 
 
 // The device name is used as the MQTT base topic and presence on the network.
@@ -95,7 +100,7 @@ Customise these options as per README.txt.  Please read README.txt before contin
 #define WATCHDOG_TIMEOUT 8000
 inline void feedWatchdog()
 {
-#if defined MP_PICOW
+#if defined MP_PICOW && defined ARDUINO
 	rp2040.wdt_reset();
 #endif
 }
