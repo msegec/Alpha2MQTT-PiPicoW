@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: f06becc plus the arrival restart, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 317 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d2f26ab plus the regulator limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 322 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -24,7 +24,7 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | `Policy` (frozen) | `mode`, `max_charge_w`, `max_discharge_w`, `charge_soc` (100), `discharge_soc` (10), `fixed_w`, `target_offset_w`, `reason` | What is allowed. The regulator only clamps to it. |
 | `Settings` (mutable) | tuning, table below | The controller changes fields live with `setattr`. |
 | `Command` (frozen) | `kind` ("charge", "discharge", "normal"), `watts`, `soc`, `duration`, `power_only` | What to publish. |
-| `Regulator.update_grid(t, grid_w, battery_w, fresh=True, soc=None, solar_w=None)` | one sample | Runs the integral, stores the sample. Ignores the call if grid or battery is not finite. Keeps the last SOC when `soc` is None. Stores the solar change since the last call as the feed forward step: 0 unless both are known and finite, the last call is at most `SOLAR_MAX_GAP_S` old and the change is over `SOLAR_DEADBAND_W`, and, with `solar_ff_min_w` above 0, both readings are at least that. `fresh=False` (only a correction changed) does not refresh the stale clock. |
+| `Regulator.update_grid(t, grid_w, battery_w, fresh=True, soc=None, solar_w=None)` | one sample | Runs the integral, stores the sample. Ignores the call if grid or battery is not finite. Keeps the last SOC when `soc` is None. Stores the solar change since the last call as the feed forward step: 0 unless both are known and finite, the last call is at most `solar_max_gap_s` old and the change is over `solar_deadband_w`, and, with `solar_ff_min_w` above 0, both readings are at least that. `fresh=False` (only a correction changed) does not refresh the stale clock. |
 | `Regulator.step(t, policy)` | policy | Returns a `Command` to publish now, or None. |
 | `Regulator.ack(t, power_write=False)` | | The firmware wrote the last command. |
 | `Regulator.fail()` | | The last command was not published or not written. |
@@ -72,10 +72,10 @@ Every non-regulating branch calls `_restart`: integral to 0, refusal clock and `
 
 | State | Meaning | Exit |
 |---|---|---|
-| Armed | `_t_low` None, `refused_soc` None | Last sent is a discharge of `REFUSED_ASK_W` or more and battery reads under `REFUSED_W`: start `_t_low`. |
-| Counting | `_t_low` set | Battery reaches `REFUSED_W` or the ask drops: back to armed. `REFUSED_AFTER_S` elapsed: refused. |
-| Timed hold | `_t_refused` set, SOC more than `REFUSED_NEAR_SOC` above `discharge_soc` | Discharge cap 0 W (`limit = "refused"`) for `REFUSED_HOLD_S`, then retry. |
-| Latched near floor | `refused_soc` set | Discharge cap 0 W until SOC >= `refused_soc + REARM_SOC` or `policy.discharge_soc` changes. Then rearm. |
+| Armed | `_t_low` None, `refused_soc` None | Last sent is a discharge of `refused_ask_w` or more and battery reads under `refused_w`: start `_t_low`. |
+| Counting | `_t_low` set | Battery reaches `refused_w` or the ask drops: back to armed. `refused_after_s` elapsed: refused. |
+| Timed hold | `_t_refused` set, SOC more than `refused_near_soc` above `discharge_soc` | Discharge cap 0 W (`limit = "refused"`) for `refused_hold_s`, then retry. |
+| Latched near floor | `refused_soc` set | Discharge cap 0 W until SOC >= `refused_soc + rearm_soc` or `policy.discharge_soc` changes. Then rearm. |
 
 On refusal the integral is set to 0. `_refused` is not evaluated while the SOC floor hold is on (it is an `elif`).
 
@@ -83,25 +83,12 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 
 | Name | Value | Guards |
 |---|---|---|
-| `MIN_SEND_GAP_S` | 2.0 s | Earliest early send after a block write ack. |
-| `MAX_INTEGRATE_S` | 10.0 s | Cap on `dt` per integration, so a sample gap does not wind the integral. |
-| `FLOOR_MARGIN` | 1.5 % | Discharge cap is 0 W when SOC <= `discharge_soc + 1.5`. The inverter cuts about 1 % above its floor. |
-| `LAG_W` | 100 W | Battery this far short of the last setpoint has not arrived: integral waits. |
-| `ARRIVE_S` | 15 s | Arrival wait ends after this, for an inverter that clamps below the request. |
-| `REFUSED_W` | 30 W | Battery under this counts as giving nothing. |
-| `REFUSED_AFTER_S` | 20 s | How long under `REFUSED_W` before a refusal. Starts left 10 W within 5.1 s in logs. |
-| `REFUSED_HOLD_S` | 60 s | Timed hold after a refusal far from the floor. |
-| `REFUSED_ASK_W` | 100 W | Minimum discharge ask that can be refused. Battery reads about 35 W under a 100 to 400 W command. |
-| `REFUSED_NEAR_SOC` | 3.0 % | Refusal within this of `discharge_soc` latches. |
-| `REARM_SOC` | 1.0 % | SOC rise that ends a latched refusal. |
-| `SMALL_TRIM_W` | 50 W | Moves under this are trims. |
-| `TRIM_GAP_S` | 6.0 s | Trims wait this long since the last command. |
-| `WARM_BAND_W` | 50 W | Ready floor replaces only requests above -50 W (trickle charge, idle, small discharge). |
 | `INVERTER_OFFSET` | (-100, -8), (0, 0), (100, -25), (1500, -25), (2750, 198), (3000, 220) | Battery reading minus setpoint, indexed by the signed setpoint. Measured 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, +198 W at 2750 W, +220 W at 3000 W. Chosen: 0 at 0 W, the ramps either side of it, the line from 1500 to 2750 W, flat past the ends. |
 | `TRIM_NODES` | -4000, -3500, -3000, -2500, -2000, -1500, -1000, -750, -500, -250, -100, 0, 100, 250, 500, 750, 1000, 1500, 2000, 2500, 2750, 3000, 3500, 4000 W | Nodes of the learned table, linear between, flat past the ends. They index the saved table, so changing them discards it. The 0 W node stays 0. |
 | `TRIM_SLOPE` | 0.5 | Neighbouring learned nodes differ by at most this times their spacing, so the table stays monotonic and each output has one command. A maths bound, not a tuning choice. |
-| `SOLAR_DEADBAND_W` | 20 W | A solar change this small between samples gets no feed forward, so night noise stays out. |
-| `SOLAR_MAX_GAP_S` | 2.0 s | A solar change over a longer gap gets no feed forward: after a 20 s gap while solar fell 2500 W it would have asked for 2500 W more discharge. Older firmware's 10 s samples get none. |
+
+Kept as code on purpose: the tables above, the `abs(u) >= 1` direction test and the protocol values. The rest of the
+former constants are `Settings` fields since this round.
 
 ## Settings defaults
 
@@ -133,7 +120,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `full_register` | 252 | Not used by the regulator. The controller publishes a charge to 100 % as `socPercent` this minus 150, since register 250 stopped the battery at 99.2 %. |
 | `spike_confirm_w` | 0.0 W | Above 0, a sample whose net demand (`grid_w + battery_w`) moved more than this from the last sample is held: every step on it returns None with `limit = "spike"`, and the integral skips it. The next sample always acts. 0 is off. |
 | `integral_reset_w` | 0.0 W | Above 0, `_send` sets the integral to 0 when the new command's `signed_w` moves this much or more from the last one's: what it held trimmed the old level. 0 is off. |
-| `import_trim_gap_s` | 6.0 s | A small trim that raises `signed_w` (cuts import) waits this long instead of `TRIM_GAP_S`; a trim towards export keeps `TRIM_GAP_S`. 6 is the old rule. |
+| `import_trim_gap_s` | 6.0 s | A small trim that raises `signed_w` (cuts import) waits this long instead of `small_trim_gap_s`; a trim towards export keeps `small_trim_gap_s`. 6 is the old rule. |
 | `offset_comp` | 0.0 | Share of `INVERTER_OFFSET` in `table`. Under `REGULATE` the command asks for the setpoint whose battery reading on `table` is the output (`_setpoint`), so the battery lands on the output. 0 is off, 1 full. |
 | `trim_learn` | False | Long term trim on: learning moves the integral into the learned table. Off: nothing is learned, the table is still used. |
 | `trim_rate` | 0.0 /s | Share of the integral moved into the table per settled second. 0 learns nothing, even with `trim_learn` on. |
@@ -142,6 +129,23 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `trim_band_w` | 50 W | Raw grid error (before the deadband) within this to learn. |
 | `trim_min_w` | 50 W | Setpoints under this teach nothing. |
 | `trim_max_soc` | 97 % | SOC at or over this teaches nothing (BMS taper). |
+| `min_send_gap_s` | 2.0 s | Earliest early send after a block write ack. |
+| `max_integrate_s` | 10.0 s | Cap on `dt` per integration, so a sample gap does not wind the integral. |
+| `floor_margin_soc` | 1.5 % | Discharge cap is 0 W when SOC <= `discharge_soc + 1.5`. The inverter cuts about 1 % above its floor. |
+| `lag_w` | 100 W | Battery this far short of the last setpoint has not arrived: integral waits. |
+| `arrive_s` | 15 s | Arrival wait ends after this, for an inverter that clamps below the request. |
+| `refused_w` | 30 W | Battery under this counts as giving nothing. |
+| `refused_after_s` | 20 s | How long under `refused_w` before a refusal. Starts left 10 W within 5.1 s in logs. |
+| `refused_hold_s` | 60 s | Timed hold after a refusal far from the floor. |
+| `refused_ask_w` | 100 W | Minimum discharge ask that can be refused. Battery reads about 35 W under a 100 to 400 W command. |
+| `refused_near_soc` | 3.0 % | Refusal within this of `discharge_soc` latches. |
+| `rearm_soc` | 1.0 % | SOC rise that ends a latched refusal. |
+| `small_trim_w` | 50 W | Moves under this are trims. |
+| `small_trim_gap_s` | 6.0 s | Trims wait this long since the last command. |
+| `warm_band_w` | 50 W | Ready floor replaces only requests above -50 W (trickle charge, idle, small discharge). |
+| `solar_deadband_w` | 20 W | A solar change this small between samples gets no feed forward, so night noise stays out. |
+| `solar_max_gap_s` | 2.0 s | A solar change over a longer gap gets no feed forward: after a 20 s gap while solar fell 2500 W it would have asked for 2500 W more discharge. Older firmware's 10 s samples get none. |
+| `command_step_w` | 10 W | Commands go out rounded to this (`_command`). |
 
 The test file's `LIVE` dict, labelled "the live tuning": `target_w=-20, deadband_w=5, ki=0.01, write_threshold_w=20, min_interval_s=2.5, slew_w_per_s=2400, flip_hysteresis_w=150, flip_dwell_s=3, keepalive_s=40, power_write_gap_s=0.5, warm_w=20`. Whether it matches the deployed config: unknown.
 
@@ -151,13 +155,13 @@ The integral runs only if all hold:
 
 1. The previous step regulated (`_regulating`) and there was an earlier sample.
 2. Deadbanded error `|e| <= integral_band_w`. `e` uses the policy's grid offset from the last regulating step (`_target_offset_w`; not `offset_w`, the inverter correction).
-3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: `signed_w + table(signed_w)`, also after a HOLD or FIXED command), or `ARRIVE_S` has passed on the arrival clock (`_t_arrive`, set at each send). With `arrive_restart_w` above 0, the clock restarts, and `_arrive_w` takes the battery reading, whenever the battery has moved that much towards the setpoint's sign since the last restart, so a slow ramp stays lag. A battery past its setpoint counts as arrived.
+3. Arrived: last sent is None or normal, or the battery is no more than `lag_w` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: `signed_w + table(signed_w)`, also after a HOLD or FIXED command), or `arrive_s` has passed on the arrival clock (`_t_arrive`, set at each send). With `arrive_restart_w` above 0, the clock restarts, and `_arrive_w` takes the battery reading, whenever the battery has moved that much towards the setpoint's sign since the last restart, so a slow ramp stays lag. A battery past its setpoint counts as arrived.
 4. `sign(e) != _saturation`: conditional integration, frozen when the output is pinned in the error's direction.
 5. Not a held spike (`_spike`, see `spike_confirm_w`).
 
-Then `integral += g * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit_w`, with `g = ki * ki_import_x` on import (`e > 0`) and `ki` otherwise.
+Then `integral += g * e * min(dt, max_integrate_s)`, clipped to `integral_limit_w`, with `g = ki * ki_import_x` on import (`e > 0`) and `ki` otherwise.
 
-Learning (long term trim) runs next, on `c`, the running command's `signed_w` (0 for none or normal). It needs `trim_learn`, `trim_rate > 0`, `_learn_ok` (the last step regulated with `limit` none, no saturation, no slew, SOC known and between `discharge_soc + FLOOR_MARGIN + 1` and `charge_soc`), arrived, no held spike, `|c| >= trim_min_w`, `trim_settle_s` since the command last changed (`_t_change`), raw error within `trim_band_w`, no policy offset and SOC under `trim_max_soc`. Then `_teach(c, -trim_rate * dt * integral)` moves the two nodes around `c` (never the 0 W node), each within `trim_limit_w` and `TRIM_SLOPE`, and the integral gets the actual move added, so the command does not change. After that, with `c` non-zero, the integral is clipped so integral plus the trim at `c` stays within `integral_limit_w`.
+Learning (long term trim) runs next, on `c`, the running command's `signed_w` (0 for none or normal). It needs `trim_learn`, `trim_rate > 0`, `_learn_ok` (the last step regulated with `limit` none, no saturation, no slew, SOC known and between `discharge_soc + floor_margin_soc + 1` and `charge_soc`), arrived, no held spike, `|c| >= trim_min_w`, `trim_settle_s` since the command last changed (`_t_change`), raw error within `trim_band_w`, no policy offset and SOC under `trim_max_soc`. Then `_teach(c, -trim_rate * dt * integral)` moves the two nodes around `c` (never the 0 W node), each within `trim_limit_w` and `TRIM_SLOPE`, and the integral gets the actual move added, so the command does not change. After that, with `c` non-zero, the integral is clipped so integral plus the trim at `c` stays within `integral_limit_w`.
 
 ## Decision order in `step` (regulating path)
 
@@ -167,10 +171,10 @@ Learning (long term trim) runs next, on `c`, the running command's `signed_w` (0
 4. Not live: hand back as "stale", return.
 5. Bumpless start if the last step did not regulate: `output_w = battery_w`, `_direction = sign(battery_w)`, solar step 0 (every `_restart` leads here). Then a held spike returns None with `limit = "spike"`; output, sent and the diagnosis fields keep their last values.
 6. `request = battery_w + kp * e + integral_w + ff_w`, then optional smoothing. `ff_w` is `-kff` times the solar step stored by `update_grid`; P already sends the whole measured demand change, so feed forward only leads a solar ramp. With `ff_guard` on, a feed forward that would flip the sign of `battery_w + p + integral` against a non-zero `_direction` is dropped (`ff_w = 0`).
-7. Caps: `lo = -max(0, max_charge_w)`, `hi = max(0, max_discharge_w)`: a negative cap is 0 W, never a push the other way (before, `_clip` returned `lo` when `lo > hi`). With `discharge_needs_soc` on and no SOC read yet: `hi = 0` ("soc_unknown"). Else SOC <= `discharge_soc + FLOOR_MARGIN`: `hi = 0` ("floor"). Else refused: `hi = 0` ("refused"). SOC >= `charge_soc`: `lo = 0` ("full"). `limit` names the cap the request crosses ("discharge_cap" / "charge_cap" by default).
+7. Caps: `lo = -max(0, max_charge_w)`, `hi = max(0, max_discharge_w)`: a negative cap is 0 W, never a push the other way (before, `_clip` returned `lo` when `lo > hi`). With `discharge_needs_soc` on and no SOC read yet: `hi = 0` ("soc_unknown"). Else SOC <= `discharge_soc + floor_margin_soc`: `hi = 0` ("floor"). Else refused: `hi = 0` ("refused"). SOC >= `charge_soc`: `lo = 0` ("full"). `limit` names the cap the request crosses ("discharge_cap" / "charge_cap" by default).
 8. `u = clip(request, lo, hi)`, `_saturation = sign(request - u)`.
 9. Turn round check (above).
-10. Ready floor: `ready_w = warm_w` if `REGULATE` and `0 < warm_w <= hi`. If `-WARM_BAND_W < u < ready_w` and (direction >= 0 or the dwell has passed): `u = ready_w`, `limit = "warm"`, saturation recomputed, direction forced to +1.
+10. Ready floor: `ready_w = warm_w` if `REGULATE` and `0 < warm_w <= hi`. If `-warm_band_w < u < ready_w` and (direction >= 0 or the dwell has passed): `u = ready_w`, `limit = "warm"`, saturation recomputed, direction forced to +1.
 11. Slew: `output_w = clip(u, _sent_w +/- slew_w_per_s * (t - t_sent))`. No limit before the first send. Under `REGULATE` the output is then clipped back into `[lo, hi]`, so a cut to a cap goes out whole; HOLD and FIXED keep the slew.
 12. If the ready floor applies and `u >= ready_w` and output > -50 W: `output_w = max(output_w, ready_w)`.
 13. Offset correction: under `REGULATE` with `offset_comp` above 0 or any learned trim, `offset_w = _setpoint(output_w) - output_w`, else 0. `_setpoint` solves `x + table(x) = w` on the merged nodes of `TRIM_NODES` and `INVERTER_OFFSET`, slope 1 past the ends. Then `_learn_ok` is set for the next sample. The table is indexed by setpoint, so it is solved for the command, not read at the output. Everything before this is battery watts: caps, turn round, ready floor and slew all mean what the battery gives. Only the command is moved.
@@ -180,11 +184,11 @@ Learning (long term trim) runs next, on `c`, the running command's `signed_w` (0
     2. No last command, last failed, lease over, or keepalive due: send full.
     3. Kind changed and either side is non-zero: send full.
     4. `to_floor`: `REGULATE`, floor > 0, last signed under `ceil(warm_w)` and new at or over it.
-    5. Small trim: not `to_floor`, non-zero watts, same SOC, move under `SMALL_TRIM_W` and under `TRIM_GAP_S` since last (`import_trim_gap_s` for a move up): None.
+    5. Small trim: not `to_floor`, non-zero watts, same SOC, move under `small_trim_w` and under `small_trim_gap_s` since last (`import_trim_gap_s` for a move up): None.
     6. `to_floor`, SOC changed, or move >= `write_threshold_w`: send, as `power_only` if same kind/SOC/duration and `power_write_gap_s > 0`.
     7. Else None.
 
-Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample after the ack. After a power write ack with `power_write_gap_s > 0`: any move after that gap. Otherwise only an import cut (`signed_w` rises) after `MIN_SEND_GAP_S`.
+Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample after the ack. After a power write ack with `power_write_gap_s > 0`: any move after that gap. Otherwise only an import cut (`signed_w` rises) after `min_send_gap_s`.
 
 ## Named behaviours and why
 
@@ -197,12 +201,12 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | Hand back on first stale step, retry failed publish, min interval across release | e0e291d | Fail safe: stale watts could run for a full lease. |
 | Early send of an import cut after ack | 754c81d | A cloud dip cost grid import while waiting the min interval. |
 | Power writes, `fail()` | a3a20a7 | Follow a power write sooner; a refused write is resent as a full block. |
-| `MAX_INTEGRATE_S`, hold through short gaps | 70fe0e2 | Do not wind on an error nobody measured. |
+| `max_integrate_s`, hold through short gaps | 70fe0e2 | Do not wind on an error nobody measured. |
 | No import gain | 9630537 | Gain above 1 swung the grid more on live noise. |
 | Floor hold at discharge SOC | 7603b02 | A growing request against a battery at its limit sent a command every few seconds. |
 | Power write hold reverted | b47c99a, 9490f53 | Block writes started a discharge no faster; the hold cost response. |
 | Keep warm | f333100 | Discharge starts from 0 W ramp at about 10 W/s on this inverter. |
-| 0 W keeps last kind; `FLOOR_MARGIN`; timed refusal; arrival gate; `WARM_BAND_W` | 15aaddd | Kind flips cost block writes; the inverter cuts 1 % above floor; trimming the start lag wound a charge up; a 150 W warm band threw away storable surplus. |
+| 0 W keeps last kind; `floor_margin_soc`; timed refusal; arrival gate; `warm_band_w` | 15aaddd | Kind flips cost block writes; the inverter cuts 1 % above floor; trimming the start lag wound a charge up; a 150 W warm band threw away storable surplus. |
 | Arrival gate only when short; full stops charge; release at start; `limit` field | 42e3727 | A battery reading 200 W over setpoint never "arrived", so the house exported the gap. A full battery wound the integral. |
 | No refactor change | 42a9c10, 0af19ef | Derived fields; one `_hand_back`. Fuzzed 3000 seeds, no change. |
 | Release `reason` | 8259b36 | An unknown policy state released silently. |
@@ -237,6 +241,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_discharge_waits_for_a_known_soc_*`, `test_discharge_without_a_known_soc_*` | `discharge_needs_soc`, off by default. |
 | `test_feed_forward_can_ignore_west_crossing_*`, `test_the_feed_forward_minimum_solar_*` | `solar_ff_min_w`, off by default. |
 | `test_a_slow_start_need_not_wind_*`, `test_the_arrival_restart_is_off_by_default` | `arrive_restart_w`, off by default. |
+| `test_the_former_constants_are_settings_*`, `test_the_floor_margin_is_a_setting`, `test_the_command_rounding_is_a_setting`, `test_the_refusal_time_is_a_setting` | The former constants are settings with their old values, and the code reads them. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |
@@ -249,7 +254,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 - The command moves `1 / (1 + k * table slope)` W per W of output. Under 100 W of discharge the table falls 0.25 W per W, so at `offset_comp` 1 the command moves 1.33 times the output (1.6 times at 1.5); between 1500 and 2750 W it moves 0.85 times, so the write threshold and trim gate need about 59 W of output there. The command stays monotonic in the output for `offset_comp` under 4.
 - Caps are battery watts, so a command may exceed a small cap by the correction: a 1000 W discharge cap asks for 1020 W, a 100 W cap for 130 W, at `offset_comp` 1.
 - Rounding to 10 W eats a correction under 5 W, under about 15 W of discharge, and moves the battery up to 5.9 W off the output (5 W times the table's steepest rise, 1.18).
-- At default `write_threshold_w = 50 = SMALL_TRIM_W` the trim gate changes nothing. It only bites with a lower threshold, as in `LIVE`.
+- At default `write_threshold_w = 50 = small_trim_w` the trim gate changes nothing. It only bites with a lower threshold, as in `LIVE`.
 - A stop at 0 W skips the trim gate but still needs the write threshold, a kind change, or keepalive.
 - Release and stale hand backs call `_send` directly and skip `min_interval_s`. The next command after them still waits it.
 - `_saturation` is set before the turn round check, so a turn round hold does not freeze the integral. The ready floor recomputes it.
@@ -258,12 +263,12 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 - `error_w` in HOLD/FIXED is `grid_w - target_w`, without the offset.
 - `fresh=False` samples still update `grid_w`, `battery_w` and the integral.
 - Bumpless start does not reset `_t_direction`, so on a new regulator the dwell has already passed.
-- The comment in `test_a_refused_discharge_is_held_at_zero` says "over 200 W"; the code uses `REFUSED_ASK_W = 100` since 75e08a8.
-- `MIN_SEND_GAP_S` comment cites the five-write firmware (about 1.8 s). The one-frame write (9452d4a) is about 50 ms; the constant was not changed.
+- The comment in `test_a_refused_discharge_is_held_at_zero` says "over 200 W"; the code uses `refused_ask_w = 100` since 75e08a8.
+- `min_send_gap_s` comment cites the five-write firmware (about 1.8 s). The one-frame write (9452d4a) is about 50 ms; the default was not changed.
 
 ## Open questions
 
 - Whether the turn round hold leaving the integral running is intended: unknown.
 - Whether `_t_refused` surviving `_restart` is intended: unknown.
 - The deployed `Settings` values: unknown from this component. `LIVE` in the tests is the only record read.
-- Whether `MIN_SEND_GAP_S` should drop with one-frame block writes: unknown.
+- Whether `min_send_gap_s` should drop with one-frame block writes: unknown.

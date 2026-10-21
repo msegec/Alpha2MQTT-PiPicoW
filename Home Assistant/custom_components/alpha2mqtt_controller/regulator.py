@@ -19,36 +19,6 @@ HOLD = "hold"  # dispatch at 0 W
 FIXED = "fixed"  # dispatch at fixed_w, a manual override
 REGULATE = "regulate"
 
-# Firmware before the one frame block write (about 50 ms) takes about 1.8 s per dispatch, five writes. Closer
-# than this, a command queues behind the last one's writes, so even an acked command waits this long.
-MIN_SEND_GAP_S = 2.0
-# Samples come every second, or every 10 s from older firmware. A longer gap would wind the integral on
-# an error nobody measured.
-MAX_INTEGRATE_S = 10.0
-# The inverter cuts discharge about 1 % above its floor, so the hold starts this far above the policy SOC.
-FLOOR_MARGIN = 1.5
-# A battery this far short of the last setpoint has not arrived: the integral waits, or the error it sees is the
-# inverter's lag, not a trim. The wait ends after ARRIVE_S regardless, for an inverter that clamps below
-# the request and would otherwise freeze it for good. A battery past the setpoint is not lag (cuts land in
-# about 3 s) but a steady offset, such as a DC reading over an AC setpoint, which only the integral can trim.
-LAG_W, ARRIVE_S = 100.0, 15.0
-# Under this battery power for this long against a request of REFUSED_ASK_W or more, the inverter is refusing
-# (at its cutoff, whatever the SOC says): ask for 0 W, drop the integral, try again after the hold. Every start
-# logged since 17 Oct left 10 W within 5.1 s, so 20 s is not a slow start. A battery reads about 35 W under a
-# 100 to 400 W command, so 100 W asked still reads over 30 W.
-REFUSED_W, REFUSED_AFTER_S, REFUSED_HOLD_S, REFUSED_ASK_W = 30.0, 20.0, 60.0, 100.0
-# A refusal this close to the policy SOC is the cutoff: no retry each minute, which only asks again into a
-# refusal (on 19 Oct, 2 h of it at 12.8 %). It holds until the SOC rises this much or the policy SOC changes.
-REFUSED_NEAR_SOC, REARM_SOC = 3.0, 1.0
-# Moves under SMALL_TRIM_W are noise and integral creep: they wait TRIM_GAP_S, so the bus carries load steps. On
-# 21 Oct three commands in four moved under 50 W, most within a second of the last. Replayed on that day, this
-# cut the commands by a third for 0.6 W more mean import; a 10 s wait cut half for 1.8 W.
-SMALL_TRIM_W, TRIM_GAP_S = 50.0, 6.0
-# Keep warm stands in for a trickle charge this close to idle; a bigger surplus the battery can store is stored.
-WARM_BAND_W = 50.0
-# Solar changes this small between samples are noise, as at night, and get no feed forward. Nor does a change over
-# a gap longer than SOLAR_MAX_GAP_S: it is not a ramp the inverter lags, and the error already holds all of it.
-SOLAR_DEADBAND_W, SOLAR_MAX_GAP_S = 20.0, 2.0
 # The inverter's steady offset, battery reading minus setpoint, against the signed setpoint (positive is discharge).
 # Measured on an AlphaESS SMILE-B3 over 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, +198 W
 # at 2750 W and +220 W at 3000 W. Chosen, not measured: 0 W at 0 W so a stop stays a stop, the ramps either side of
@@ -125,8 +95,8 @@ class Settings:
     # Above 0, a command that moves this much starts the integral from 0: what it held trimmed the old level, and the
     # offset table owns the new one. 0 is off.
     integral_reset_w: float = 0.0
-    # Small trims that cut import (raise the signed command) wait this long instead of TRIM_GAP_S. Trims towards
-    # export keep TRIM_GAP_S: export is the cheap side. Equal to TRIM_GAP_S is the old rule.
+    # Small trims that cut import (raise the signed command) wait this long instead of small_trim_gap_s. Trims towards
+    # export keep small_trim_gap_s: export is the cheap side. Equal to it is the old rule.
     import_trim_gap_s: float = 6.0
     # Long term trim (learned offset table, see TRIM_NODES). trim_learn on: while settled, trim_rate of the integral
     # per second moves into the two nodes around the running setpoint, and the integral gives up the same watts, so
@@ -149,9 +119,47 @@ class Settings:
     # since the floor cannot be checked. Off keeps the old rule: the inverter's own dispatch SOC is then the only floor.
     discharge_needs_soc: bool = False
     # Above 0, a battery still closing on its setpoint by this much since the arrival clock last restarted has not
-    # arrived: the clock restarts, so a slow start's ramp does not wind the integral after ARRIVE_S. 0 is off: the
+    # arrived: the clock restarts, so a slow start's ramp does not wind the integral after arrive_s. 0 is off: the
     # clock runs from the send.
     arrive_restart_w: float = 0.0
+    # The inverter cuts discharge about 1 % above its floor, so the hold starts this far above the policy SOC.
+    floor_margin_soc: float = 1.5
+    # Under refused_w of battery power for refused_after_s against a request of refused_ask_w or more, the inverter is
+    # refusing (at its cutoff, whatever the SOC says): ask for 0 W, drop the integral, try again after refused_hold_s.
+    # Every start logged since 17 Oct left 10 W within 5.1 s, so 20 s is not a slow start. A battery reads about 35 W
+    # under a 100 to 400 W command, so 100 W asked still reads over 30 W.
+    refused_w: float = 30.0
+    refused_after_s: float = 20.0
+    refused_hold_s: float = 60.0
+    refused_ask_w: float = 100.0
+    # A refusal this close to the policy SOC is the cutoff: no retry each minute, which only asks again into a
+    # refusal (on 19 Oct, 2 h of it at 12.8 %). It holds until the SOC rises rearm_soc or the policy SOC changes.
+    refused_near_soc: float = 3.0
+    rearm_soc: float = 1.0
+    # Firmware before the one frame block write (about 50 ms) takes about 1.8 s per dispatch, five writes. Closer
+    # than this, a command queues behind the last one's writes, so even an acked command waits this long.
+    min_send_gap_s: float = 2.0
+    # Samples come every second, or every 10 s from older firmware. A longer gap would wind the integral on
+    # an error nobody measured.
+    max_integrate_s: float = 10.0
+    # A battery lag_w short of the last setpoint has not arrived: the integral waits, or the error it sees is the
+    # inverter's lag, not a trim. The wait ends after arrive_s regardless, for an inverter that clamps below
+    # the request and would otherwise freeze it for good. A battery past the setpoint is not lag (cuts land in
+    # about 3 s) but a steady offset, such as a DC reading over an AC setpoint, which only the integral can trim.
+    lag_w: float = 100.0
+    arrive_s: float = 15.0
+    # Moves under small_trim_w are noise and integral creep: they wait small_trim_gap_s, so the bus carries load
+    # steps. On 21 Oct three commands in four moved under 50 W, most within a second of the last. Replayed on that
+    # day, this cut the commands by a third for 0.6 W more mean import; a 10 s wait cut half for 1.8 W.
+    small_trim_w: float = 50.0
+    small_trim_gap_s: float = 6.0
+    # Keep warm stands in for a trickle charge this close to idle; a bigger surplus the battery can store is stored.
+    warm_band_w: float = 50.0
+    # Solar changes this small between samples are noise, as at night, and get no feed forward. Nor does a change over
+    # a gap longer than solar_max_gap_s: it is not a ramp the inverter lags, and the error already holds all of it.
+    solar_deadband_w: float = 20.0
+    solar_max_gap_s: float = 2.0
+    command_step_w: int = 10  # commands go out rounded to this many watts
 
 
 @dataclass(frozen=True)
@@ -225,7 +233,7 @@ class Regulator:
         self.battery_w: float | None = None
         self.solar_w: float | None = None
         self.soc: float | None = None
-        self._solar_step = 0.0  # solar change from the last sample to this one, 0 under SOLAR_DEADBAND_W
+        self._solar_step = 0.0  # solar change from the last sample to this one, 0 under solar_deadband_w
         self._demand: float | None = None  # grid + battery of the last sample
         self._spike = False  # this sample jumped more than spike_confirm_w: the output waits for the next
         self._t_measure: float | None = None
@@ -242,7 +250,7 @@ class Regulator:
         self._t_ack: float | None = None
         self._ack_power = False
         self._failed = False
-        self._t_low: float | None = None  # battery under REFUSED_W against a request, since
+        self._t_low: float | None = None  # battery under refused_w against a request, since
         self._t_refused = float("-inf")
         self.refused_soc: float | None = None  # the SOC a refusal near the floor began at; None while armed
         self._refused_floor: int | None = None
@@ -281,7 +289,7 @@ class Regulator:
 
     @property
     def refusal_since(self) -> float | None:
-        """When the battery began giving under REFUSED_W against a discharge ask, None while it gives."""
+        """When the battery began giving under refused_w against a discharge ask, None while it gives."""
         return self._t_low
 
     @property
@@ -354,14 +362,14 @@ class Regulator:
             self.soc = soc
         if solar_w is not None and not math.isfinite(solar_w):
             solar_w = None
-        recent = self._t_measure is not None and t - self._t_measure <= SOLAR_MAX_GAP_S
+        s = self.settings
+        recent = self._t_measure is not None and t - self._t_measure <= s.solar_max_gap_s
         change = solar_w - self.solar_w if recent and solar_w is not None and self.solar_w is not None else 0.0
-        floor_w = self.settings.solar_ff_min_w
+        floor_w = s.solar_ff_min_w
         if floor_w > 0 and (solar_w is None or self.solar_w is None or min(solar_w, self.solar_w) < floor_w):
             change = 0.0
-        self._solar_step = change if abs(change) > SOLAR_DEADBAND_W else 0.0
+        self._solar_step = change if abs(change) > s.solar_deadband_w else 0.0
         self.solar_w = solar_w
-        s = self.settings
         demand = grid_w + battery_w
         self._spike = (s.spike_confirm_w > 0 and not self._spike and self._demand is not None
                        and abs(demand - self._demand) > s.spike_confirm_w)
@@ -370,13 +378,13 @@ class Regulator:
         if s.arrive_restart_w > 0 and _sign(self._sent_w) * (battery_w - self._arrive_w) >= s.arrive_restart_w:
             self._t_arrive, self._arrive_w = t, battery_w  # still closing: lag, not an offset
         arrived = (self.sent is None or self.sent.kind == "normal"
-                   or _sign(self._sent_w) * (self._sent_w - battery_w) <= LAG_W
-                   or t - self._t_arrive >= ARRIVE_S)
+                   or _sign(self._sent_w) * (self._sent_w - battery_w) <= s.lag_w
+                   or t - self._t_arrive >= s.arrive_s)
         if (self._regulating and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived
                 and not self._spike):
             # Conditional integration: stop when the output is pinned in the error's direction.
             if _sign(e) != self._saturation:
-                dt = min(t - self._t_measure, MAX_INTEGRATE_S)
+                dt = min(t - self._t_measure, s.max_integrate_s)
                 g = s.ki * (s.ki_import_x if e > 0 else 1.0)
                 self.integral_w = _clip(self.integral_w + g * e * dt, -s.integral_limit_w, s.integral_limit_w)
         c = self.sent.signed_w if self.sent is not None and self.sent.kind != "normal" else 0
@@ -386,7 +394,7 @@ class Regulator:
                 and abs(raw) <= s.trim_band_w and self._target_offset_w == 0 and self.soc is not None
                 and self.soc < s.trim_max_soc):
             # Settled, the integral holds minus what the table misses at c: move a share of it into the table.
-            dt = min(t - self._t_measure, MAX_INTEGRATE_S)
+            dt = min(t - self._t_measure, s.max_integrate_s)
             self.integral_w += self._teach(c, -s.trim_rate * dt * self.integral_w)
         if c:
             # Trim and integral together have no more authority than the integral alone.
@@ -493,7 +501,7 @@ class Regulator:
             floor, ceiling = "discharge_cap", "charge_cap"
             if self.soc is None and s.discharge_needs_soc:
                 hi, floor = 0.0, "soc_unknown"  # see Settings.discharge_needs_soc
-            elif self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN:
+            elif self.soc is not None and self.soc <= policy.discharge_soc + s.floor_margin_soc:
                 # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.
                 hi, floor = 0.0, "floor"
             elif self._refused(t, policy):
@@ -519,7 +527,7 @@ class Regulator:
             else:
                 self._direction, self._t_direction = d, t
         ready_w = s.warm_w if policy.mode == REGULATE and 0 < s.warm_w <= hi else 0.0
-        if (ready_w and -WARM_BAND_W < u < ready_w
+        if (ready_w and -s.warm_band_w < u < ready_w
                 and (self._direction >= 0 or t - self._t_direction >= s.flip_dwell_s)):
             # Idle, a discharge under the ready floor or a trickle charge: hold the floor, see Settings.warm_w. A
             # surplus the battery cannot store, or one the turn round holds under the margin, goes out with the
@@ -544,7 +552,7 @@ class Regulator:
             # over the cap would otherwise hold the battery past it. HOLD and FIXED keep the slew to their watts.
             self.output_w = _clip(self.output_w, lo, hi)
         self.slewed = self.output_w != u
-        if ready_w and u >= ready_w and self.output_w > -WARM_BAND_W:
+        if ready_w and u >= ready_w and self.output_w > -s.warm_band_w:
             # A turn out of a charge that the slew cuts short lands on the floor, not at idle or under it.
             self.output_w = max(self.output_w, ready_w)
         # Everything above is battery watts. Only the command asks for less where the inverter gives more.
@@ -552,32 +560,34 @@ class Regulator:
         self.offset_w = self._setpoint(self.output_w) - self.output_w if on else 0.0
         self._learn_ok = (policy.mode == REGULATE and self.limit == "none" and self._saturation == 0
                           and not self.slewed and self.soc is not None
-                          and policy.discharge_soc + FLOOR_MARGIN + 1 < self.soc < policy.charge_soc)
+                          and policy.discharge_soc + s.floor_margin_soc + 1 < self.soc < policy.charge_soc)
         return self._maybe_send(t, policy)
 
     def _refused(self, t: float, policy: Policy) -> bool:
         """The battery gives nothing against a real request: the inverter is refusing."""
-        asking = self.sent is not None and self.sent.kind == "discharge" and self.sent.watts >= REFUSED_ASK_W
-        if asking and self.battery_w is not None and self.battery_w < REFUSED_W:
+        s = self.settings
+        asking = self.sent is not None and self.sent.kind == "discharge" and self.sent.watts >= s.refused_ask_w
+        if asking and self.battery_w is not None and self.battery_w < s.refused_w:
             if self._t_low is None:
                 self._t_low = t
-            elif t - self._t_low >= REFUSED_AFTER_S:
+            elif t - self._t_low >= s.refused_after_s:
                 self._t_refused, self._t_low = t, None
                 self.integral_w = 0.0
-                if self.soc is not None and self.soc <= policy.discharge_soc + REFUSED_NEAR_SOC:
+                if self.soc is not None and self.soc <= policy.discharge_soc + s.refused_near_soc:
                     self.refused_soc, self._refused_floor = self.soc, policy.discharge_soc
         else:
             self._t_low = None
         if self.refused_soc is not None:
-            if self.soc < self.refused_soc + REARM_SOC and policy.discharge_soc == self._refused_floor:
+            if self.soc < self.refused_soc + s.rearm_soc and policy.discharge_soc == self._refused_floor:
                 return True
             self.refused_soc, self._t_refused = None, float("-inf")
-        return t - self._t_refused < REFUSED_HOLD_S
+        return t - self._t_refused < s.refused_hold_s
 
     def _command(self, policy: Policy) -> Command:
         s = self.settings
         ask = self.output_w + self.offset_w
-        w = int(round(abs(ask) / 10.0)) * 10
+        step = s.command_step_w
+        w = int(round(abs(ask) / step)) * step
         if policy.mode == REGULATE and self.output_w >= s.warm_w > 0:
             w = max(w, math.ceil(s.warm_w))  # rounding to 10 W must not take a discharge under the ready floor
         last = self.sent
@@ -607,8 +617,8 @@ class Regulator:
         floor = math.ceil(s.warm_w)
         to_floor = policy.mode == REGULATE and floor > 0 and last.signed_w < floor <= cmd.signed_w
         # A stop at 0 W goes out however small, as at the floor or a refusal: it is not a trim.
-        if (not to_floor and cmd.watts and cmd.soc == last.soc and abs(cmd.signed_w - last.signed_w) < SMALL_TRIM_W
-                and since < (s.import_trim_gap_s if cmd.signed_w > last.signed_w else TRIM_GAP_S)):
+        if (not to_floor and cmd.watts and cmd.soc == last.soc and abs(cmd.signed_w - last.signed_w) < s.small_trim_w
+                and since < (s.import_trim_gap_s if cmd.signed_w > last.signed_w else s.small_trim_gap_s)):
             return None
         if to_floor or cmd.soc != last.soc or abs(cmd.signed_w - last.signed_w) >= s.write_threshold_w:
             same_block = (cmd.kind, cmd.soc, cmd.duration) == (last.kind, last.soc, last.duration)
@@ -624,7 +634,7 @@ class Regulator:
             return False
         if self._ack_power and self.settings.power_write_gap_s > 0:
             return since >= self.settings.power_write_gap_s
-        return since >= MIN_SEND_GAP_S and cmd.signed_w > last.signed_w
+        return since >= self.settings.min_send_gap_s and cmd.signed_w > last.signed_w
 
     def _send(self, t: float, cmd: Command) -> Command:
         last = self.sent

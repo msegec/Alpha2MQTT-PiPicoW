@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: f06becc plus the arrival restart, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 317 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d2f26ab plus the regulator limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 322 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -214,14 +214,36 @@ entity's only attribute, `group`, so a dashboard can build its sections from the
 | trim_max_soc | Offset learning top SOC | 50..100 %, 1 | Advanced | |
 | arrive_restart_w | Arrival restart step | 0..500 W, 10 | Advanced | 0 off |
 | full_register | Full charge register | 250..255, 1 | Safety | a charge to 100 % is published as socPercent register - 150 |
+| floor_margin_soc | Floor margin | 0..5 %, 0.1 | Safety | |
+| refused_w | Refusal power | 0..200 W, 5 | Safety | |
+| refused_after_s | Refusal time | 5..120 s, 1 | Safety | |
+| refused_hold_s | Refusal hold | 10..600 s, 10 | Safety | |
+| refused_ask_w | Refusal minimum ask | 50..1000 W, 10 | Safety | |
+| refused_near_soc | Refusal latch margin | 0..10 %, 0.5 | Safety | |
+| rearm_soc | Refusal rearm rise | 0.4..5 %, 0.1 | Safety | |
+| integral_limit_w | Integral limit | 0..1000 W, 10 | Safety | |
+| duration_s | Dispatch lease | 60..600 s, 10 | Safety | int |
+| min_send_gap_s | Early send gap | 0.5..10 s, 0.5 | Advanced | |
+| max_integrate_s | Integration gap limit | 1..30 s, 1 | Advanced | |
+| lag_w | Arrival lag | 0..500 W, 10 | Advanced | |
+| arrive_s | Arrival wait | 0..120 s, 1 | Advanced | |
+| small_trim_w | Small trim | 0..200 W, 5 | Advanced | |
+| small_trim_gap_s | Small trim wait | 0..30 s, 0.5 | Advanced | |
+| warm_band_w | Keep warm band | 0..300 W, 10 | Advanced | |
+| solar_deadband_w | Solar feed forward deadband | 0..200 W, 5 | Advanced | |
+| solar_max_gap_s | Solar feed forward gap | 1..15 s, 0.5 | Advanced | |
+| integral_band_w | Integral band | 0..2000 W, 10 | Advanced | |
+| command_step_w | Command rounding | 1..50 W, 1 | Advanced | int |
 
-Not numbers: `integral_band_w`, `integral_limit_w`, `duration_s` (120 s lease). They show read only on the status sensor.
+`set_setting` keeps a field whose current value is an int (`duration_s`, `full_register`, `command_step_w`) an int,
+rounding what Home Assistant gives, and a bool a bool: the firmware strips a `.` from a value, so a lease of `120.0`
+would arrive as 1200 s.
 
 Sensors (`ControllerSensor`, push only, all attributes unrecorded via `MATCH_ALL`). Control never reads them.
 
 | Key | Value |
 |---|---|
-| status | `regulator.status`, or `disabled`; attrs `policy_gap_since`, `sample_gap_since`, `integral_band_w`, `integral_limit_w`, `lease_s` |
+| status | `regulator.status`, or `disabled`; attrs `policy_gap_since`, `sample_gap_since` |
 | grid (power) | `grid_w` rounded |
 | integral (power) | `integral_w`; attr `learned_offsets`, `regulator.trim_points()` for a chart, riding on this sensor's writes |
 | error, output, battery (power) | regulator fields; output attrs request, integral, feed_forward, offset, `p`, `u`, `slewed` |
@@ -298,6 +320,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_correction_with_a_frozen_input_is_a_gap`, `test_a_frozen_correction_is_a_gap_on_the_clamp_too` | `age_s` |
 | `test_a_response_that_is_json_but_not_an_object_is_ignored` | response shape |
 | `test_west_from_the_10_s_fallback_gives_no_solar_step` | `west_fallback` |
+| `test_a_whole_number_setting_stays_a_whole_number` | int settings stay int, duration published without a `.` |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |

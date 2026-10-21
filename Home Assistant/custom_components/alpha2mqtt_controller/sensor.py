@@ -29,13 +29,10 @@ def _last_command(c):
 
 # key, name, power, value, attributes
 SENSORS = [
-    # How long an input has been missing, and the settings no number exposes. Each changes only at an edge.
+    # How long an input has been missing. Each changes only at an edge.
     ("status", "Status", False, lambda c: c.status, lambda c: {
         "policy_gap_since": c.policy_gap_since,
         "sample_gap_since": c.sample_gap_since,
-        "integral_band_w": c.regulator.settings.integral_band_w,
-        "integral_limit_w": c.regulator.settings.integral_limit_w,
-        "lease_s": c.regulator.settings.duration_s,
     }),
     ("grid", "Grid estimate", True, lambda c: _round(c.grid_w), None),
     ("error", "Error", True, lambda c: _round(c.regulator.error_w), None),

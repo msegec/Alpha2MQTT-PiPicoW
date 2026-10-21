@@ -45,6 +45,26 @@ NUMBERS = [
     ("trim_max_soc", "Offset learning top SOC", 50, 100, 1, "%", ADVANCED),  # BMS taper above this teaches nothing
     ("arrive_restart_w", "Arrival restart step", 0, 500, 10, "W", ADVANCED),  # 0 is off: the arrival wait runs from the send
     ("full_register", "Full charge register", 250, 255, 1, None, SAFETY),  # dispatch SOC register for a 100 % charge
+    ("floor_margin_soc", "Floor margin", 0, 5, 0.1, "%", SAFETY),  # no discharge this close above the policy SOC
+    ("refused_w", "Refusal power", 0, 200, 5, "W", SAFETY),  # a battery under this gives nothing
+    ("refused_after_s", "Refusal time", 5, 120, 1, "s", SAFETY),  # giving nothing this long is a refusal
+    ("refused_hold_s", "Refusal hold", 10, 600, 10, "s", SAFETY),  # no discharge this long after one
+    ("refused_ask_w", "Refusal minimum ask", 50, 1000, 10, "W", SAFETY),  # smaller asks are never refused
+    ("refused_near_soc", "Refusal latch margin", 0, 10, 0.5, "%", SAFETY),  # a refusal this close to the floor latches
+    ("rearm_soc", "Refusal rearm rise", 0.4, 5, 0.1, "%", SAFETY),  # a latched refusal ends on this SOC rise
+    ("integral_limit_w", "Integral limit", 0, 1000, 10, "W", SAFETY),
+    ("duration_s", "Dispatch lease", 60, 600, 10, "s", SAFETY),  # the inverter returns to normal after it
+    ("min_send_gap_s", "Early send gap", 0.5, 10, 0.5, "s", ADVANCED),  # an acked import cut may go this soon
+    ("max_integrate_s", "Integration gap limit", 1, 30, 1, "s", ADVANCED),  # a longer sample gap counts as this
+    ("lag_w", "Arrival lag", 0, 500, 10, "W", ADVANCED),  # a battery this far short has not arrived
+    ("arrive_s", "Arrival wait", 0, 120, 1, "s", ADVANCED),  # the integral waits for arrival this long at most
+    ("small_trim_w", "Small trim", 0, 200, 5, "W", ADVANCED),  # smaller moves are trims
+    ("small_trim_gap_s", "Small trim wait", 0, 30, 0.5, "s", ADVANCED),  # trims wait this long since the last command
+    ("warm_band_w", "Keep warm band", 0, 300, 10, "W", ADVANCED),  # keep warm replaces a charge smaller than this
+    ("solar_deadband_w", "Solar feed forward deadband", 0, 200, 5, "W", ADVANCED),  # smaller solar steps are noise
+    ("solar_max_gap_s", "Solar feed forward gap", 1, 15, 0.5, "s", ADVANCED),  # no feed forward over a longer gap
+    ("integral_band_w", "Integral band", 0, 2000, 10, "W", ADVANCED),  # bigger errors are load steps: no integral
+    ("command_step_w", "Command rounding", 1, 50, 1, "W", ADVANCED),  # commands go out in steps of this
 ]
 
 _DEFAULTS = {f.name: f.default for f in fields(Settings)}

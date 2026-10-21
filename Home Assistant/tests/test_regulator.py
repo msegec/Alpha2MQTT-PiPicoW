@@ -170,7 +170,7 @@ def test_a_gap_in_samples_integrates_a_few_seconds_at_most():
     reg.update_grid(0, 0, 500)
     reg.step(0, DISCHARGE)
     reg.update_grid(25, 100, 500)
-    assert reg.integral_w == pytest.approx(0.05 * 100 * R.MAX_INTEGRATE_S)
+    assert reg.integral_w == pytest.approx(0.05 * 100 * R.Settings().max_integrate_s)
 
 
 def test_release_sends_normal_once_while_dispatching():
@@ -1380,7 +1380,7 @@ def test_a_small_export_cut_still_waits_the_trim_gap():
 
 
 def test_the_import_trim_wait_is_the_trim_gap_by_default():
-    assert R.Settings().import_trim_gap_s == R.TRIM_GAP_S
+    assert R.Settings().import_trim_gap_s == R.Settings().small_trim_gap_s
 
 
 # Learned offset table, the long term trim: the integral is the short term trim.
@@ -1555,3 +1555,43 @@ def test_a_slow_start_need_not_wind_the_integral_once_arrive_s_has_passed():
 def test_the_arrival_restart_is_off_by_default():
     assert R.Settings().arrive_restart_w == 0
     assert _slow_start_peak_integral() > 20  # past ARRIVE_S the integral winds on the last 300 W of the ramp
+
+
+# The regulator's limits are settings, with the values the constants had.
+
+FORMER_CONSTANTS = dict(floor_margin_soc=1.5, refused_w=30, refused_after_s=20, refused_hold_s=60, refused_ask_w=100,
+                        refused_near_soc=3, rearm_soc=1, min_send_gap_s=2, max_integrate_s=10, lag_w=100, arrive_s=15,
+                        small_trim_w=50, small_trim_gap_s=6, warm_band_w=50, solar_deadband_w=20, solar_max_gap_s=2,
+                        command_step_w=10, integral_limit_w=300, integral_band_w=300, duration_s=120)
+
+
+def test_the_former_constants_are_settings_with_the_old_values():
+    s = R.Settings()
+    assert {k: getattr(s, k) for k in FORMER_CONSTANTS} == FORMER_CONSTANTS
+
+
+def test_the_floor_margin_is_a_setting():
+    for margin, allowed in ((1.5, False), (0.5, True)):
+        reg = make(floor_margin_soc=margin)
+        reg.update_grid(0, 1020, 0, soc=21.0)
+        reg.step(0, DISCHARGE)
+        assert (reg.output_w > 0) is allowed
+
+
+def test_the_command_rounding_is_a_setting():
+    reg = make(command_step_w=50)
+    reg.update_grid(0, 1000, 0, soc=50)  # 960 W asked
+    assert reg.step(0, DISCHARGE).watts == 950
+    reg = make()
+    reg.update_grid(0, 1000, 0, soc=50)
+    assert reg.step(0, DISCHARGE).watts == 960
+
+
+def test_the_refusal_time_is_a_setting():
+    reg = make(refused_after_s=5, refused_hold_s=10)
+    reg.update_grid(0, 1020, 0, soc=60)
+    reg.step(0, DISCHARGE)
+    for t in range(1, 8):
+        reg.update_grid(t, 1020, 0, soc=60)
+        reg.step(t, DISCHARGE)
+    assert reg.limit == "refused"

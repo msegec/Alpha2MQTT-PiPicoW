@@ -484,6 +484,16 @@ def test_gaps_are_logged_where_they_start_and_end(monkeypatch):
                                      {"what": "grid estimate", "missing": False}]
 
 
+def test_a_whole_number_setting_stays_a_whole_number(monkeypatch):
+    # Home Assistant restores a number as a float, and the firmware strips a "." from a value: 120.0 would be 1200.
+    house = House(monkeypatch)
+    house.c.set_setting("duration_s", 130.0)
+    house.c.set_setting("full_register", 251.0)
+    assert type(house.c.regulator.settings.duration_s) is int and house.c.regulator.settings.full_register == 251
+    house.second()
+    assert house.sent()[-1]["duration"] == 130 and '"duration":130,' in house.mqtt.async_publish.call_args.args[2]
+
+
 def test_a_tuning_change_logs_every_setting(monkeypatch):
     house = logged_house(monkeypatch)
     entry = MagicMock(entry_id="entry", runtime_data=house.c)
@@ -763,8 +773,7 @@ def ago(seconds):
 def test_the_status_says_how_long_the_policy_has_been_unreadable(monkeypatch):
     house = House(monkeypatch)
     house.second()
-    assert attributes(house.c, "status") == {"policy_gap_since": None, "sample_gap_since": None,
-                                             "integral_band_w": 300, "integral_limit_w": 300, "lease_s": 120}
+    assert attributes(house.c, "status") == {"policy_gap_since": None, "sample_gap_since": None}
     house.set("sensor.battery_auto_action", "unavailable")
     for _ in range(5):
         house.second()

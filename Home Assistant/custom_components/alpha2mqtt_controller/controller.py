@@ -290,6 +290,13 @@ class Controller:
         self._notify()
 
     def set_setting(self, key: str, value: float) -> None:
+        """Home Assistant gives a number as a float. A whole number setting stays an int: the firmware strips a "."
+        from a value, so a duration of 120.0 would be 1200."""
+        current = getattr(self.regulator.settings, key)
+        if isinstance(current, bool):
+            value = bool(value)
+        elif isinstance(current, int):
+            value = int(round(value))
         setattr(self.regulator.settings, key, value)
         self._log("cfg", **asdict(self.regulator.settings))
 
