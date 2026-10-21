@@ -1272,3 +1272,15 @@ def test_a_jump_under_the_spike_confirm_goes_out_at_once():
     reg.step(0, DISCHARGE)
     reg.update_grid(5, 720, 500)
     assert reg.step(5, DISCHARGE).watts == 1180
+
+
+@pytest.mark.parametrize("soc, policy", [(21.0, DISCHARGE), (50.0, R.Policy(R.REGULATE, max_charge_w=3000))])
+def test_the_slew_never_holds_the_output_past_a_cap(soc, policy):
+    # An acked power write lets the next command follow 0.5 s later, when the slew allows only 1000 W of the cut.
+    reg = make(power_write_gap_s=0.5, slew_w_per_s=2000)
+    reg.update_grid(0, 2040, 0, soc=50)
+    assert reg.step(0, DISCHARGE).watts == 2000
+    reg.ack(0.1, power_write=True)
+    reg.update_grid(0.5, 20, 2000, soc=soc)  # at the floor, or discharge no longer allowed
+    assert reg.step(0.5, policy).signed_w == 0
+    assert reg.output_w == 0

@@ -398,6 +398,10 @@ class Regulator:
         else:
             step_max = s.slew_w_per_s * (t - self._t_sent)
             self.output_w = _clip(u, self._sent_w - step_max, self._sent_w + step_max)
+        if policy.mode == REGULATE:
+            # A cut to a cap (floor, refusal, full, the policy's limit) goes out whole: a slew band from a command
+            # over the cap would otherwise hold the battery past it. HOLD and FIXED keep the slew to their watts.
+            self.output_w = _clip(self.output_w, lo, hi)
         self.slewed = self.output_w != u
         if ready_w and u >= ready_w and self.output_w > -WARM_BAND_W:
             # A turn out of a charge that the slew cuts short lands on the floor, not at idle or under it.
