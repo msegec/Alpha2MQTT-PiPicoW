@@ -18,7 +18,7 @@ HOLD = "hold"  # dispatch at 0 W
 FIXED = "fixed"  # dispatch at fixed_w, a manual override
 REGULATE = "regulate"
 
-# Firmware before the one frame block write takes about 1.8 s per dispatch, five register writes. Closer
+# Firmware before the one frame block write (about 50 ms) takes about 1.8 s per dispatch, five writes. Closer
 # than this, a command queues behind the last one's writes, so even an acked command waits this long.
 MIN_SEND_GAP_S = 2.0
 # Samples come every second, or every 10 s from older firmware. A longer gap would wind the integral on
@@ -71,7 +71,7 @@ class Settings:
     smoothing_s: float = 0.0  # low pass on the request, 0 chases every load step
     slew_w_per_s: float = 2000.0
     write_threshold_w: float = 50.0
-    min_interval_s: float = 3.0  # one command costs about 2 s of RS485 writes; an acked import cut goes sooner
+    min_interval_s: float = 3.0  # sized for five-write firmware (about 2 s a command); an acked import cut goes sooner
     keepalive_s: float = 40.0
     duration_s: int = 120  # dispatch lease, the inverter returns to normal after it
     flip_hysteresis_w: float = 150.0

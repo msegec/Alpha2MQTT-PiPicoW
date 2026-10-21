@@ -677,7 +677,7 @@ def test_hold_zero_a_little_above_the_discharge_soc():
 
 
 def test_a_refused_discharge_is_held_at_zero():
-    # Battery under 30 W for 20 s against a request over 200 W: the inverter is refusing, stop asking and
+    # Battery under 30 W for 20 s against a request of 100 W or more: the inverter is refusing, stop asking and
     # drop the integral, whatever the SOC says.
     reg = make()
     for t in range(0, 15, 3):
