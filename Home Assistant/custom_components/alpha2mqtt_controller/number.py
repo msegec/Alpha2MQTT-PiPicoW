@@ -21,6 +21,7 @@ NUMBERS = [
     ("ki", "Integral gain", 0, 0.2, 0.005, None, BASIC),
     ("kff", "Solar feed forward gain", 0, 2, 0.05, None, BASIC),
     ("ki_import_x", "Integral import factor", 1, 5, 0.5, None, ADVANCED),  # 1 is symmetric
+    ("solar_ff_min_w", "Feed forward minimum solar", 0, 1000, 10, "W", ADVANCED),  # 0 is off
     ("deadband_w", "Deadband", 0, 200, 5, "W", BASIC),
     ("smoothing_s", "Smoothing", 0, 300, 0.5, "s", ADVANCED),
     ("slew_w_per_s", "Slew limit", 50, 5000, 50, "W/s", ADVANCED),

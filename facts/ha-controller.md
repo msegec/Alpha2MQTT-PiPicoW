@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 20fe252 plus the response shape check, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 311 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: b6f96ed plus the feed forward minimum solar, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 313 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -188,6 +188,7 @@ entity's only attribute, `group`, so a dashboard can build its sections from the
 | ki | Integral gain | 0..0.2, 0.005 | Basic | |
 | kff | Solar feed forward gain | 0..2, 0.05 | Basic | |
 | ki_import_x | Integral import factor | 1..5, 0.5 | Advanced | 1 symmetric |
+| solar_ff_min_w | Feed forward minimum solar | 0..1000 W, 10 | Advanced | 0 off |
 | deadband_w | Deadband | 0..200 W, 5 | Basic | |
 | smoothing_s | Smoothing | 0..300 s, 0.5 | Advanced | |
 | slew_w_per_s | Slew limit | 50..5000 W/s, 50 | Advanced | |

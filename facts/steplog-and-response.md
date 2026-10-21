@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: 2622170 plus the discharge needs SOC switch, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 310 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: b6f96ed plus the feed forward minimum solar, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 313 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 ## Files
 
@@ -35,7 +35,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `k` | Written when | Fields |
 |---|---|---|
 | `start` | `async_start`, log open | `code`: first 12 hex of a sha256 over `regulator.py` and `controller.py`, also the Loop version sensor |
-| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register`, `discharge_needs_soc` |
+| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `solar_ff_min_w`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register`, `discharge_needs_soc` |
 | `step` | each new fast message (`_take`), enabled or not | see below |
 | `cmd` | every message on `<base>/request/#` | `topic` (str), `p` (raw payload) |
 | `ack` | every message on `<base>/response/set/+` | `topic`, `p` (raw payload) |

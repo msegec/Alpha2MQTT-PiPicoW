@@ -1497,3 +1497,23 @@ def test_discharge_without_a_known_soc_goes_out_by_default():
     reg = make()
     reg.update_grid(0, 1020, 0)
     assert reg.step(0, DISCHARGE).signed_w > 900
+
+
+def _ff_on(reg, solars):
+    ffs = []
+    for t, solar in enumerate(solars):
+        reg.update_grid(t, 20, 500, soc=50, solar_w=solar)
+        reg.step(t, DISCHARGE)
+        ffs.append(reg.ff_w)
+    return ffs
+
+
+def test_feed_forward_can_ignore_west_crossing_its_95_w_floor():
+    # The net demand template floors West at 95 W, so at dawn and dusk it flips between 0 and 100 W: a step, not a ramp.
+    assert _ff_on(make(kff=1.0, solar_ff_min_w=120), [0, 100, 0, 100, 0, 100]) == [0.0] * 6
+    assert _ff_on(make(kff=1.0, solar_ff_min_w=120), [800, 500])[-1] == 300  # a real ramp still feeds forward
+
+
+def test_the_feed_forward_minimum_solar_is_off_by_default():
+    assert R.Settings().solar_ff_min_w == 0
+    assert _ff_on(make(kff=1.0), [0, 100, 0]) == [0.0, -100.0, 100.0]

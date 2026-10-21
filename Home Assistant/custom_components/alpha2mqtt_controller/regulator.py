@@ -94,6 +94,9 @@ class Settings:
     # On, the feed forward only leads a ramp: it never turns the battery round on its own. At kff 1 without it,
     # replayed on 20 to 22 Oct, it cost 60 % more turn rounds. Off is the old rule.
     ff_guard: bool = False
+    # Above 0, solar under this, before or after, gets no feed forward: a West reading that flips across a template's
+    # 95 W floor at dawn and dusk is a 100 W step that is not a ramp. 0 is off.
+    solar_ff_min_w: float = 0.0
     deadband_w: float = 20.0
     smoothing_s: float = 0.0  # low pass on the request, 0 chases every load step
     slew_w_per_s: float = 2000.0
@@ -348,6 +351,9 @@ class Regulator:
             solar_w = None
         recent = self._t_measure is not None and t - self._t_measure <= SOLAR_MAX_GAP_S
         change = solar_w - self.solar_w if recent and solar_w is not None and self.solar_w is not None else 0.0
+        floor_w = self.settings.solar_ff_min_w
+        if floor_w > 0 and (solar_w is None or self.solar_w is None or min(solar_w, self.solar_w) < floor_w):
+            change = 0.0
         self._solar_step = change if abs(change) > SOLAR_DEADBAND_W else 0.0
         self.solar_w = solar_w
         s = self.settings

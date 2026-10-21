@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: 2622170 plus the discharge needs SOC switch, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 310 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: b6f96ed plus the feed forward minimum solar, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 313 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -24,7 +24,7 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | `Policy` (frozen) | `mode`, `max_charge_w`, `max_discharge_w`, `charge_soc` (100), `discharge_soc` (10), `fixed_w`, `target_offset_w`, `reason` | What is allowed. The regulator only clamps to it. |
 | `Settings` (mutable) | tuning, table below | The controller changes fields live with `setattr`. |
 | `Command` (frozen) | `kind` ("charge", "discharge", "normal"), `watts`, `soc`, `duration`, `power_only` | What to publish. |
-| `Regulator.update_grid(t, grid_w, battery_w, fresh=True, soc=None, solar_w=None)` | one sample | Runs the integral, stores the sample. Ignores the call if grid or battery is not finite. Keeps the last SOC when `soc` is None. Stores the solar change since the last call as the feed forward step: 0 unless both are known and finite, the last call is at most `SOLAR_MAX_GAP_S` old and the change is over `SOLAR_DEADBAND_W`. `fresh=False` (only a correction changed) does not refresh the stale clock. |
+| `Regulator.update_grid(t, grid_w, battery_w, fresh=True, soc=None, solar_w=None)` | one sample | Runs the integral, stores the sample. Ignores the call if grid or battery is not finite. Keeps the last SOC when `soc` is None. Stores the solar change since the last call as the feed forward step: 0 unless both are known and finite, the last call is at most `SOLAR_MAX_GAP_S` old and the change is over `SOLAR_DEADBAND_W`, and, with `solar_ff_min_w` above 0, both readings are at least that. `fresh=False` (only a correction changed) does not refresh the stale clock. |
 | `Regulator.step(t, policy)` | policy | Returns a `Command` to publish now, or None. |
 | `Regulator.ack(t, power_write=False)` | | The firmware wrote the last command. |
 | `Regulator.fail()` | | The last command was not published or not written. |
@@ -114,6 +114,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `integral_band_w` | 300 W | Integrate only when deadbanded error is within this. Bigger is a load step. |
 | `integral_limit_w` | 300 W | Integral clamp, both signs. |
 | `kff` | 0.0 | Solar feed forward gain: `ff_w = -kff * (solar change since the last sample)`, held for the steps on that sample only. |
+| `solar_ff_min_w` | 0 W | Above 0, a solar step where either reading is under this (or unknown) is 0. The net demand template floors West at 95 W, so at dawn and dusk it flips 0 to 100 W; the edge research counted 833 crossings in the logs of 19 to 22 Oct (not re-counted here). Recommended 120 at deploy. 0 is off. |
 | `ff_guard` | False | On: `ff_w` is set to 0 when it alone would turn the request against the running direction (`_direction`). Replayed on 20 to 22 Oct, kff 1 without it gave 60 % more turn rounds. |
 | `deadband_w` | 20 W | Subtracted from the error magnitude. |
 | `smoothing_s` | 0.0 s | Low pass on the request. 0 is off. |
@@ -233,6 +234,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_learning_*`, `test_a_learned_table_*`, `test_nothing_is_learned_*`, `test_forgetting_the_table_zeroes_it` | Learning moves the integral into the table and keeps the command, off by default (and at rate 0), a loaded table applies with learning off, bad tables do not load, nodes stay in bounds, nothing is learned at a cap or under a policy offset. |
 | `test_a_negative_cap_never_pushes_*` | A negative cap is 0 W. |
 | `test_discharge_waits_for_a_known_soc_*`, `test_discharge_without_a_known_soc_*` | `discharge_needs_soc`, off by default. |
+| `test_feed_forward_can_ignore_west_crossing_*`, `test_the_feed_forward_minimum_solar_*` | `solar_ff_min_w`, off by default. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |
