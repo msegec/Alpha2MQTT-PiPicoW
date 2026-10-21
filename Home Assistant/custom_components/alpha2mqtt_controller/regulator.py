@@ -35,7 +35,7 @@ LAG_W, ARRIVE_S = 100.0, 15.0
 # whatever the SOC says): ask for 0 W, drop the integral, try again after the hold. A slow start passes
 # 30 W within about 7 s of the command, so 20 s is not a slow start.
 REFUSED_W, REFUSED_AFTER_S, REFUSED_HOLD_S = 30.0, 20.0, 60.0
-# Keep warm stands in for requests this close to idle; a bigger surplus is still stored.
+# Keep warm stands in for a trickle charge this close to idle; a bigger surplus the battery can store is stored.
 WARM_BAND_W = 50.0
 
 
@@ -72,9 +72,11 @@ class Settings:
     # 0 keeps every command a full block write. Above 0, a power change may go as one write, and once the
     # firmware acks one as written that way the next command may follow this long after it.
     power_write_gap_s: float = 0.0
-    # Some inverters start a discharge slowly (an AlphaESS SMILE-B3 was seen at about 10 W/s from 0 W, while a
-    # step from a running discharge took 3 s). Above 0, the battery holds this discharge instead of idling or
-    # trickle charging, so the next load step goes out at full rate. 0 is off.
+    # Some inverters start a discharge slowly: an AlphaESS SMILE-B3 was seen to start from about 50 W and climb
+    # 6 to 9 W/s once the battery had read 10 W or less, while a step from a running discharge took 3 s. Above 0,
+    # this is the ready floor: while discharge is allowed, the command never goes under this discharge, so the
+    # battery never idles and the next load step goes out at full rate. Only a surplus the battery can store takes
+    # it under, into a charge. 0 is off.
     warm_w: float = 0.0
 
 
@@ -276,14 +278,14 @@ class Regulator:
                 self.limit = "turn_round"
             else:
                 self._direction, self._t_direction = d, t
-        if (policy.mode == REGULATE and 0 < s.warm_w <= hi and -WARM_BAND_W < u < s.warm_w
-                and request > -WARM_BAND_W
+        ready_w = s.warm_w if policy.mode == REGULATE and 0 < s.warm_w <= hi else 0.0
+        if (ready_w and -WARM_BAND_W < u < ready_w
                 and (self._direction >= 0 or t - self._t_direction >= s.flip_dwell_s)):
-            # Idle or a trickle charge: keep a small discharge running instead, see Settings.warm_w. The output
-            # is pinned there, so the export it causes must not wind the integral into a charge. A surplus the
-            # output does not take, because it cannot be stored or the turn round holds it under the margin,
-            # goes out anyway; warm would only add to it.
-            u = s.warm_w
+            # Idle, a discharge under the ready floor or a trickle charge: hold the floor, see Settings.warm_w. A
+            # surplus the battery cannot store, or one the turn round holds under the margin, goes out with the
+            # floor on top: a slow start costs more than the floor's watts. The output is pinned there, so the
+            # export must not wind the integral into a charge. Out of a charge, the floor waits out the dwell.
+            u = ready_w
             self.limit = "warm"
             self._saturation = _sign(request - u)
             if self._direction <= 0:
@@ -296,6 +298,9 @@ class Regulator:
         else:
             step_max = s.slew_w_per_s * (t - self._t_sent)
             self.output_w = _clip(u, self.sent.signed_w - step_max, self.sent.signed_w + step_max)
+        if ready_w and u >= ready_w and self.output_w > -WARM_BAND_W:
+            # A turn out of a charge that the slew cuts short lands on the floor, not at idle or under it.
+            self.output_w = max(self.output_w, ready_w)
         return self._maybe_send(t, policy)
 
     def _refused(self, t: float) -> bool:
@@ -314,6 +319,8 @@ class Regulator:
     def _command(self, policy: Policy) -> Command:
         s = self.settings
         w = int(round(abs(self.output_w) / 10.0)) * 10
+        if policy.mode == REGULATE and self.output_w >= s.warm_w > 0:
+            w = max(w, math.ceil(s.warm_w))  # rounding to 10 W must not take a discharge under the ready floor
         last = self.sent
         if policy.mode == HOLD:
             return Command("charge", 0, 100, s.duration_s)
@@ -337,7 +344,10 @@ class Regulator:
             return self._send(t, cmd)
         if cmd.kind != last.kind and (cmd.watts or last.watts):
             return self._send(t, cmd)
-        if cmd.soc != last.soc or abs(cmd.signed_w - last.signed_w) >= s.write_threshold_w:
+        # A rise to the ready floor goes out however small, or the battery idles until the keepalive.
+        floor = math.ceil(s.warm_w)
+        to_floor = policy.mode == REGULATE and floor > 0 and last.signed_w < floor <= cmd.signed_w
+        if to_floor or cmd.soc != last.soc or abs(cmd.signed_w - last.signed_w) >= s.write_threshold_w:
             same_block = (cmd.kind, cmd.soc, cmd.duration) == (last.kind, last.soc, last.duration)
             return self._send(t, replace(cmd, power_only=True) if same_block and s.power_write_gap_s > 0 else cmd)
         return None

@@ -380,6 +380,7 @@ class Controller:
         cmd = None
         if self.enabled:
             now = time.monotonic()
+            last = self.regulator.sent
             try:
                 cmd = self.regulator.step(now, self._policy())
             except Exception:  # one bad value must not stop regulation silently
@@ -388,6 +389,10 @@ class Controller:
             else:
                 self._recover("step")
             if cmd is not None:
+                if (self.regulator.settings.warm_w > 0 and last is not None
+                        and {last.kind, cmd.kind} == {"charge", "discharge"}):
+                    # With the ready floor on, only a turn between charge and discharge passes 0 W: log each one.
+                    self._log("cross", from_w=last.signed_w, to_w=cmd.signed_w)
                 self.hass.async_create_task(self._publish(cmd))
         self._notify()
         return cmd

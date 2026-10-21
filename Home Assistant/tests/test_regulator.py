@@ -1,6 +1,9 @@
 """Tests for the regulation core. Loads regulator.py by path so Home Assistant is not needed."""
 
+import hashlib
 import importlib.util
+import math
+import random
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -618,8 +621,7 @@ def test_keep_warm_replaces_a_trickle_charge_after_the_dwell():
     reg.update_grid(6, 0, -40, soc=50)
     assert reg.step(6, BOTH) == R.Command("discharge", 80, 20, 120)
     reg.update_grid(9, -200, 80, soc=50)  # a surplus under the margin does not pull it back into a charge
-    assert reg.step(9, BOTH) == R.Command("discharge", 0, 20, 120)  # but it is not padded with the warm discharge
-    assert reg.limit == "turn_round"
+    assert reg.step(9, BOTH) is None and reg.output_w == 80 and reg.limit == "warm"  # it goes out with the floor
     reg.update_grid(12, -500, 0, soc=50)  # one past the margin does
     cmd = reg.step(12, BOTH)
     assert cmd.kind == "charge" and cmd.watts >= 400
@@ -786,30 +788,6 @@ def test_a_big_move_still_waits_for_the_inverter_to_arrive():
     assert reg.integral_w == 0
 
 
-def test_keep_warm_does_not_pad_a_surplus_that_cannot_be_stored():
-    reg = make(warm_w=50)
-    reg.update_grid(0, -300, 0, soc=50)  # discharge only: the surplus goes out, warm must not add to it
-    assert reg.step(0, DISCHARGE) == R.Command("charge", 0, 100, 120)
-    assert reg.limit == "charge_cap"
-    reg = make(warm_w=50)
-    reg.update_grid(0, -30, 0, soc=50)  # within the band of idle it stays warm
-    assert reg.step(0, DISCHARGE) == R.Command("discharge", 50, 20, 120)
-    assert reg.limit == "warm"
-
-
-def test_keep_warm_does_not_pad_a_surplus_the_turn_round_holds():
-    # After a discharge, a surplus under the margin is held at 0 W; warm on top of it exported the surplus plus 50 W.
-    reg = make(warm_w=50, flip_hysteresis_w=150, flip_dwell_s=3)
-    reg.update_grid(0, 520, 0, soc=50)
-    assert reg.step(0, BOTH).kind == "discharge"
-    reg.update_grid(10, -620, 500, soc=50)  # the load has gone and 120 W of surplus is left: under the margin
-    assert reg.step(10, BOTH) == R.Command("discharge", 0, 20, 120)
-    assert reg.limit == "turn_round"
-    reg.update_grid(20, -120, 0, soc=50)  # still under the margin: 0 W, not 50 W of discharge on top
-    assert reg.step(20, BOTH) is None and reg.output_w == 0
-    assert reg.limit == "turn_round"
-
-
 def test_a_full_battery_is_not_asked_to_charge():
     reg = make(ki=0.1)
     reg.update_grid(0, -600, 0, soc=100)
@@ -843,3 +821,150 @@ def test_limit_names_what_holds_the_output():
     assert reg.limit == "turn_round"
     reg.step(10, R.Policy(R.RELEASE))
     assert reg.limit == "none"
+
+
+class RampingInverter:
+    """A discharge start rides a ceiling: 50 W plus 8 W/s from the last reading of 10 W or less. A step under the
+    ceiling lands a second after the command and settles within 3 s; a charge is not limited."""
+
+    def __init__(self):
+        self.battery_w = 0.0
+        self._aim = 0.0
+        self._pending = []
+        self._t_low = 0.0
+
+    def command(self, t, watts):
+        self._pending.append((t + 1.0, watts))
+
+    def read(self, t):
+        while self._pending and self._pending[0][0] <= t:
+            self._aim = self._pending.pop(0)[1]
+        aim = min(self._aim, 50 + 8 * (t - self._t_low)) if self._aim > 0 else self._aim
+        self.battery_w += (aim - self.battery_w) * (1 - math.exp(-1 / 0.8))
+        if self.battery_w <= 10:
+            self._t_low = t
+        return self.battery_w
+
+
+# The live tuning, with the ready floor at 20 W.
+LIVE = dict(target_w=-20, deadband_w=5, ki=0.01, write_threshold_w=20, min_interval_s=2.5, slew_w_per_s=2400,
+            flip_hysteresis_w=150, flip_dwell_s=3, keepalive_s=40, power_write_gap_s=0.5, warm_w=20)
+
+
+def on_inverter(reg, demand, policy, seconds, soc=50.0):
+    """Runs the regulator against the ramping inverter, one sample a second. Returns (t, battery, command)."""
+    inverter, rows = RampingInverter(), []
+    for t in range(seconds):
+        battery = inverter.read(t)
+        reg.update_grid(t, demand(t) - battery, battery, soc=soc)
+        cmd = reg.step(t, policy)
+        if cmd is not None:
+            inverter.command(t, cmd.signed_w)
+            reg.ack(t + 0.3, power_write=cmd.power_only)
+        rows.append((t, battery, cmd))
+    return rows
+
+
+@pytest.mark.parametrize("policy", [DISCHARGE, BOTH])
+def test_the_ready_floor_keeps_a_slow_starting_inverter_ready_for_a_load_step(policy):
+    # The house at dawn: a small surplus, under the margin, then a 1.5 kW load. Warm used to give way to the
+    # surplus, the battery read 0 W, and the load step rode the ceiling up at 8 W/s.
+    demand = lambda t: -80 + (-25, 0, 25)[t % 3] + (1500 if t >= 600 else 0)
+    rows = on_inverter(make(**LIVE), demand, policy, 610)
+    assert [t for t, battery, _ in rows if 10 <= t < 600 and battery <= 10] == []
+    assert rows[604][1] >= 0.9 * (demand(604) - LIVE["target_w"])  # within 4 s of the step
+
+
+@pytest.mark.parametrize("policy", [DISCHARGE, BOTH])
+@pytest.mark.parametrize("seed", range(10))
+def test_the_ready_floor_is_never_undercut_while_discharge_is_allowed(policy, seed):
+    rnd = random.Random(seed)
+    levels = [rnd.choice([-600, -300, -160, -120, -80, -40, -10, 0, 15, 40, 80, 300, 1500, 2500])
+              for _ in range(40)]
+    demand = lambda t: levels[t // 45] + rnd.randint(-30, 30)
+    rows = on_inverter(make(**LIVE), demand, policy, 45 * 40)
+    sent = [cmd for _, _, cmd in rows if cmd is not None]
+    for last, cmd in zip([None] + sent, sent):
+        if cmd.kind == "discharge":
+            assert cmd.watts >= LIVE["warm_w"]
+        elif policy is DISCHARGE:
+            pytest.fail(f"{cmd} under a discharge only policy")
+        elif cmd.watts == 0:  # the turn from a storable charge back to the floor passes 0 W
+            assert last is not None and last.kind == "charge" and last.watts > 0
+
+
+def test_the_ready_floor_goes_out_under_the_write_threshold():
+    reg = make(warm_w=20, write_threshold_w=50)
+    reg.update_grid(0, 540, 0, soc=30)
+    assert reg.step(0, DISCHARGE).watts == 500
+    reg.update_grid(5, 520, 500, soc=21.4)  # the floor hold: 0 W
+    assert reg.step(5, DISCHARGE) == R.Command("discharge", 0, 20, 120)
+    reg.update_grid(10, 20, 0, soc=23)  # discharge allowed again: the floor goes out, 20 W under the threshold
+    assert reg.step(10, DISCHARGE) == R.Command("discharge", 20, 20, 120)
+
+
+def test_the_slew_does_not_leave_the_output_between_a_charge_and_the_ready_floor():
+    reg = make(warm_w=20, slew_w_per_s=400, min_interval_s=2.5, flip_dwell_s=3)
+    reg.update_grid(0, -1200, 0, soc=50)
+    assert reg.step(0, BOTH).watts == 1200
+    reg.update_grid(10, 0, -1000, soc=50)
+    assert reg.step(10, BOTH) == R.Command("charge", 1000, 100, 120)
+    reg.update_grid(12.5, 1000, -1000, soc=50)  # the surplus is gone: the slew allows 1000 W of the turn
+    assert reg.step(12.5, BOTH) == R.Command("discharge", 20, 20, 120)
+
+
+def test_the_ready_floor_is_not_rounded_under():
+    reg = make(warm_w=25)  # 25 W rounded half to even was 20 W
+    reg.update_grid(0, 20, 0, soc=50)
+    assert reg.step(0, DISCHARGE) == R.Command("discharge", 25, 20, 120)
+
+
+def test_the_ready_floor_holds_through_a_surplus_it_cannot_store_and_one_under_the_margin():
+    # The floor's watts go out on top of the surplus for as long as it lasts; a 0 W reading costs a slow start.
+    reg = make(warm_w=20)
+    reg.update_grid(0, -300, 0, soc=50)  # discharge only
+    assert reg.step(0, DISCHARGE) == R.Command("discharge", 20, 20, 120)
+    reg = make(warm_w=20)
+    reg.update_grid(0, -300, 0, soc=100)  # full
+    assert reg.step(0, BOTH) == R.Command("discharge", 20, 20, 120)
+    reg = make(warm_w=20, flip_hysteresis_w=150, flip_dwell_s=3)
+    reg.update_grid(0, 520, 0, soc=50)
+    reg.step(0, BOTH)
+    reg.update_grid(10, -620, 500, soc=50)  # 120 W of surplus after a discharge: under the margin
+    assert reg.step(10, BOTH) == R.Command("discharge", 20, 20, 120)
+    for t in range(11, 40):
+        reg.update_grid(t, -140, 20, soc=50)
+        assert reg.step(t, BOTH) is None or reg.sent.watts == 20
+    assert reg.integral_w == 0  # the export the floor causes does not wind into a charge
+
+
+def test_the_ready_floor_gives_way_to_a_surplus_the_battery_can_store():
+    reg = make(warm_w=20, flip_hysteresis_w=150, flip_dwell_s=3)
+    reg.update_grid(0, 520, 0, soc=50)
+    reg.step(0, BOTH)
+    reg.update_grid(10, -900, 500, soc=50)  # 400 W of surplus after a discharge: over the margin, stored
+    assert reg.step(10, BOTH) == R.Command("charge", 400, 100, 120)
+    reg.update_grid(20, 20, -80, soc=50)  # an 80 W charge, past the dwell: still stored, not padded
+    reg.step(20, BOTH)
+    assert reg.output_w == -80
+
+
+def test_the_floor_hold_wins_over_the_ready_floor():
+    reg = make(warm_w=20, write_threshold_w=20)
+    reg.update_grid(0, 0, 20, soc=30)
+    assert reg.step(0, DISCHARGE) == R.Command("discharge", 20, 20, 120)
+    reg.update_grid(5, 0, 20, soc=21.4)  # within the margin of the policy SOC: the battery refuses anyway
+    assert reg.step(5, DISCHARGE) == R.Command("discharge", 0, 20, 120)
+    assert reg.limit == "floor"
+
+
+def test_with_the_ready_floor_at_zero_the_commands_are_as_before():
+    # The commands of 9ef2224 on this run. A change here changes the controller with the setting off.
+    rnd = random.Random(7)
+    levels = [rnd.choice([-600, -160, -80, -40, 0, 40, 300, 1500]) for _ in range(40)]
+    rows = on_inverter(make(**{**LIVE, "warm_w": 0}), lambda t: levels[t // 45] + rnd.randint(-30, 30), BOTH, 1800)
+    sent = [(t, cmd.kind, cmd.watts, cmd.power_only) for t, _, cmd in rows if cmd is not None]
+    assert (len(sent), hashlib.sha256(repr(sent).encode()).hexdigest()[:16]) == GOLDEN_FLOOR_OFF
+
+
+GOLDEN_FLOOR_OFF = (693, "7143bd9b5475dcd4")

@@ -27,7 +27,7 @@ NUMBERS = [
     ("flip_dwell_s", "Charge discharge dwell", 0, 600, 0.5, "s"),
     ("stale_after_s", "Stale after", 3, 100, 0.5, "s"),
     ("power_write_gap_s", "Power write gap", 0, 5, 0.5, "s"),  # 0 is off: every command is a full block write
-    ("warm_w", "Keep warm", 0, 500, 10, "W"),  # 0 is off: the battery idles at 0 W between loads
+    ("warm_w", "Keep warm", 0, 500, 5, "W"),  # the ready floor; 0 is off: the battery idles at 0 W between loads
 ]
 
 _DEFAULTS = {f.name: f.default for f in fields(Settings)}

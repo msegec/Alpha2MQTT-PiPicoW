@@ -444,6 +444,24 @@ def test_a_tuning_change_logs_every_setting(monkeypatch):
     assert house.c.regulator.settings.kp == 0.8
 
 
+def test_the_ready_floor_can_be_set_down_to_10_w():
+    _, _, lo, hi, step, unit = next(n for n in N.NUMBERS if n[0] == "warm_w")
+    assert lo == 0 and step <= 5 and unit == "W" and (10 - lo) % step == 0
+
+
+@pytest.mark.parametrize("warm_w, logged", [(20, [{"from_w": 960, "to_w": -1000}]), (0, [])])
+def test_a_turn_through_0_w_with_the_ready_floor_on_is_logged(monkeypatch, warm_w, logged):
+    house = logged_house(monkeypatch)
+    house.c.regulator.settings.warm_w = warm_w
+    house.set("sensor.battery_auto_action", "discharge", soc_target=20, both="true", other_soc=100)
+    house.second()
+    house.set("sensor.net_demand", "-1000")  # a surplus the battery can store
+    for _ in range(4):
+        house.second()
+    assert house.sent()[-1]["kind"] == "charge"
+    assert house.log.kind("cross") == logged
+
+
 def test_log_entities_are_logged_on_change(monkeypatch):
     house = logged_house(monkeypatch)
     state = types.SimpleNamespace(state="95.0", attributes={"unit_of_measurement": "W"})
