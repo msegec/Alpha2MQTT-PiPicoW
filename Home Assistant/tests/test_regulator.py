@@ -1465,3 +1465,17 @@ def test_forgetting_the_table_zeroes_it():
                        write_threshold_w=10), short_w=40)
     reg.reset_trim()
     assert not any(reg.trim) and reg.table(500) == 0
+
+
+# Edge cases.
+
+def test_a_negative_cap_never_pushes_the_battery_the_other_way():
+    # A -500 W charge cap made lo greater than hi, and _clip returns lo: a 500 W discharge at the floor.
+    reg = make()
+    policy = R.Policy(R.REGULATE, max_charge_w=-500, max_discharge_w=3000, discharge_soc=20)
+    reg.update_grid(0, 0, 0, soc=21.0)  # inside FLOOR_MARGIN: no discharge allowed
+    assert reg.step(0, policy).signed_w <= 0
+    reg = make()
+    policy = R.Policy(R.REGULATE, max_charge_w=3000, max_discharge_w=-500, charge_soc=100)
+    reg.update_grid(0, 0, 0, soc=50)  # balanced: nothing to do
+    assert reg.step(0, policy).watts == 0  # was a forced 500 W charge from the grid

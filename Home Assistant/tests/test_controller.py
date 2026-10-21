@@ -808,3 +808,18 @@ def test_the_limit_shows_the_caps_the_direction_and_the_refusal_clock(monkeypatc
         house.second(**{C.SOC_KEY: 22.0, C.BATTERY_KEY: 0})
     limit = attributes(house.c, "limit")
     assert (limit["refused_soc"], limit["refusal_since"], limit["hi"]) == (22.0, None, 0)
+
+
+# Edge cases.
+
+def caps_house(monkeypatch):
+    house = House(monkeypatch)
+    house.c.config["max_discharge_entity"] = "input_number.discharge_max_rate"
+    house.set("input_number.discharge_max_rate", "500")
+    return house
+
+
+def test_a_negative_cap_reads_as_0_w(monkeypatch):
+    house = caps_house(monkeypatch)
+    house.set("input_number.discharge_max_rate", "-500")
+    assert house.c._read_policy().max_discharge_w == 0

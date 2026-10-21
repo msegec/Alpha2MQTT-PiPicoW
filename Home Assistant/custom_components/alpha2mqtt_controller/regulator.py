@@ -472,7 +472,8 @@ class Regulator:
             if s.smoothing_s > 0 and self._filtered is not None:
                 request = self._filtered + (request - self._filtered) * min(1.0, dt / s.smoothing_s)
             self._filtered = request
-            lo, hi = -policy.max_charge_w, policy.max_discharge_w
+            # A cap is a limit, never a push: a negative one is 0 W, not a forced charge or discharge.
+            lo, hi = -max(0.0, policy.max_charge_w), max(0.0, policy.max_discharge_w)
             floor, ceiling = "discharge_cap", "charge_cap"
             if self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN:
                 # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.

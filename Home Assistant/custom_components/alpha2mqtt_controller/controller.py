@@ -348,8 +348,8 @@ class Controller:
             return Policy(FIXED, fixed_w=watts, discharge_soc=soc)
         charge_cap = _number(self.hass, self.config.get(CONF_MAX_CHARGE_ENTITY))
         discharge_cap = _number(self.hass, self.config.get(CONF_MAX_DISCHARGE_ENTITY))
-        charge_cap = DEFAULT_MAX_W if charge_cap is None else charge_cap
-        discharge_cap = DEFAULT_MAX_W if discharge_cap is None else discharge_cap
+        charge_cap = DEFAULT_MAX_W if charge_cap is None else max(0.0, charge_cap)  # a negative cap is 0 W
+        discharge_cap = DEFAULT_MAX_W if discharge_cap is None else max(0.0, discharge_cap)
         # With both, the policy also allows the other direction, so a load edge turns the battery round
         # here, in the next step, instead of waiting for the policy's next decision. other_soc is that
         # direction's limit.

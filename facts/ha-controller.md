@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 4ddb237 plus the learned offset table, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 300 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 9381e49 plus the negative cap clamp, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 302 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -97,7 +97,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 | `charge` | `REGULATE`, `max_charge_w=cap`, `charge_soc=soc_target`, `target_offset_w=grid_offset` (0 if bad or implausible, 8feffdc) |
 | `discharge` | `REGULATE`, `max_discharge_w=cap`, `discharge_soc=soc_target` |
 
-- Caps come from `max_charge_entity` / `max_discharge_entity`; missing or unreadable means `DEFAULT_MAX_W` 3000 W.
+- Caps come from `max_charge_entity` / `max_discharge_entity`; missing or unreadable means `DEFAULT_MAX_W` 3000 W. A negative reading is 0 W.
 - `both` == "true" plus a numeric `other_soc` opens the other direction with its cap and `other_soc` as its limit
   (4aa846d). Otherwise the other direction gets 0 W with charge_soc 100 or discharge_soc 10.
 - `_policy`: an unreadable policy reuses the last good one until `settings.stale_after_s` (default 30 s), then
@@ -285,6 +285,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_start_record_and_the_loop_version_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
 | `test_a_setting_switch_*` | switch restore, default, cfg log, group |
 | `test_a_saved_table_*`, `test_a_bad_saved_table_*`, `test_a_moved_table_*`, `test_a_stop_saves_*`, `test_the_forget_button_*`, `test_the_integral_sensor_carries_*` | learned table load, save, log cadence, forget, chart attribute |
+| `test_a_negative_cap_reads_as_0_w` | cap clamp |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
