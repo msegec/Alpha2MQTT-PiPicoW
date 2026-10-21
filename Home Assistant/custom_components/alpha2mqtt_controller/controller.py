@@ -44,6 +44,8 @@ DEFAULT_STATE_TOPIC = "Alpha2MQTT/state/fast"  # every second; older firmware ha
 DEFAULT_BASE_TOPIC = "Alpha2MQTT"
 DEFAULT_POLICY_ENTITY = "sensor.battery_auto_action"
 DEFAULT_MAX_W = 3000.0
+# The firmware refuses a socPercent over 105 (dispatchRequestValid), and a negative one wraps to the same refusal.
+SOC_MAX = 105
 # clamp: scale x grid clamp + correction. estimate: correction - battery, for a clamp that cannot see the house.
 GRID_SOURCES = ["clamp", "estimate"]
 
@@ -344,6 +346,8 @@ class Controller:
             soc = int(float(state.attributes.get("soc_target")))
         except (TypeError, ValueError, OverflowError):
             return None
+        if not 0 <= soc <= SOC_MAX:
+            return None  # every command would be refused and the lease would lapse while the status says regulating
         if str(state.attributes.get("fixed")).lower() == "true":
             # A manual override: the policy's watts, not regulation.
             try:
@@ -365,6 +369,8 @@ class Controller:
             other_soc = int(float(state.attributes.get("other_soc")))
         except (TypeError, ValueError, OverflowError):
             both = False
+        else:
+            both = both and 0 <= other_soc <= SOC_MAX
         if state.state == "charge":
             # The policy's grid_offset moves the grid target while charging: + tops up from the grid.
             try:

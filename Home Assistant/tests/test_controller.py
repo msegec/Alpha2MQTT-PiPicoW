@@ -835,3 +835,25 @@ def test_an_unreadable_cap_keeps_its_last_value_not_3000_w(monkeypatch):
     assert house.c._read_policy().max_discharge_w == 800
     house.set("sensor.battery_auto_action", "charge", soc_target=100)
     assert house.c._read_policy().max_charge_w == C.DEFAULT_MAX_W  # never read yet
+
+
+@pytest.mark.parametrize("state, soc, net", [("charge", 110, "-1000"), ("discharge", -5, "1000")])
+def test_a_policy_soc_the_firmware_would_refuse_is_unreadable(monkeypatch, state, soc, net):
+    # The firmware refuses socPercent over 105, and a negative one wraps through strtoul to the same refusal.
+    house = House(monkeypatch)
+    house.set("sensor.battery_auto_action", state, soc_target=soc)
+    house.set("sensor.net_demand", net)
+    house.second()
+    socs = [cmd.get("socPercent") for cmd in house.sent() if cmd["kind"] != "normal"]
+    assert all(0 <= s <= 105 for s in socs), socs
+    assert house.c._read_policy() is None
+    house.set("sensor.battery_auto_action", state, soc_target=soc, fixed="true", watts=500)
+    assert house.c._read_policy() is None
+
+
+def test_an_other_soc_the_firmware_would_refuse_closes_the_other_direction(monkeypatch):
+    house = House(monkeypatch)
+    house.set("sensor.battery_auto_action", "discharge", soc_target=20, both="true", other_soc=110)
+    assert house.c._read_policy().max_charge_w == 0
+    house.set("sensor.battery_auto_action", "discharge", soc_target=20, both="true", other_soc=105)
+    assert house.c._read_policy().max_charge_w == C.DEFAULT_MAX_W

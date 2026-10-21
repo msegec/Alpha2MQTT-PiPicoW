@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 89375f4 plus the last readable cap, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 303 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 3b82f93 plus the policy SOC range, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 306 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -92,13 +92,13 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 | `hold` | `Policy(HOLD)` |
 | `normal` | `Policy(RELEASE)` |
 | other than charge/discharge | `Policy(RELEASE, reason="unknown policy state '<first 40 chars>'")` (8259b36) |
-| charge/discharge, `soc_target` not a number | unreadable |
+| charge/discharge, `soc_target` not a number, or outside 0..`SOC_MAX` (105) | unreadable: the firmware refuses socPercent over 105 (`dispatchRequestValid`) and a negative one wraps through `strtoul` to the same refusal |
 | `fixed` == "true" | `Policy(FIXED)`; `watts` attribute, must be plausible, else unreadable. Charge: `fixed_w=-watts, charge_soc`; discharge: `fixed_w=watts, discharge_soc` (50850bf) |
 | `charge` | `REGULATE`, `max_charge_w=cap`, `charge_soc=soc_target`, `target_offset_w=grid_offset` (0 if bad or implausible, 8feffdc) |
 | `discharge` | `REGULATE`, `max_discharge_w=cap`, `discharge_soc=soc_target` |
 
 - Caps come from `max_charge_entity` / `max_discharge_entity` through `_cap`: a negative reading is 0 W; an unreadable one keeps the last readable value (`_caps`, per config key, in memory only); one not configured or never read yet is `DEFAULT_MAX_W` 3000 W.
-- `both` == "true" plus a numeric `other_soc` opens the other direction with its cap and `other_soc` as its limit
+- `both` == "true" plus a numeric `other_soc` within 0..105 opens the other direction with its cap and `other_soc` as its limit
   (4aa846d). Otherwise the other direction gets 0 W with charge_soc 100 or discharge_soc 10.
 - `_policy`: an unreadable policy reuses the last good one until `settings.stale_after_s` (default 30 s), then
   `Policy(RELEASE)`. An explicit `normal` releases at once (70fe0e2). Gaps logged once at start and end.
@@ -247,7 +247,7 @@ Non-power sensors without attributes write only on change.
 |---|---|
 | Implausible or unparsable sample | ignored; no step |
 | Grid estimate input missing or stale | no `update_grid`; regulator holds last command until `stale_after_s`, then releases |
-| Policy unreadable | last good policy until `stale_after_s`, then release |
+| Policy unreadable, including an SOC outside 0..105 | last good policy until `stale_after_s`, then release |
 | Unknown policy state | release at once, status says why, warning once per value |
 | Exception in a step | release step, logged once |
 | Publish fails | `regulator.fail()`, full resend later |
@@ -286,6 +286,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_setting_switch_*` | switch restore, default, cfg log, group |
 | `test_a_saved_table_*`, `test_a_bad_saved_table_*`, `test_a_moved_table_*`, `test_a_stop_saves_*`, `test_the_forget_button_*`, `test_the_integral_sensor_carries_*` | learned table load, save, log cadence, forget, chart attribute |
 | `test_a_negative_cap_reads_as_0_w`, `test_an_unreadable_cap_keeps_*` | cap clamp, last readable cap |
+| `test_a_policy_soc_the_firmware_would_refuse_is_unreadable`, `test_an_other_soc_the_firmware_would_refuse_*` | SOC range |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
