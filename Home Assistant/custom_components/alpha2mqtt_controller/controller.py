@@ -141,6 +141,7 @@ class Controller:
         self.last_response: dict | None = None  # the last step response timed out or reached, not cancelled
         self._slow: tuple[object, int] = (None, 0)  # local date, slow responses on it
         self._walls: dict[str, tuple[float, str]] = {}  # name: (monotonic time, the same as wall clock text)
+        self._caps: dict[str, float] = {}  # the last readable value of each cap entity, by config key
         self._store = Store(hass, 1, f"{DOMAIN}.{entry_id}.learned_offsets")  # the long term trim, across restarts
         self._trim_moves = 0  # regulator.trim_moves when last seen, so a move is noticed once
         self._trim_unsaved = False
@@ -320,6 +321,14 @@ class Controller:
         t, policy = self._good_policy
         return policy if now - t <= self.regulator.settings.stale_after_s else Policy(RELEASE)
 
+    def _cap(self, key: str) -> float:
+        """A cap entity's watts, 0 or more. Unreadable, it keeps its last value: a cap set low on purpose must not
+        jump to DEFAULT_MAX_W in a template reload. One never read yet, or not configured, is DEFAULT_MAX_W."""
+        cap = _number(self.hass, self.config.get(key))
+        if cap is not None:
+            self._caps[key] = max(0.0, cap)  # a negative cap is 0 W
+        return self._caps.get(key, DEFAULT_MAX_W)
+
     def _read_policy(self) -> Policy | None:
         """None when the policy cannot be read; normal is a release, and so is a state it does not know."""
         state = self.hass.states.get(self.config.get(CONF_POLICY_ENTITY, DEFAULT_POLICY_ENTITY))
@@ -346,10 +355,8 @@ class Controller:
             if state.state == "charge":
                 return Policy(FIXED, fixed_w=-watts, charge_soc=soc)
             return Policy(FIXED, fixed_w=watts, discharge_soc=soc)
-        charge_cap = _number(self.hass, self.config.get(CONF_MAX_CHARGE_ENTITY))
-        discharge_cap = _number(self.hass, self.config.get(CONF_MAX_DISCHARGE_ENTITY))
-        charge_cap = DEFAULT_MAX_W if charge_cap is None else max(0.0, charge_cap)  # a negative cap is 0 W
-        discharge_cap = DEFAULT_MAX_W if discharge_cap is None else max(0.0, discharge_cap)
+        charge_cap = self._cap(CONF_MAX_CHARGE_ENTITY)
+        discharge_cap = self._cap(CONF_MAX_DISCHARGE_ENTITY)
         # With both, the policy also allows the other direction, so a load edge turns the battery round
         # here, in the next step, instead of waiting for the policy's next decision. other_soc is that
         # direction's limit.

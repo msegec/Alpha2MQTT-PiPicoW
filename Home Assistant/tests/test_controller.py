@@ -823,3 +823,15 @@ def test_a_negative_cap_reads_as_0_w(monkeypatch):
     house = caps_house(monkeypatch)
     house.set("input_number.discharge_max_rate", "-500")
     assert house.c._read_policy().max_discharge_w == 0
+
+
+def test_an_unreadable_cap_keeps_its_last_value_not_3000_w(monkeypatch):
+    house = caps_house(monkeypatch)
+    house.c.config["max_charge_entity"] = "input_number.charge_max_rate"
+    assert house.c._read_policy().max_discharge_w == 500
+    house.set("input_number.discharge_max_rate", "unavailable")
+    assert house.c._read_policy().max_discharge_w == 500
+    house.set("input_number.discharge_max_rate", "800")
+    assert house.c._read_policy().max_discharge_w == 800
+    house.set("sensor.battery_auto_action", "charge", soc_target=100)
+    assert house.c._read_policy().max_charge_w == C.DEFAULT_MAX_W  # never read yet
