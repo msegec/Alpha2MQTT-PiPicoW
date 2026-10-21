@@ -893,3 +893,18 @@ def test_a_response_that_is_json_but_not_an_object_is_ignored(monkeypatch):
     for payload in ("[]", "1", "null", '"x"'):
         house.c._on_response(types.SimpleNamespace(topic="Alpha2MQTT/response/set/charge", payload=payload))
     assert house.c.ack == ack
+
+
+@pytest.mark.parametrize("flag", [True, "true"])
+def test_west_from_the_10_s_fallback_gives_no_solar_step(monkeypatch, flag):
+    # When the 1 s message leaves out a lone PV 0, the template falls back to the 10 s West value and says so.
+    house = House(monkeypatch)
+    house.c.set_setting("kff", 1.0)
+    house.set("sensor.net_demand", "1000", west=800, east=200)
+    house.second()
+    house.set("sensor.net_demand", "820", west=980, east=200, west_fallback=flag)
+    house.second()
+    assert house.c.regulator.solar_w is None and house.c.regulator.ff_w == 0
+    house.set("sensor.net_demand", "820", west=980, east=200, west_fallback=False)
+    house.second()
+    assert house.c.regulator.solar_w == 1180

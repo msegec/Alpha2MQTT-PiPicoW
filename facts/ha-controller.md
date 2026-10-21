@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: b6f96ed plus the feed forward minimum solar, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 313 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: fbee89c plus the west_fallback attribute, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 315 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -79,7 +79,9 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
 7. `_measure`: grid `None` logs a `grid estimate` gap and skips `update_grid`; the regulator then holds its last
    command until `stale_after_s` (70fe0e2). Else `regulator.update_grid(now, grid_w, battery_w, fresh, soc, solar_w)`.
    `solar_w` is `_solar()`: the correction entity's `west` + `east` attributes, read from the same state as the
-   correction; None unless both parse as numbers and the sum is plausible.
+   correction; None unless both parse as numbers and the sum is plausible, and None when the `west_fallback`
+   attribute is true (bool or text): West then comes from the 10 s message, so neither the step into it nor the
+   step back is a solar change.
 8. `_run` (enabled only): `_policy()` -> `regulator.step(now, policy)`. Any exception in that: logged once,
    then `regulator.step(now, Policy(RELEASE))`. Logs `refused` / `rearmed` on `regulator.refused_soc` edges
    (75e08a8), and `cross` when `warm_w > 0` and the kind flips between charge and discharge (9684b66).
@@ -142,7 +144,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 | `grid_source` | `clamp` | `clamp` or `estimate` (50850bf) |
 | `grid_scale` | 1.0 (form range -100 to 100) | clamp multiplier |
 | `grid_scale_entity` | none | overrides `grid_scale` |
-| `correction_entity` | none | W added to scaled clamp, or house load less solar under `estimate`; may carry `seq`, `west` and `east` (solar W) for the solar feed forward, and `age_s` (age of its oldest input) |
+| `correction_entity` | none | W added to scaled clamp, or house load less solar under `estimate`; may carry `seq`, `west` and `east` (solar W) for the solar feed forward, `age_s` (age of its oldest input) and `west_fallback` (true: West is the 10 s value) |
 | `max_charge_entity`, `max_discharge_entity` | none (3000 W) | caps |
 | `log_dir` | `<config>/alpha2mqtt_controller` | step log directory |
 | `log_entities` | `[]` | each change logged as `e` |
@@ -294,6 +296,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_policy_soc_the_firmware_would_refuse_is_unreadable`, `test_an_other_soc_the_firmware_would_refuse_*` | SOC range |
 | `test_a_correction_with_a_frozen_input_is_a_gap`, `test_a_frozen_correction_is_a_gap_on_the_clamp_too` | `age_s` |
 | `test_a_response_that_is_json_but_not_an_object_is_ignored` | response shape |
+| `test_west_from_the_10_s_fallback_gives_no_solar_step` | `west_fallback` |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |

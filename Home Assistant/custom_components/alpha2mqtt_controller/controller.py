@@ -457,9 +457,13 @@ class Controller:
         return None if state is None else state.attributes.get("seq")
 
     def _solar(self) -> float | None:
-        """Solar in W from the correction entity's west and east attributes, None unless both are numbers."""
+        """Solar in W from the correction entity's west and east attributes, None unless both are numbers. None too
+        when its west_fallback attribute is true: West from the 10 s message, so a step against the 1 s one is not a
+        solar change."""
         entity_id = self.config.get(CONF_CORRECTION_ENTITY)
         state = self.hass.states.get(entity_id) if entity_id else None
+        if state is not None and str(state.attributes.get("west_fallback")).lower() == "true":
+            return None
         try:
             solar = float(state.attributes["west"]) + float(state.attributes["east"])
         except (AttributeError, KeyError, TypeError, ValueError):
