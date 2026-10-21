@@ -129,6 +129,13 @@ def test_power_only_commands_carry_the_flag_and_others_do_not():
     assert "powerOnly" not in published(R.Command("discharge", 800, 20, 120))
 
 
+def test_a_charge_to_100_sends_the_full_register():
+    assert published(R.Command("charge", 800, 100, 120))["socPercent"] == 102  # register 252
+    assert published(R.Command("charge", 800, 105, 120))["socPercent"] == 105  # balance stays 255
+    assert published(R.Command("charge", 800, 80, 120))["socPercent"] == 80
+    assert published(R.Command("discharge", 800, 100, 120))["socPercent"] == 100
+
+
 def respond_write(c, write):
     payload = {"responseStatus": "setDishargeSuccess", "seq": 1}
     if write is not None:

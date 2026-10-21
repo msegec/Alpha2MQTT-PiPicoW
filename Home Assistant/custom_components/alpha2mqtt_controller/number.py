@@ -30,6 +30,7 @@ NUMBERS = [
     ("warm_w", "Keep warm", 0, 500, 5, "W"),  # the ready floor; 0 is off: the battery idles at 0 W between loads
     ("offset_comp", "Offset correction", 0, 1.5, 0.05, None),  # 0 is off, 1 takes the measured offset off in full
     ("spike_confirm_w", "Spike confirm", 0, 3000, 50, "W"),  # 0 is off: every jump in demand goes out at once
+    ("full_register", "Full charge register", 250, 255, 1, None),  # dispatch SOC register for a 100 % charge
 ]
 
 _DEFAULTS = {f.name: f.default for f in fields(Settings)}

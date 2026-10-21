@@ -120,6 +120,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `stale_after_s` | 30 s | No fresh sample this long: hand back. |
 | `power_write_gap_s` | 0.0 s | 0 means every command is a full block write. Above 0: same-block changes go `power_only`, and after a power write ack the next may follow after this gap. |
 | `warm_w` | 0.0 W | Ready floor ("Keep warm"). 0 is off. |
+| `full_register` | 252 | Not used by the regulator. The controller publishes a charge to 100 % as `socPercent` this minus 150, since register 250 stopped the battery at 99.2 %. |
 | `spike_confirm_w` | 0.0 W | Above 0, a sample whose net demand (`grid_w + battery_w`) moved more than this from the last sample is held: every step on it returns None with `limit = "spike"`, and the integral skips it. The next sample always acts. 0 is off. |
 | `offset_comp` | 0.0 | Share of the table the command allows for under `REGULATE`: it asks for `setpoint_for(output_w, offset_comp)`, so the battery lands on the output. 0 is off, 1 full. |
 

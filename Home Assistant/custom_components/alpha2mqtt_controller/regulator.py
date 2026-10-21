@@ -104,6 +104,9 @@ class Settings:
     # sample whose net demand moved more than this from the last one is held a sample: the output stays, and the
     # next sample acts as usual, so a jump that lasts goes out a sample late. 0 is off.
     spike_confirm_w: float = 0.0
+    # Dispatch SOC register sent for a charge to 100 %. The register is 0.4 % a step, but 250 stopped the
+    # battery at 99.2 % and 252 is full, so 100 % goes as this, as socPercent register - 150.
+    full_register: int = 252
 
 
 @dataclass(frozen=True)
