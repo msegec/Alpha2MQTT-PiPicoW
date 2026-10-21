@@ -4,6 +4,8 @@
 # Sensors read the JSON the device publishes on Alpha2MQTT/state/*. A register the device
 # failed to read is left out of that JSON, so its sensor becomes unknown until the next good read.
 # Sensors go unavailable if their topic is silent for several publish periods.
+# Energy totals only ever rise. A total that reads 0, falls, or jumps over 100 kWh in one publish
+# keeps its last value: HA would book a 0 then the real total as a reset worth the whole total.
 
 mqtt:
   sensor:
@@ -133,7 +135,10 @@ mqtt:
     - name: "Inverter Power"
       unique_id: alpha2mqtt_inverter_home_r_power_l1_1
       state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_INVERTER_HOME_R_POWER_L1_1 | default(None) }}"
+      # The inverter puts a signed 16-bit value in the low word: 62511 means -3025 W.
+      value_template: >-
+        {%- set v = value_json.REG_INVERTER_HOME_R_POWER_L1_1 | default(None) | int(None) -%}
+        {%- if v is none -%}None{%- elif 32768 <= v < 65536 -%}{{ v - 65536 }}{%- else -%}{{ v }}{%- endif -%}
       unit_of_measurement: "W"
       device_class: power
       state_class: measurement
@@ -282,7 +287,12 @@ mqtt:
     - name: "Battery Charge Energy"
       unique_id: alpha2mqtt_battery_home_r_battery_charge_energy_1
       state_topic: "Alpha2MQTT/state/minute/one"
-      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_CHARGE_ENERGY_1 | default(None) }}"
+      value_template: >-
+        {%- set v = value_json.REG_BATTERY_HOME_R_BATTERY_CHARGE_ENERGY_1 | default(None) | float(None) -%}
+        {%- set p = this.state | float(None) -%}
+        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- elif p is not none -%}{{ p }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
@@ -295,7 +305,12 @@ mqtt:
     - name: "Battery Discharge Energy"
       unique_id: alpha2mqtt_battery_home_r_battery_discharge_energy_1
       state_topic: "Alpha2MQTT/state/minute/one"
-      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_DISCHARGE_ENERGY_1 | default(None) }}"
+      value_template: >-
+        {%- set v = value_json.REG_BATTERY_HOME_R_BATTERY_DISCHARGE_ENERGY_1 | default(None) | float(None) -%}
+        {%- set p = this.state | float(None) -%}
+        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- elif p is not none -%}{{ p }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
@@ -308,7 +323,12 @@ mqtt:
     - name: "Battery Charge From Grid Energy"
       unique_id: alpha2mqtt_battery_home_r_battery_energy_charge_from_grid_1
       state_topic: "Alpha2MQTT/state/minute/one"
-      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_ENERGY_CHARGE_FROM_GRID_1 | default(None) }}"
+      value_template: >-
+        {%- set v = value_json.REG_BATTERY_HOME_R_BATTERY_ENERGY_CHARGE_FROM_GRID_1 | default(None) | float(None) -%}
+        {%- set p = this.state | float(None) -%}
+        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- elif p is not none -%}{{ p }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
@@ -619,7 +639,8 @@ mqtt:
     - name: "Battery SOH"
       unique_id: alpha2mqtt_battery_home_r_battery_soh
       state_topic: "Alpha2MQTT/state/minute/five"
-      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_SOH | default(None) }}"
+      # The SMILE-B3 leaves this register at 0: show unknown, not a dead battery.
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_SOH | default(0) | float(0) or None }}"
       unit_of_measurement: "%"
       state_class: measurement
       expire_after: 1500
@@ -916,7 +937,12 @@ mqtt:
     - name: "Total PV Energy"
       unique_id: alpha2mqtt_system_op_r_system_total_pv_energy_1
       state_topic: "Alpha2MQTT/state/minute/one"
-      value_template: "{{ value_json.REG_SYSTEM_OP_R_SYSTEM_TOTAL_PV_ENERGY_1 | default(None) }}"
+      value_template: >-
+        {%- set v = value_json.REG_SYSTEM_OP_R_SYSTEM_TOTAL_PV_ENERGY_1 | default(None) | float(None) -%}
+        {%- set p = this.state | float(None) -%}
+        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- elif p is not none -%}{{ p }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
@@ -929,7 +955,12 @@ mqtt:
     - name: "Grid Export Energy"
       unique_id: alpha2mqtt_grid_meter_r_total_energy_feed_to_grid_1
       state_topic: "Alpha2MQTT/state/minute/one"
-      value_template: "{{ value_json.REG_GRID_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1 | default(None) }}"
+      value_template: >-
+        {%- set v = value_json.REG_GRID_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1 | default(None) | float(None) -%}
+        {%- set p = this.state | float(None) -%}
+        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- elif p is not none -%}{{ p }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
@@ -942,7 +973,12 @@ mqtt:
     - name: "Grid Import Energy"
       unique_id: alpha2mqtt_grid_meter_r_total_energy_consumed_from_grid_1
       state_topic: "Alpha2MQTT/state/minute/one"
-      value_template: "{{ value_json.REG_GRID_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1 | default(None) }}"
+      value_template: >-
+        {%- set v = value_json.REG_GRID_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1 | default(None) | float(None) -%}
+        {%- set p = this.state | float(None) -%}
+        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- elif p is not none -%}{{ p }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
@@ -955,7 +991,12 @@ mqtt:
     - name: "PV Meter Export Energy"
       unique_id: alpha2mqtt_pv_meter_r_total_energy_feed_to_grid_1
       state_topic: "Alpha2MQTT/state/minute/one"
-      value_template: "{{ value_json.REG_PV_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1 | default(None) }}"
+      value_template: >-
+        {%- set v = value_json.REG_PV_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1 | default(None) | float(None) -%}
+        {%- set p = this.state | float(None) -%}
+        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- elif p is not none -%}{{ p }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing
@@ -968,7 +1009,12 @@ mqtt:
     - name: "PV Meter Import Energy"
       unique_id: alpha2mqtt_pv_meter_r_total_energy_consumed_from_grid_1
       state_topic: "Alpha2MQTT/state/minute/one"
-      value_template: "{{ value_json.REG_PV_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1 | default(None) }}"
+      value_template: >-
+        {%- set v = value_json.REG_PV_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1 | default(None) | float(None) -%}
+        {%- set p = this.state | float(None) -%}
+        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- elif p is not none -%}{{ p }}
+        {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
       device_class: energy
       state_class: total_increasing

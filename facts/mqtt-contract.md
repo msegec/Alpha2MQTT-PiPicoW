@@ -2,7 +2,7 @@
 
 Every topic between the Pico firmware and Home Assistant, who writes and reads it, and what the HA package wires up.
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup. Method: read and grep only; nothing was run against MQTT or hardware.
+Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup; package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
 
 ## Ground rules
 
@@ -98,9 +98,15 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
   like `sensor.alpha2mqtt_grid_power_fast` (guess, from HA naming).
 - `expire_after`: 60 s on ten second sensors, 300 s on minute and device sensors, 10800 s on hour sensors,
   10 s on fast sensors. Fast sensors have no `state_class`, so they keep no long term statistics.
-- Energy totals use `state_class: total_increasing` for the Energy dashboard.
+- Energy totals use `state_class: total_increasing` for the Energy dashboard. All eight keep `this.state`
+  when the new value is missing, 0, lower, or more than 100 kWh higher. On 2026-10-21 one 0 and one value
+  copied from another register each booked over 6000 kWh into the battery statistics. Why the firmware
+  published them is unknown.
 - Response sensors take `value_json.responseStatus` as state and the whole JSON as attributes.
-- The only template math: PV Meter Power and PV Meter Power Fast keep `this.state` when the key is missing,
+- Inverter Power maps 32768..65535 to negative: the inverter fills only the low word of 0x0406 with a
+  signed 16-bit value (62511 read while charging 3025 W; inferred from values, not seen on the wire).
+- Battery SOH reads 0 on the SMILE-B3 always, so 0 becomes unknown.
+- PV Meter Power and PV Meter Power Fast keep `this.state` when the key is missing,
   for at most 60 s and 10 s. Reason in the comment and in 70fe0e2: an unavailable PV meter takes the net demand,
   and with it the controller, down.
 - Pico VSYS: `vsys_mv / 1000`, rounded to 2 places, in V. Pico USB Power: `ON` when `usb_power` is true.
