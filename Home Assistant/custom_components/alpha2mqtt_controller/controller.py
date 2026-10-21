@@ -19,6 +19,7 @@ from homeassistant.helpers.event import async_call_later, async_track_state_chan
 from homeassistant.util import dt as dt_util
 
 from .regulator import FIXED, HOLD, REGULATE, RELEASE, Command, Policy, Regulator, estimate_grid
+from .response import ResponseMonitor
 from .steplog import StepLog, file_name
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,6 +119,9 @@ class Controller:
         self._gaps: set[str] = set()  # inputs missing now, logged the same way
         self._unknown_policy_reason = ""  # the policy state the controller does not know, logged once per value
         self._good_policy: tuple[float, Policy] = (float("-inf"), Policy(RELEASE))
+        self._response = ResponseMonitor()
+        self.last_response: dict | None = None  # the last step response timed out or reached, not cancelled
+        self._slow: tuple[object, int] = (None, 0)  # local date, slow responses on it
 
     @property
     def status(self) -> str:
@@ -128,6 +132,21 @@ class Controller:
         while self._sent_times and time.monotonic() - self._sent_times[0] > 3600:
             self._sent_times.popleft()
         return len(self._sent_times)
+
+    @property
+    def slow_responses_today(self) -> int:
+        day, count = self._slow
+        return count if day == dt_util.now().date() else 0
+
+    def _responses(self, records: list[dict]) -> None:
+        for record in records:
+            self._log("resp", **record)
+            if record["result"] == "cancelled":
+                continue
+            self.last_response = record
+            if record["slow"]:
+                self._slow = (dt_util.now().date(), self.slow_responses_today + 1)
+                _LOGGER.warning("Battery controller step response slow: %s", record)
 
     def add_listener(self, update: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(update)
@@ -310,6 +329,7 @@ class Controller:
             self._soc = float(data[SOC_KEY])
         except (KeyError, TypeError, ValueError):
             self._soc = None  # a failed read is left out of the message; the regulator keeps the last
+        self._responses(self._response.sample(t_seen, battery))
         self._log_step(data, t_seen, self._measure(fresh=True))
 
     def _log_step(self, data: dict, t_seen: float, cmd: Command | None) -> None:
@@ -469,6 +489,8 @@ class Controller:
         self.last_command, self.last_sent, self.last_seq = cmd, dt_util.utcnow(), seq
         self._sent_mono = {seq: time.monotonic()}
         self._sent_times.append(time.monotonic())
+        self._responses(self._response.command(
+            time.monotonic(), None if cmd.kind == "normal" else cmd.signed_w, self._battery_w))
         self._notify()
 
     @callback

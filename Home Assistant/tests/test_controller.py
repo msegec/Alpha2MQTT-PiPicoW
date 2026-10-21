@@ -186,7 +186,7 @@ class House:
         self.t = 0.0
         self.seq = 0
         monkeypatch.setattr(C.time, "monotonic", lambda: self.t)
-        monkeypatch.setattr(C, "dt_util", types.SimpleNamespace(utcnow=lambda: NOW))
+        monkeypatch.setattr(C, "dt_util", types.SimpleNamespace(utcnow=lambda: NOW, now=lambda: NOW))
         self.mqtt = sys.modules["homeassistant.components"].mqtt
         self.mqtt.async_publish = AsyncMock()
         self.timers = []
@@ -539,3 +539,28 @@ def test_a_command_superseded_before_its_publish_is_dropped():
     asyncio.run(c._publish(normal))
     asyncio.run(c._publish(charge))
     assert [call.args[1].rsplit("/", 1)[1] for call in mqtt.async_publish.call_args_list] == ["normal"]
+
+
+def stepped_house(monkeypatch, plant, seconds=40):
+    """2 kW of house load with the battery at 100 W: the controller steps the discharge up by about 1.9 kW."""
+    house = logged_house(monkeypatch)
+    house.set("sensor.net_demand", "2000")
+    battery = 100.0
+    for _ in range(seconds):
+        house.second(REG_BATTERY_HOME_R_BATTERY_POWER=battery)
+        battery = plant(battery, house.c.last_command.signed_w)
+    return house
+
+
+def test_a_fast_step_response_is_logged_and_not_counted_slow(monkeypatch):
+    house = stepped_house(monkeypatch, lambda b, t: b + max(-650, min(650, t - b)))
+    (resp,) = house.log.kind("resp")
+    assert resp["result"] == "ok" and resp["t80_s"] <= 3
+    assert house.c.last_response["t80_s"] == resp["t80_s"] and house.c.slow_responses_today == 0
+
+
+def test_a_9_w_per_s_step_response_is_counted_slow(monkeypatch):
+    house = stepped_house(monkeypatch, lambda b, t: min(t, b + 9))
+    (resp,) = house.log.kind("resp")
+    assert resp["result"] == "timeout" and resp["slow"]
+    assert house.c.slow_responses_today == 1
