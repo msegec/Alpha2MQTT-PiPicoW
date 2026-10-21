@@ -4,7 +4,7 @@ It allows full remote control of the inverter and can report various information
 
 Communication with Alpha2MQTT is via MQTT and can be driven by home integration solutions such as Home Assistant, Node-Red and anything else which is MQTT compatible.
 
-It's designed to run on an ESP8266 microcontroller with a TTL to RS485 module such as the MAX3485.
+It runs on a Raspberry Pi Pico W with a TTL to RS485 module such as the MAX3485.
 
 Alpha2MQTT honours AlphaESS Modbus documentation:
 https://www.alpha-ess.de/images/downloads/handbuecher/AlphaESS-Handbuch_SMILE_ModBus_RTU_TCP_V2.pdf
@@ -37,18 +37,15 @@ A register is an address on the inverter which holds a piece of information.  Fo
 Configuration:
 ==============
 Configure Alpha2MQTT by opening up Definitions.h and verifying/customising the following definitions for your need:
-- Set your inverter (delete the //) between lines 25-28 and ensure the rest are commented out by adding //.
-- Set your WiFi Access Point name on line 32.
-- Set your WiFi password on line 33.
-- Set your MQTT broker server on line 36.
-- Set your MQTT broker port on line 37.  (Default is 1883)
-- Set your MQTT username on line 38 if you use security (you should) or leave it blank.
-- Set your MQTT password on line 39 if you use security (again, you should) or leave it blank.
-- Set your Alpha2MQTT device name on line 43.  This is the device name presented on your network and is also how MQTT topics begin.  This document assumes Alpha2MQTT.
-- Set your AlphaESS inverter's slave id on line 46.  By default this is 0x55 and shouldn't need changing unless you've changed it via Modbus or via inverters which have an integrated display.  Don't change it.
-- Set your maximum payload size on line 54.  ESP8266's work well with 4096 bytes which is enough for 70 to 80 registers on any schedule or request.
-- Set whether the device should auto restart every so many hours.  This is for specific routers only.  Uncomment line 70 if you want to use this feature
-- Set the number of hours for an automatic restart on line 71
+- Copy Secrets.example.h to Secrets.h. Git ignores Secrets.h, so your credentials stay out of commits.
+- In Secrets.h set your WiFi name and password, MQTT broker server and port (default 1883).
+- Set your MQTT username and password in Secrets.h if you use security (you should), or leave the username blank to connect without credentials.
+- Set OTA_PASSWORD in Secrets.h to a long random string. It guards firmware uploads over WiFi.
+- Set your Alpha2MQTT device name in DEVICE_NAME.  This is the device name presented on your network and is also how MQTT topics begin.  This document assumes Alpha2MQTT.
+- Set your AlphaESS inverter's slave id in ALPHA_SLAVE_ID.  By default this is 0x55 and shouldn't need changing unless you've changed it via Modbus or via inverters which have an integrated display.  Don't change it.
+- Set your maximum payload size in MAX_MQTT_PAYLOAD_SIZE.  4096 bytes is enough for 70 to 80 registers on any schedule or request.
+- Set whether the device should auto restart every so many hours.  This is for specific routers only.  Uncomment FORCE_RESTART if you want to use this feature
+- Set the number of hours for an automatic restart in FORCE_RESTART_HOURS
 
 States:
 =======

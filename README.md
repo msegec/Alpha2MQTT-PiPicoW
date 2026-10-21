@@ -4,9 +4,9 @@
 _**NEW!** For a complete accompanying guide to integrating your Alpha2MQTT with Home Assistant on a Raspberry Pi or Virtual Machine, check [here](https://github.com/dxoverdy/Integrating-Alpha2MQTT-with-Home-Assistant)._
 
 ### About this fork
-This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) that runs on a Raspberry Pi Pico W and is driven by a Home Assistant controller. Fork version 1.29, 21 October 2026, on top of upstream v1.27 (June 2024). The changes are listed in [Version Changes/1-28.txt](Version%20Changes/1-28.txt) and [Version Changes/1-29.txt](Version%20Changes/1-29.txt) and summarised here:
+This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) that runs on a Raspberry Pi Pico W and is driven by a Home Assistant controller. Fork version 1.29, 21 October 2026, on top of upstream v1.27 (June 2024). The changes are summarised here:
 
-- **Pico W build target.** `MP_PICOW` in Definitions.h, UART0 on GP0 and GP1, the display on GP4 and GP5, built with arduino-pico 6.2.0. ESP8266 and ESP32 still build. See [Steps](#steps).
+- **Pico W only.** UART0 on GP0 and GP1, built with arduino-pico 6.2.0. Upstream's other boards and its display are gone. See [Steps](#steps).
 - **Credentials in Secrets.h.** WiFi, MQTT and the OTA password live in a gitignored `Secrets.h`, copied from `Secrets.example.h`, instead of Definitions.h. An empty MQTT username connects without credentials.
 - **Over the air updates.** Password protected ArduinoOTA on the Pico W, with `scripts/ota-upload` to build and send a new image over WiFi. USB is only needed for the first flash.
 - **A fast state every second.** `Alpha2MQTT/state/fast` carries grid power, PV power, battery power, SOC and dispatch start with a sequence number and timing, for a closed loop controller. See [States](#states).
@@ -20,9 +20,9 @@ This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) 
 - **Modbus exceptions reported.** A five byte exception reply is reported as a slave error instead of a timeout.
 - **SMILE-B3 settings writes.** The settings block `0x084F` to `0x0859` only takes a write while the matching bit of the time period control flag is set. The rule and the write sequence are under [Write Raw Data Register](#write-raw-data-register).
 - **Home Assistant package.** `Home Assistant/alpha2mqtt.yaml` defines MQTT sensors for every state topic, ready for the Energy dashboard, in place of the upstream dashboard guide.
-- **Battery controller for Home Assistant.** `Home Assistant/custom_components/alpha2mqtt_controller` is a custom integration that regulates the battery against the grid reading in the fast state, sending `set/charge` and `set/discharge` with a seq every few seconds. A policy entity says what is allowed (release, hold, fixed, or regulate within charge and discharge limits and an SOC target; `both: true` with `other_soc` allows the other direction too, so a load edge turns the battery round in the next step), and the regulator chooses the watts. A correction entity rendered from the fast state can carry the message's `seq` as an attribute; the controller then steps each sample on the correction rendered from it, waiting up to 0.5 s and then taking the value it has. Without the attribute it steps at once, as before. A reading or policy that drops out for a moment, as in a template reload, holds the last command; after Stale after (30 s) with no good reading or policy it hands the inverter back. A policy state it does not know, anything but charge, discharge, hold or normal, releases the inverter and the Status sensor says why, as `released: unknown policy state 'boost'`; the warning is logged once per value. A refused write, or one with no response within 10 s from firmware that echoes `seq`, is sent again in full after the minimum interval, and so is a failed `set/normal`. A release at start sends `set/normal` once, in case a crash left a lease running. Within 1.5 % above the policy's discharge SOC, read from the fast state, it holds the battery at 0 W instead of asking for a discharge the inverter refuses a little above its floor, until the SOC rises or the limit drops; it does the same for a minute when a discharge over 200 W draws under 30 W for 20 s, whatever the SOC says. Charging, and the turn to charge under `both`, still go through. At the charge SOC it holds 0 W the same way instead of asking a full battery to charge, so the surplus it cannot store does not wind the integral. 0 W goes out in the running block's kind, so idling between loads never costs a block write. The integral waits, for up to 15 s, while the battery is more than 100 W short of the last setpoint: that gap is the inverter on its way, not an error to trim. A battery past the setpoint, such as a DC reading over an AC setpoint, is a steady offset and is trimmed. Power write gap, 0 by default, turns on power-only writes: above 0 a power change in the running block is sent with `powerOnly`, and after the firmware acks one as `"write": "power"` the next command may follow that long after it instead of waiting the minimum interval. Keepalives, new kinds and new SOCs still write the whole block, and older firmware just writes the block every time. Keep warm, 0 by default, is for an inverter that starts a discharge slowly: above 0 the battery holds that many watts of discharge instead of idling or trickle charging, so the next load step comes from a running discharge; a surplus over 50 W is still stored, and a surplus that goes out anyway, because it cannot be stored or the turn round holds it under the margin, is not added to. Sensors Limit (what holds the output: floor, refused, full, warm, a cap, turn_round or none), Battery, Sent and Integral are recorded, so history shows why the grid sits off target. Set it up from the integrations page or import it from YAML; Configure on the integration shows the same form filled in, and saving it reloads the controller, so a changed entity or topic takes effect without a restart. The tuning numbers are entities and change at once. The core in `regulator.py` is pure Python.
+- **Battery controller for Home Assistant.** `Home Assistant/custom_components/alpha2mqtt_controller` is a custom integration that regulates the battery against the grid reading in the fast state, sending `set/charge` and `set/discharge` with a seq every few seconds. A policy entity says what is allowed (release, hold, fixed, or regulate within charge and discharge limits and an SOC target; `both: true` with `other_soc` allows the other direction too, so a load edge turns the battery round in the next step), and the regulator chooses the watts. A correction entity rendered from the fast state can carry the message's `seq` as an attribute; the controller then steps each sample on the correction rendered from it, waiting up to 0.5 s and then taking the value it has. Without the attribute it steps at once, as before. A reading or policy that drops out for a moment, as in a template reload, holds the last command; after Stale after (30 s) with no good reading or policy it hands the inverter back. A policy state it does not know, anything but charge, discharge, hold or normal, releases the inverter and the Status sensor says why, as `released: unknown policy state 'boost'`; the warning is logged once per value. A refused write, or one with no response within 10 s from firmware that echoes `seq`, is sent again in full after the minimum interval, and so is a failed `set/normal`. A release at start sends `set/normal` once, in case a crash left a lease running. Within 1.5 % above the policy's discharge SOC, read from the fast state, it holds the battery at 0 W instead of asking for a discharge the inverter refuses a little above its floor, until the SOC rises or the limit drops; it does the same for a minute when a discharge of 100 W or more draws under 30 W for 20 s, whatever the SOC says, and within 3 % of the discharge SOC until the SOC rises 1 % or the limit changes. Charging, and the turn to charge under `both`, still go through. At the charge SOC it holds 0 W the same way instead of asking a full battery to charge, so the surplus it cannot store does not wind the integral. 0 W goes out in the running block's kind, so idling between loads never costs a block write. The integral waits, for up to 15 s, while the battery is more than 100 W short of the last setpoint: that gap is the inverter on its way, not an error to trim. A battery past the setpoint, such as a DC reading over an AC setpoint, is a steady offset and is trimmed. Power write gap, 0 by default, turns on power-only writes: above 0 a power change in the running block is sent with `powerOnly`, and after the firmware acks one as `"write": "power"` the next command may follow that long after it instead of waiting the minimum interval. Keepalives, new kinds and new SOCs still write the whole block, and older firmware just writes the block every time. Keep warm, 0 by default, is a ready floor for an inverter that starts a discharge slowly: above 0, while a discharge that big is allowed, the command never goes under that many watts of discharge, so the battery never idles and the next load step comes from a running discharge. Idle, a smaller discharge or a charge under 50 W is lifted to the floor; only a bigger surplus the battery can store takes it into a charge. A surplus it cannot store, or one the turn round holds under the margin, goes out with the floor on top, so a little is exported. Out of a charge the floor waits out the turn round dwell, and a rise to the floor is sent however small. Sensors Limit (what holds the output: floor, refused, full, warm, a cap, turn_round or none), Battery, Sent and Integral are recorded, so history shows why the grid sits off target. Set it up from the integrations page or import it from YAML; Configure on the integration shows the same form filled in, and saving it reloads the controller, so a changed entity or topic takes effect without a restart. The tuning numbers are entities and change at once. The core in `regulator.py` is pure Python.
 - **Controller step log.** The controller writes one JSON line per record to `<config>/alpha2mqtt_controller/<base topic>.jsonl`, or to the Step log directory option. Each line has `k`, its kind, and `t`, Unix time. `step`: one per fast message, enabled or not, with the firmware's `seq`, `ms`, `read_ms`, `grid`, `pv`, `battery`, `soc` and `dispatch`, then the controller's `status`, `grid_w` estimate, `load_w`, `error_w`, `integral_w`, `ff_w`, `request_w`, `output_w`, `wait_ms` spent waiting for the correction, and `sent`, the command it sent or null. `cmd`: every message on `<base>/request/#`, as `topic` and raw payload `p`, so writes by hand show too. `ack`: every set response, the same way. `e`: an entity from the Entities to log option on every change, as `e`, state `s` and attributes `a`. `cfg`: every tuning setting, at start and on each change. `gap`: an input going missing or coming back, as `what` and `missing`, or a policy state the controller does not know, as `what: policy state` with its `reason`. `start` and `stop`. At local midnight the day's file is gzipped to `<file>.YYYY-MM-DD.gz` and the newest 400 are kept. A restart appends; a file left from an earlier day rolls over on the first write.
-- **Host tests.** `tests/firmware/run` builds the pure helpers in `Dispatch.h`, `Timer.h`, `ModbusFrame.h`, `PvMeter.h` and `IdleHold.h` with the system compiler and checks them without hardware. `python3 -m pytest "Home Assistant/tests"` checks the controller's regulator, response handling and step log.
+- **Host tests.** `tests/firmware/run` builds the pure helpers in `Dispatch.h`, `Timer.h`, `ModbusFrame.h`, `PvMeter.h`, `IdleHold.h` and `JsonMembers.h` with the system compiler and checks them without hardware. `python3 -m pytest "Home Assistant/tests"` checks the controller's regulator, response handling and step log.
 
 Commands, topics and JSON are otherwise unchanged from upstream, so its documentation below applies.
 
@@ -48,7 +48,7 @@ It allows full remote control of the inverter (i.e. forcibly charge the battery 
 
 Communication with Alpha2MQTT is via MQTT and can be driven by home integration solutions such as [Home Assistant](https://www.home-assistant.io/), [Node-Red](https://nodered.org/) and anything else which is MQTT compatible.
 
-It's designed to run on an ESP8266, ESP32 or Raspberry Pi Pico W microcontroller (upstream was developed on a Wemos D1 mini, this fork on a Pico W) with a TTL to RS485 module such as the MAX3485.
+It runs on a Raspberry Pi Pico W with a TTL to RS485 module such as the MAX3485.
 
 Alpha2MQTT honours 1.23 AlphaESS Modbus documentation:
 
@@ -73,7 +73,7 @@ Alpha2MQTT/state/hour/one
 Alpha2MQTT/state/day/one
 ```
 
-On a Pico W, Alpha2MQTT also publishes its own supply every minute to `Alpha2MQTT/state/device`: VSYS in millivolts and whether USB power is present, for example `{"vsys_mv": 4870, "usb_power": false}`. Use it to watch a battery feeding VSYS.
+Alpha2MQTT also publishes its own supply every minute to `Alpha2MQTT/state/device`: VSYS in millivolts and whether USB power is present, for example `{"vsys_mv": 4870, "usb_power": false}`. Use it to watch a battery feeding VSYS.
 
 `Alpha2MQTT/state/fast` is for a controller such as a Home Assistant automation. Every second Alpha2MQTT reads grid power, PV meter power, battery power, SOC and dispatch start back to back and publishes them straight away, with the same keys as the ten second schedule plus four of its own:
 ```
@@ -610,28 +610,16 @@ calcCRC by angelo.compagnucci@gmail.com and jpmzometa@gmail.com
 
 # How To Build
 ## Parts List
-1. ESP8266 or ESP32 Microcontroller
+1. Raspberry Pi Pico W
 
 2. MAX3485 or MAX485 TTL to RS485 board*
 
-3. Wemos 64x48 OLED Screen (optional)
+3. A small project board
 
-4. A small project board
-
-5. A few wires and a little solder
+4. A few wires and a little solder
 
 
-*The MAX3485 (red) is preferred as it is much more stable because it uses 3.3v logic, just like the ESP8366. The MAX485 (blue) uses 5v logic but is somewhat tolerant of 3.3v and is generally cheaper and more widely available.  I use a MAX3485 and I recommend you do too.  MAX3485 boards do not have DR and RE flow control pins, so there are two circuit diagrams below to show wiring of each.
-
-![D1 Mini](Pics/D1mini.png)
-
-I bought [this D1 mini](https://www.ebay.co.uk/itm/363891216533)
-
-
-![OLED Shield](Pics/OLEDShield.png)
-
-I bought [this OLED shield](https://www.ebay.co.uk/itm/313603433730?var=612417201805)
-
+*The MAX3485 (red) is preferred as it is much more stable because it uses 3.3v logic, just like the Pico W. The MAX485 (blue) uses 5v logic but is somewhat tolerant of 3.3v and is generally cheaper and more widely available.  I use a MAX3485 and I recommend you do too.  MAX3485 boards do not have DR and RE flow control pins; the wiring below covers both.
 
 ![Prototyping Board](Pics/PrototypingBoard.png)
 
@@ -649,42 +637,7 @@ For wire I suggest you strip a standard network cable and use wires from that.  
 
 ## Steps
 ### Cut the project board to a convenient size if you like.  I kept mine at 5cm x 7cm
-### Wire the components according to the appropriate MAX3485 / MAX485 circuit diagram.
-
-![WiringDiagramMAX3485](Pics/MAX3485Circuit.PNG)
-
-![WiringDiagramMAX485](Pics/MAX485Circuit.PNG)
-
-D5 is the serial control pin for devices with DR and RE flow control pins, or devices with an EN flow control pin.  If using devices with DR and RE pins, connect them both to D5.
-
-D6 is the receiving pin on the D1 mini.  It connects to the transmitting TXD pin on the 3845 or RO on the 845.
-
-D7 is the transmitting pin on the D1 mini.  It connects to the receiving RXD pin on the 3845 or DI on the 845.
-
-If using the 845, you may want to invest in a 3.3V -> 5V bi directional logic shifter in-between D5, D6 and D7 so that output from those pins is lifted to 5V to be in tolerance of the 845 and likewise, 5V reduced back to 3.3V for input.  If you do use a logic shifter 5V would be used to power the 845, not 3.3V. 
-
-Use long pinned headers on your ESP8266 (D1 mini) if you are stacking the optional OLED on top. Trim the legs so they fit comfortably into the sockets on the circuit board below.
-
-I don't recommend soldering the anything permenantly to the prototyping board, besides headers and wiring.  This way, if you want to transfer the boards elsewhere it is just a case of unplugging them.
-
-
-If you are using an ESP32, I am going to assume you are a little more advanced and just provide you with pin mappings below:
-
-Display to ESP32
-3.3v to 3.3v
-GND to GND
-SCL to SCL (GPIO22)
-SDA to SDA (GPIO21)
-
-MAX to ESP32
-3.3v to 3.3v
-GND to GND
-RX to TX2 (GPIO17)
-TX to RX2 (GPIO16)
-EN to GPIO33 (for devices with an EN flow control pin)
-DR+RE to GPIO33 (for devices with DR and RE flow control pins)
-
-If you are using a Raspberry Pi Pico W, select `MP_PICOW` in Definitions.h and use these pin mappings:
+### Wire the components to these pins.
 
 MAX3485 to Pico W
 VCC to 3V3 OUT (pin 36)
@@ -693,13 +646,15 @@ RXD to GP0 (pin 1, UART0 TX)
 TXD to GP1 (pin 2, UART0 RX)
 EN or DR+RE to GP2 (pin 4) (only for devices with flow control pins)
 
-Display to Pico W
-SDA to GP4 (pin 6)
-SCL to GP5 (pin 7)
+On the 845, DI goes where RXD does and RO where TXD does.  If using devices with DR and RE pins, connect them both to GP2.
 
-Build with [arduino-pico](https://github.com/earlephilhower/arduino-pico) 6.2.0 and the 1 MB sketch, 1 MB filesystem flash split. OTA updates stage the new image in that filesystem. The Wemos OLED library needs `pgmspace.h` included first on this core:
+If using the 845, you may want to invest in a 3.3V -> 5V bi directional logic shifter in-between GP0, GP1 and GP2 so that output from those pins is lifted to 5V to be in tolerance of the 845 and likewise, 5V reduced back to 3.3V for input.  If you do use a logic shifter 5V would be used to power the 845, not 3.3V.
+
+I don't recommend soldering the anything permenantly to the prototyping board, besides headers and wiring.  This way, if you want to transfer the boards elsewhere it is just a case of unplugging them.
+
+Build with [arduino-pico](https://github.com/earlephilhower/arduino-pico) 6.2.0 and the 1 MB sketch, 1 MB filesystem flash split. OTA updates stage the new image in that filesystem:
 ```
-arduino-cli compile --fqbn rp2040:rp2040:rpipicow:flash=2097152_1048576 --build-property "compiler.cpp.extra_flags=-include pgmspace.h" --output-dir out Alpha2MQTT
+arduino-cli compile --fqbn rp2040:rp2040:rpipicow:flash=2097152_1048576 --output-dir out Alpha2MQTT
 ```
 The first time, and whenever the flash split changes, flash over USB: hold BOOTSEL while plugging in the Pico W, then copy `out/Alpha2MQTT.ino.uf2` onto the RPI-RP2 drive.
 
@@ -719,43 +674,32 @@ If you are not comfortable soldering, appreciating the rather insignificant cost
 
 # Flashing
 ## Configuration
-Download the source files into a folder called Alpha2MQTT.  The source files needed are Alpha2MQTT.ino, Definitions.h, Dispatch.h, IdleHold.h, ModbusFrame.h, PvMeter.h, Secrets.example.h, Timer.h, RegisterHandler.cpp, RegisterHandler.h, RS485Handler.cpp, RS485Handler.h.
+Download the source files into a folder called Alpha2MQTT.  The source files needed are Alpha2MQTT.ino, Definitions.h, Dispatch.h, IdleHold.h, JsonMembers.h, ModbusFrame.h, PvMeter.h, Secrets.example.h, Timer.h, RegisterHandler.cpp, RegisterHandler.h, RS485Handler.cpp, RS485Handler.h.
 
 Configure Alpha2MQTT by opening up Definitions.h and verifying/customising the following definitions for your need:
 ```
-- Set your inverter (delete the //) between lines 25-28 and ensure the rest are commented out by adding //.
 - Copy Secrets.example.h to Secrets.h. Git ignores Secrets.h, so your credentials stay out of commits.
 - In Secrets.h set your WiFi name and password, MQTT broker server and port (default 1883).
 - Set your MQTT username and password in Secrets.h if you use security (you should), or leave the username blank to connect without credentials.
-- On a Pico W, set OTA_PASSWORD in Secrets.h to a long random string. It guards firmware uploads over WiFi.
-- Set your Alpha2MQTT device name on line 43.  This is the device name presented on your network and is also how MQTT topics begin.  This document assumes Alpha2MQTT.
-- Set your AlphaESS inverter's slave id on line 46.  By default this is 0x55 and shouldn't need changing unless you've changed it via Modbus or via inverters which have an integrated display.  Don't change it.
-- Set your maximum payload size on line 54.  ESP8266's work well with 4096 bytes which is enough for 70 to 80 registers on any schedule or request.
-- Set whether the device should auto restart every so many hours.  This is for specific routers only.  Uncomment line 70 if you want to use this feature
-- Set the number of hours for an automatic restart on line 71
+- Set OTA_PASSWORD in Secrets.h to a long random string. It guards firmware uploads over WiFi.
+- Set your Alpha2MQTT device name in DEVICE_NAME.  This is the device name presented on your network and is also how MQTT topics begin.  This document assumes Alpha2MQTT.
+- Set your AlphaESS inverter's slave id in ALPHA_SLAVE_ID.  By default this is 0x55 and shouldn't need changing unless you've changed it via Modbus or via inverters which have an integrated display.  Don't change it.
+- Set your maximum payload size in MAX_MQTT_PAYLOAD_SIZE.  4096 bytes is enough for 70 to 80 registers on any schedule or request.
+- Set whether the device should auto restart every so many hours.  This is for specific routers only.  Uncomment FORCE_RESTART if you want to use this feature
+- Set the number of hours for an automatic restart in FORCE_RESTART_HOURS
 ```
 
 ## Software Configuration
-### Drivers
-Download and install the [Wemos CH340 Driver](https://www.wemos.cc/en/latest/ch340_driver.html).
 ### Arduino IDE
 Download and install the [Arduino IDE](https://www.arduino.cc/en/software).
-### ESP8266 Libraries
-Once installed and set up, you'll need the libraries for the ESP8266. Follow [this guide](https://randomnerdtutorials.com/how-to-install-esp8266-board-arduino-ide/) if you haven't completed that step before.
+### Pico W board package
+Once installed and set up, add the [arduino-pico](https://github.com/earlephilhower/arduino-pico) board package, version 6.2.0.
 ### Other Libraries
-Add a few more libraries using the Tools / Manage Libraries menu:
-
-1. PubSubClient
-
-2. Adafruit GFX
-
-3. Adafruit SSD1306 Wemos Mini OLED
-
-(Even if you are not using the OLED screen, you should install the Adafruit libraries or it will not compile.)
+Add PubSubClient using the Tools / Manage Libraries menu...
 
 ...and upload.
 
-After uploading, you should see activity on your device.  Ideally it will connect to WiFi (confirming those details are right) and connect to MQTT (confirming those details are right) and you should be left with a screen which shows BAD-CRC-UR.  Congratulations.  Unplug from your computer and source a power supply for the same USB cable.
+After uploading, you should see activity on your device.  Ideally it will connect to WiFi (confirming those details are right) and connect to MQTT (confirming those details are right).  Congratulations.  Unplug from your computer and source a power supply for the same USB cable.
 
 ## Connecting to your AlphaESS
 You now need a suitable wire to connect to your AlphaESS system.  Luckily, all documented systems in the Modbus documentation indicate that it is a standard RJ45 (the same port you find on your broadband router) and my Smile B3 was no exception.
@@ -785,69 +729,13 @@ Connect the Alpha2MQTT unit to the 5v micro USB power supply you just found.  Co
 
 
 # Troubleshooting
-## Screen blank
-Make sure you solder all the pins on the OLED and ESP8266, not just those with wires attached.  
-
 ## No communication
 Check A+/B- are correct using your hybrid cable.  The colours used will always be a pair for shielding, so you could always try individual pairs one at a time, and if it doesn't work one way, swap them around and see if it works the other.
 
 Make sure the Slave IDs match.  Alpha systems use 0x55 by default but if you have changed it on an inverter with an on device interface, change the appropriate line in Definitions.h as documented above.
 
-# OLED Screen
-Here's what the various things on the OLED screen tell you:
-
-## Line 1
-Status bar.  It will display A2M in the top left corner, and in the top right will show a flashing asterisk (*) to indicate normal operations, will show a steady W when WiFi is connected and a steady M when MQTT is connected.
-
-## Lines 2, 3 and 4
-Current status, depending on what that status is.
-
-### Connecting to WiFi
-```
-Connecting
-WiFi...
-Version Number
-```
-
-### Connecting to MQTT
-```
-Connecting
-MQTT...
-Version Number
-```
-
-### Comms established with inverter
-```
-Hello
-Serial Number
-Serial Number Continued
-```
-
-### Normal Operation
-```
-Normal
-Battery Power (W) (-charging, +discharging)
-Battery SOC (%)
-```
-
-### Forced Charging Operation
-```
-Charging
-Battery Power (W) (-charging, +discharging)
-Battery SOC (%)
- ```
-
-### Forced Discharging Operation
-```
-Charging
-Battery Power (W) (-charging, +discharging)
-Battery SOC (%)
-```
-
-### CRC Errors
-If a message is read from the inverter that fails the CRC checksum, line 4 will display one of "BAD-CRC-UR" or "BAD-CRC-HB".  This could be caused by a loose or bad RS485 wire or by unsupported features. A few of these is normal, a lot could indicate a problem.
-
-During WiFi Connection and MQTT Connection phases, line 4 shows the Alpha2MQTT software version.  This fork shows v1.29. Check that you have the latest version at https://github.com/msegec/Alpha2MQTT-PiPicoW, or upstream at https://github.com/dxoverdy/Alpha2MQTT
+## Latest version
+Check that you have the latest version at https://github.com/msegec/Alpha2MQTT-PiPicoW, or upstream at https://github.com/dxoverdy/Alpha2MQTT
 
 ### Alpha2MQTTs Around The World
 If you have your own Alpha2MQTT, be sure to send me a picture of it in action so I can add it to this page!
@@ -880,7 +768,7 @@ MK from AU - Very much a minimalist build, but demonstrates that just two cheap 
 
 
 
-DC from UK - Built using an ESP32!  Thanks for your input regardings stubborn Smile 5 debugging!
+DC from UK - Thanks for your input regardings stubborn Smile 5 debugging!
 
 <img src="Pics/dc1.jpg" width="500"/>
 <img src="Pics/dc2.jpg" width="500"/>

@@ -21,14 +21,7 @@ Handles Modbus requests and responses in a tidy class separate from main program
 
 #include "Definitions.h"
 
-#if defined MP_ESP8266
-#include <SoftwareSerial.h>
-#elif defined MP_ESP32
-#include <HardwareSerial.h>
-#endif
-
-// SoftwareSerial is used to create a second serial port, which will be deidcated to RS485.
-// The built-in serial port remains available for flashing and debugging.
+// UART0 is dedicated to RS485. The USB serial port remains available for flashing and debugging.
 
 #define RS485_TX HIGH						// Transmit control pin goes high
 #define RS485_RX LOW						// Receive control pin goes low
@@ -36,31 +29,15 @@ Handles Modbus requests and responses in a tidy class separate from main program
 #define RS485_QUIET_MS 10					// A gap this long after a failed exchange means the line is clear
 #define RS485_DRAIN_MAX_MS 150				// About one 63 byte frame at 4800 baud
 
-#if defined MP_ESP8266
-#define SERIAL_COMMUNICATION_CONTROL_PIN D5	// Transmission set pin
-#define RX_PIN D6							// Serial Receive pin
-#define TX_PIN D7							// Serial Transmit pin
-#elif defined MP_ESP32
-#define SERIAL_COMMUNICATION_CONTROL_PIN 33	// Transmission set pin
-#define RX_PIN 16							// Serial Receive pin
-#define TX_PIN 17							// Serial Transmit pin
-#elif defined MP_PICOW
 #define SERIAL_COMMUNICATION_CONTROL_PIN 2	// GP2, transmission set pin
 #define RX_PIN 1							// GP1, UART0 RX
 #define TX_PIN 0							// GP0, UART0 TX
-#endif
 
 class RS485Handler
 {
 
 	private:
-#if defined MP_ESP8266
-		SoftwareSerial* _RS485Serial;
-#elif defined MP_ESP32
-		HardwareSerial* _RS485Serial;
-#elif defined MP_PICOW
 		SerialUART* _RS485Serial;
-#endif
 
 		char* _debugOutput;
 		void flushRS485();

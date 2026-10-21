@@ -26,19 +26,10 @@ RS485Handler::RS485Handler()
 	// Set pin 'LOW' for 'Receive' mode
 	//digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_RX);
 
-#if defined MP_ESP8266
-	_RS485Serial = new SoftwareSerial(RX_PIN, TX_PIN);
-	_RS485Serial->begin(DEFAULT_BAUD_RATE, SWSERIAL_8N1);
-#elif defined MP_ESP32
-	_RS485Serial = new HardwareSerial(2); // Serial 2 PIN16=RXgreen, pin17=TXwhite
-	_RS485Serial->begin(DEFAULT_BAUD_RATE, SERIAL_8N1, 16, 17);
-#elif defined MP_PICOW
 	_RS485Serial = &Serial1; // UART0 is a core-owned global, so it is borrowed, not allocated
 	_RS485Serial->setRX(RX_PIN);
 	_RS485Serial->setTX(TX_PIN);
 	_RS485Serial->begin(DEFAULT_BAUD_RATE, SERIAL_8N1);
-#endif
-	
 }
 
 /*
@@ -49,9 +40,6 @@ Disconnections, clean-up and what not
 RS485Handler::~RS485Handler()
 {
 	_RS485Serial->end();
-#if !defined MP_PICOW
-	delete _RS485Serial;
-#endif
 	_RS485Serial = NULL;
 }
 
@@ -418,14 +406,12 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 	{
 		result = modbusRequestAndResponseStatusValues::invalidFrame;
 		strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_FRAME_MQTT_DESC);
-		strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_FRAME_DISPLAY_DESC);
 		resp->dataSize = 0;
 	}
 	else if (inByteNumZeroIndexed == 0)
 	{
 		result = modbusRequestAndResponseStatusValues::noResponse;
 		strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_NO_RESPONSE_MQTT_DESC);
-		strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_NO_RESPONSE_DISPLAY_DESC);
 
 		// Debug output the frame?
 #ifdef DEBUG_OUTPUT_TX_RX
@@ -473,7 +459,6 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 		{
 			result = modbusRequestAndResponseStatusValues::responseTooShort;
 			strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_RESPONSE_TOO_SHORT_MQTT_DESC);
-			strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_RESPONSE_TOO_SHORT_DISPLAY_DESC);
 		}
 		else if (checkCRC(inFrame, inByteNumZeroIndexed + 1))
 		{
@@ -481,38 +466,32 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 			{
 				result = modbusRequestAndResponseStatusValues::unexpectedResponse;
 				strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_UNEXPECTED_RESPONSE_MQTT_DESC);
-				strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_UNEXPECTED_RESPONSE_DISPLAY_DESC);
 			}
 			else if (resp->functionCode == MODBUS_FN_WRITEDATAREGISTER)
 			{
 				result = modbusRequestAndResponseStatusValues::writeDataRegisterSuccess;
 				strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_WRITE_DATA_REGISTER_SUCCESS_MQTT_DESC);
-				strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_WRITE_DATA_REGISTER_SUCCESS_DISPLAY_DESC);
 			}
 			else if (resp->functionCode == MODBUS_FN_WRITESINGLEREGISTER)
 			{
 				result = modbusRequestAndResponseStatusValues::writeSingleRegisterSuccess;
 				strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_WRITE_SINGLE_REGISTER_SUCCESS_MQTT_DESC);
-				strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_WRITE_SINGLE_REGISTER_SUCCESS_DISPLAY_DESC);
 			}
 			else if (resp->functionCode == MODBUS_FN_READDATAREGISTER)
 			{
 				result = modbusRequestAndResponseStatusValues::readDataRegisterSuccess;
 				strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_READ_DATA_REGISTER_SUCCESS_MQTT_DESC);
-				strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_READ_DATA_REGISTER_SUCCESS_DISPLAY_DESC);
 			}
 			else
 			{
 				result = modbusRequestAndResponseStatusValues::slaveError;
 				strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_ERROR_MQTT_DESC);
-				strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_ERROR_DISPLAY_DESC);
 			}
 		}
 		else
 		{
 			result = modbusRequestAndResponseStatusValues::invalidFrame;
 			strcpy(resp->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_FRAME_MQTT_DESC);
-			strcpy(resp->displayMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_FRAME_DISPLAY_DESC);
 		}
 	}
 	

@@ -19,13 +19,9 @@ First, go and customise options at the top of Definitions.h!
 #include "ModbusFrame.h"
 #include "Timer.h"
 #include "IdleHold.h"
+#include "JsonMembers.h"
 #include <Arduino.h>
-#if defined MP_ESP8266
-#include <ESP8266WiFi.h>
-#elif defined MP_ESP32 || defined MP_PICOW
 #include <WiFi.h>
-#endif
-#if defined MP_PICOW
 #include <hardware/adc.h>
 #include <pico/cyw43_arch.h>
 #include <ArduinoOTA.h>
@@ -33,15 +29,7 @@ First, go and customise options at the top of Definitions.h!
 #error Set OTA_PASSWORD in Secrets.h, see Secrets.example.h
 #endif
 static_assert(sizeof(OTA_PASSWORD) > 1, "OTA_PASSWORD must not be empty, or anyone on the network can flash the Pico");
-#endif
 #include <PubSubClient.h>
-#include <SPI.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-
-// Device parameters
-char _version[6] = "v1.29";
 
 // WiFi parameters
 WiFiClient _wifi;
@@ -75,22 +63,6 @@ bool _blockFrameRefused = false;
 
 // Whether Home Assistant is gone, and the idle hold or its release last written. See holdIdleWhileHaGone.
 IdleHold _idleHold = {};
-
-// OLED variables
-struct displayReading
-{
-	bool ok;
-	int32_t value;
-	char displayMessage[OLED_CHARACTER_WIDTH];
-};
-displayReading _shownDispatchStart = {};
-displayReading _shownBatteryPower = {};
-displayReading _shownSoc = {};
-char _oledOperatingIndicator = '*';
-char _oledLine2[OLED_CHARACTER_WIDTH] = "";
-char _oledLine3[OLED_CHARACTER_WIDTH] = "";
-char _oledLine4[OLED_CHARACTER_WIDTH] = "";
-
 
 // RS485 and AlphaESS functionality are packed up into classes
 // to keep separate from the main program logic.
@@ -433,7 +405,6 @@ static const uint16_t _mqttAllHandledRegisters[] =
 #define STATUS_INTERVAL_FIVE_MINUTE 300000
 #define STATUS_INTERVAL_ONE_HOUR 3600000
 #define STATUS_INTERVAL_ONE_DAY 86400000
-#define UPDATE_STATUS_BAR_INTERVAL 500
 
 // Reconnects. setupWifi reissues WiFi.begin if still not connected after WIFI_RETRY_INTERVAL, and mqttReconnect
 // waits MQTT_RETRY_INTERVAL after a failed attempt. One attempt at the broker gives up on the TCP connect or a write
@@ -445,13 +416,6 @@ static const uint16_t _mqttAllHandledRegisters[] =
 #define MQTT_RETRY_INTERVAL 5000
 #define MQTT_CLIENT_TIMEOUT 2500
 #define MQTT_REPLY_TIMEOUT 2
-
-// Wemos OLED Shield set up. 64x48
-// Pins D1 D2 if ESP8266
-// Pins GPIO22 and GPIO21 (SCL/SDA) with optional reset on GPIO13 if ESP32
-Adafruit_SSD1306 _display(-1); // No RESET Pin
-
-
 
 
 /*
@@ -467,13 +431,10 @@ void setup()
 	bool gotResponse = false;
 	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
 	modbusRequestAndResponse response;
-	char baudRateString[10] = "";
 	int baudRateIterator = -1;
 
-#if defined MP_PICOW
 	// First, so a hang anywhere in setup reboots too. See feedWatchdog.
 	rp2040.wdt_begin(WATCHDOG_TIMEOUT);
-#endif
 
 	// Set up serial for debugging using an appropriate baud rate
 	// This is for communication with the development environment, NOT the Alpha system
@@ -483,30 +444,17 @@ void setup()
 
 	// Configure LED for output
 	pinMode(LED_BUILTIN, OUTPUT);
-	
-	// Wire.setClock(10000);
-
-	// Display time
-	_display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize OLED with the I2C addr 0x3C (for the 64x48)
-	_display.clearDisplay();
-	_display.display();
-	updateOLED(false, "", "", _version);
-
-
 
 	// Bit of a delay to give things time to kick in
 	delay(100);
 
 
-#if defined MP_PICOW
 	// Bound the join inside WiFi.begin, see WIFI_JOIN_TIMEOUT. Milliseconds, see WiFiClass::setTimeout.
 	WiFi.setTimeout(WIFI_JOIN_TIMEOUT);
-#endif
 
 	// Start WiFi. It connects in the background, see setupWifi.
 	setupWifi();
 
-#if defined MP_PICOW
 	// Start OTA before anything that can stall on the inverter, so a bad build can always be replaced.
 	// The image is staged in LittleFS, so build with a filesystem, see README.md.
 	ArduinoOTA.setHostname(DEVICE_NAME);
@@ -514,7 +462,6 @@ void setup()
 	// An upload takes longer than WATCHDOG_TIMEOUT. It reports progress after every chunk, at most about 6 s apart.
 	ArduinoOTA.onProgress([](unsigned int, unsigned int) { feedWatchdog(); });
 	ArduinoOTA.begin();
-#endif
 
 	// Configure MQTT to the address and port specified above
 	_mqtt.setServer(MQTT_SERVER, MQTT_PORT);
@@ -586,10 +533,6 @@ void setup()
 			baudRateIterator = 0;
 		}
 
-		// Update the display
-		sprintf(baudRateString, "%u", knownBaudRates[baudRateIterator]);
-
-		updateOLED(false, "Test Baud", baudRateString, "");
 #ifdef DEBUG
 		sprintf(_debugOutput, "About To Try: %u", knownBaudRates[baudRateIterator]);
 		Serial.println(_debugOutput);
@@ -605,7 +548,6 @@ void setup()
 			sprintf(_debugOutput, "Baud Rate Checker Problem: %s", response.statusMqttMessage);
 			Serial.println(_debugOutput);
 #endif
-			updateOLED(false, "Test Baud", baudRateString, response.displayMessage);
 
 			// Delay a while before trying the next
 			waitServicingOta(1000);
@@ -622,8 +564,6 @@ void setup()
 
 	// First try at MQTT. loop() keeps trying if WiFi or the broker is not there yet.
 	mqttReconnect();
-
-	updateOLED(false, "", "", _version);
 }
 
 
@@ -638,16 +578,11 @@ void loop()
 {
 	feedWatchdog();
 
-	// Refresh LED Screen, will cause the status asterisk to flicker
-	updateOLED(true, "", "", "");
-
 	// Make sure WiFi is good. Returns at once, connected or not.
 	setupWifi();
 
-#if defined MP_PICOW
 	// Takes over and reboots if an upload has been accepted. Only ever called between RS485 requests.
 	ArduinoOTA.handle();
-#endif
 
 	// make sure mqtt is still connected
 	if ((!_mqtt.connected()) || !_mqtt.loop())
@@ -661,8 +596,8 @@ void loop()
 	// Read and transmit the controller registers
 	sendFastState();
 
-	// Check and display the runstate on the display
-	updateRunstate();
+	// Flash the LED to show the loop is running
+	flashLed();
 
 	// Read and transmit all configured data to MQTT
 	sendData();
@@ -674,11 +609,7 @@ void loop()
 
 	if (checkTimer(&autoReboot, FORCE_RESTART_HOURS * 60 * 60 * 1000))
 	{
-#if defined MP_PICOW
 		rp2040.reboot();
-#else
-		ESP.restart();
-#endif
 	}
 #endif
 
@@ -705,11 +636,7 @@ is lost, or if still not joined after WIFI_RETRY_INTERVAL. A join whose DHCP is 
 // (cyw43_cb_tcpip_set_link_down), which is what cyw43_wifi_link_status reports. Reading it costs no bus time.
 static bool wifiJoined()
 {
-#if defined MP_PICOW
 	return cyw43_wifi_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_JOIN;
-#else
-	return WiFi.status() == WL_CONNECTED;
-#endif
 }
 
 void setupWifi()
@@ -733,9 +660,6 @@ void setupWifi()
 			Serial.print("WiFi connected, IP is");
 			Serial.print(WiFi.localIP());
 #endif
-
-			// Connected, so ditch out with blank screen
-			updateOLED(false, "", "", _version);
 		}
 		return;
 	}
@@ -761,7 +685,6 @@ void setupWifi()
 	sprintf(_debugOutput, "Connecting to %s", WIFI_SSID);
 	Serial.println(_debugOutput);
 #endif
-	updateOLED(false, "Connecting", "WiFi...", _version);
 
 	// Set up in Station Mode - Will be connecting to an access point
 	WiFi.mode(WIFI_STA);
@@ -805,9 +728,7 @@ void waitServicingOta(unsigned long ms)
 	{
 		feedWatchdog();
 		setupWifi();
-#if defined MP_PICOW
 		ArduinoOTA.handle();
-#endif
 		delay(10);
 	}
 }
@@ -821,132 +742,15 @@ or the fast state. The RS485 bus is idle here, so they can use it. Each builds i
 void serviceBetweenReads()
 {
 	feedWatchdog();
-#if defined MP_PICOW
 	ArduinoOTA.handle();
-#endif
 	_mqtt.loop();
 	sendFastState();
 }
 
 /*
-updateOLED
-
-Update the OLED. Use "NULL" for no change to a line or "" for an empty line.
-Three parameters representing each of the three lines available for status indication - Top line functionality fixed
-*/
-void updateOLED(bool justStatus, const char* line2, const char* line3, const char* line4)
-{
-	static unsigned long updateStatusBar = 0;
-
-
-	_display.clearDisplay();
-	_display.setTextSize(1);
-	_display.setTextColor(WHITE);
-	_display.setCursor(0, 0);
-
-	char line1Contents[OLED_CHARACTER_WIDTH];
-	char line2Contents[OLED_CHARACTER_WIDTH];
-	char line3Contents[OLED_CHARACTER_WIDTH];
-	char line4Contents[OLED_CHARACTER_WIDTH];
-
-	// Ensure only dealing with 10 chars passed in, and null terminate.
-	if (strlen(line2) > OLED_CHARACTER_WIDTH - 1)
-	{
-		strncpy(line2Contents, line2, OLED_CHARACTER_WIDTH - 1);
-		line2Contents[OLED_CHARACTER_WIDTH - 1] = 0;
-	}
-	else
-	{
-		strcpy(line2Contents, line2);
-	}
-
-
-	if (strlen(line3) > OLED_CHARACTER_WIDTH - 1)
-	{
-		strncpy(line3Contents, line3, OLED_CHARACTER_WIDTH - 1);
-		line3Contents[OLED_CHARACTER_WIDTH - 1] = 0;
-	}
-	else
-	{
-		strcpy(line3Contents, line3);
-	}
-
-
-	if (strlen(line4) > OLED_CHARACTER_WIDTH - 1)
-	{
-		strncpy(line4Contents, line4, OLED_CHARACTER_WIDTH - 1);
-		line4Contents[OLED_CHARACTER_WIDTH - 1] = 0;
-	}
-	else
-	{
-		strcpy(line4Contents, line4);
-	}
-
-	// Only update the operating indicator once per half second.
-	if (checkTimer(&updateStatusBar, UPDATE_STATUS_BAR_INTERVAL))
-	{
-		// Simply swap between space and asterisk every time we come here to give some indication of activity
-		_oledOperatingIndicator = (_oledOperatingIndicator == '*') ? ' ' : '*';
-	}
-
-	// There's ten characters we can play with, width wise.
-	sprintf(line1Contents, "%s%c%c%c", "A2M    ", _oledOperatingIndicator, (WiFi.status() == WL_CONNECTED ? 'W' : ' '), (_mqtt.connected() ? 'M' : ' ') );
-	_display.println(line1Contents);
-
-
-
-
-	// Next line
-
-	_display.setCursor(0, 12);
-	if (!justStatus)
-	{
-		_display.println(line2Contents);
-		strcpy(_oledLine2, line2Contents);
-	}
-	else
-	{
-		_display.println(_oledLine2);
-	}
-
-
-
-	_display.setCursor(0, 24);
-	if (!justStatus)
-	{
-		_display.println(line3Contents);
-		strcpy(_oledLine3, line3Contents);
-	}
-	else
-	{
-		_display.println(_oledLine3);
-	}
-
-	_display.setCursor(0, 36);
-	if (!justStatus)
-	{
-		_display.println(line4Contents);
-		strcpy(_oledLine4, line4Contents);
-	}
-	else
-	{
-		_display.println(_oledLine4);
-	}
-	// Refresh the display
-	_display.display();
-}
-
-
-
-
-
-
-
-
-/*
 getSerialNumber
 
-Display on load to demonstrate connectivty and send the prefix into RegisterHandler as
+Read on load to demonstrate connectivty and send the prefix into RegisterHandler as
 some system fault descriptions depend on knowing whether an AL based or AE based inverter.
 */
 modbusRequestAndResponseStatusValues getSerialNumber()
@@ -954,31 +758,18 @@ modbusRequestAndResponseStatusValues getSerialNumber()
 	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
 	modbusRequestAndResponse response;
 
-	char oledLine3[OLED_CHARACTER_WIDTH];
-	char oledLine4[OLED_CHARACTER_WIDTH];
-
 	// Get the serial number
 	result = _registerHandler->readHandledRegister(REG_SYSTEM_INFO_R_EMS_SN_BYTE_1_2, &response);
 
 
 	if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 	{
-		// strncpy doesn't null terminate.
-		strncpy(oledLine3, &response.dataValueFormatted[0], 10);
-		oledLine3[10] = 0;
-		strncpy(oledLine4, &response.dataValueFormatted[10], 5);
-		oledLine4[5] = 0;
-		updateOLED(false, "Hello", oledLine3, oledLine4);
 #ifdef DEBUG
 		sprintf(_debugOutput, "Alpha Serial Number: %s", response.dataValueFormatted);
 		Serial.println(_debugOutput);
 #endif
 
 		_registerHandler->setSerialNumberPrefix(response.dataValueFormatted[0], response.dataValueFormatted[1]);
-	}
-	else
-	{
-		updateOLED(false, "Alpha sys", "not known", "");
 	}
 
 	waitServicingOta(4000);
@@ -993,82 +784,19 @@ modbusRequestAndResponseStatusValues getSerialNumber()
 
 
 /*
-updateRunstate
+flashLed
 
-Determines a few things about the sytem and updates the display
-Things updated - Dispatch state discharge/charge, battery power, battery percent
+Flashes the LED once every RUNSTATE_INTERVAL, to show the loop is running.
 */
-void updateRunstate()
+void flashLed()
 {
-	
 	static unsigned long lastRun = 0;
-	modbusRequestAndResponse response;
-	modbusRequestAndResponseStatusValues request;
-
-	char runningMode[OLED_CHARACTER_WIDTH] = "Other";
-	char batteryPower[OLED_CHARACTER_WIDTH] = "";
-	char batterySOC[OLED_CHARACTER_WIDTH] = "";
-
-
 
 	if (checkTimer(&lastRun, RUNSTATE_INTERVAL))
 	{
-		//Flash the LED
 		digitalWrite(LED_BUILTIN, LOW);
 		delay(4);
 		digitalWrite(LED_BUILTIN, HIGH);
-
-
-		// Dispatch start, battery power and SOC come from the fast state, see keepForDisplay
-		if (!_shownDispatchStart.ok || !_shownBatteryPower.ok || !_shownSoc.ok)
-		{
-			updateOLED(false, "", "", !_shownDispatchStart.ok ? _shownDispatchStart.displayMessage : !_shownBatteryPower.ok ? _shownBatteryPower.displayMessage : _shownSoc.displayMessage);
-			return;
-		}
-
-		// Is Alpha2MQTT controlling the inverter?
-		if (_shownDispatchStart.value == DISPATCH_START_START)
-		{
-			// Yep, so get the mode.  And is it state of charge control or is the user using a different dispatch mode?
-			request = _registerHandler->readHandledRegister(REG_DISPATCH_RW_DISPATCH_MODE, &response);
-			bool socControl = request == modbusRequestAndResponseStatusValues::readDataRegisterSuccess && response.unsignedShortValue == DISPATCH_MODE_STATE_OF_CHARGE_CONTROL;
-			if (socControl)
-			{
-				// Yep, SOC, so determine if charging or charging by looking at power
-				request = _registerHandler->readHandledRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, &response);
-			}
-			if (request != modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
-			{
-#ifdef DEBUG
-				Serial.println(response.statusMqttMessage);
-#endif
-				updateOLED(false, "", "", response.displayMessage);
-				return;
-			}
-			if (socControl)
-			{
-				if (response.signedIntValue < 32000)
-				{
-					strcpy(runningMode, "Charge");
-				}
-				else if (response.signedIntValue > 32000)
-				{
-					strcpy(runningMode, "Discharge");
-				}
-				else
-				{
-					strcpy(runningMode, "Hold");
-				}
-			}
-		}
-		else
-		{
-			strcpy(runningMode, "Normal");
-		}
-
-		sprintf(batteryPower, "Bat:%dW", (int)_shownBatteryPower.value);
-		sprintf(batterySOC, "%0.02f%%", _shownSoc.value * 0.1);
-		updateOLED(false, runningMode, batteryPower, batterySOC);
 	}
 }
 
@@ -1101,7 +829,6 @@ void mqttReconnect()
 	Serial.print("Attempting MQTT connection...");
 #endif
 
-	updateOLED(false, "Connecting", "MQTT...", _version);
 	delay(100);
 
 	// One attempt takes up to MQTT_CLIENT_TIMEOUT plus MQTT_REPLY_TIMEOUT, so start it with a fresh watchdog
@@ -1134,9 +861,7 @@ void mqttReconnect()
 
 	if (subscribed)
 	{
-		// Connected, so ditch out with runstate on the screen
 		tried = false;
-		updateRunstate();
 		return;
 	}
 
@@ -1156,41 +881,12 @@ void mqttReconnect()
 
 
 /*
-keepForDisplay
-
-Keeps the latest dispatch start, battery power and SOC read by any schedule. The fast state reads all three
-every second, so updateRunstate shows them without reading them again.
-*/
-void keepForDisplay(uint16_t registerAddress, modbusRequestAndResponseStatusValues result, modbusRequestAndResponse& response)
-{
-	displayReading* kept;
-
-	switch (registerAddress)
-	{
-	case REG_DISPATCH_RW_DISPATCH_START:
-		kept = &_shownDispatchStart;
-		break;
-	case REG_BATTERY_HOME_R_BATTERY_POWER:
-		kept = &_shownBatteryPower;
-		break;
-	case REG_BATTERY_HOME_R_SOC:
-		kept = &_shownSoc;
-		break;
-	default:
-		return;
-	}
-
-	kept->ok = result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess;
-	kept->value = registerAddress == REG_BATTERY_HOME_R_BATTERY_POWER ? response.signedShortValue : response.unsignedShortValue;
-	strcpy(kept->displayMessage, response.displayMessage);
-}
-
-/*
 addStateInfo
 
-Query the handled register in the usual way, and add the cleansed output to the buffer
+Query the handled register in the usual way, and add the cleansed output to the buffer as a JSON member.
+A register that fails to read is left out. anyMember says whether one is in yet, see JsonMembers.h.
 */
-modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool addComma, modbusRequestAndResponseStatusValues& resultAddedToPayload)
+modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool& anyMember, modbusRequestAndResponseStatusValues& resultAddedToPayload)
 {
 	char stateAddition[128] = ""; // 128 should cover individual additions to the payload
 	char addQuote = false;
@@ -1199,7 +895,6 @@ modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool
 
 	// Read the register
 	result = _registerHandler->readHandledRegister(registerAddress, &response);
-	keepForDisplay(registerAddress, result, response);
 
 	if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 	{
@@ -1213,13 +908,7 @@ modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool
 		// Add a quote if the return data type is character or has been converted from lookup to description.
 		addQuote = (response.returnDataType == modbusReturnDataType::character || response.hasLookup);
 
-		sprintf(stateAddition, "    \"%s\": %s%s%s%s\r\n", response.mqttName, addQuote ? "\"" : "", response.dataValueFormatted, addQuote ? "\"" : "", addComma ? "," : "");
-
-		/*
-		ABC,
-		1234 LEN
-		0123
-		*/
+		sprintf(stateAddition, "%s    \"%s\": %s%s%s", jsonMemberSeparator(anyMember), response.mqttName, addQuote ? "\"" : "", response.dataValueFormatted, addQuote ? "\"" : "");
 
 		// Let the onward process also know if the buffer failed.
 		resultAddedToPayload = addToPayload(stateAddition);
@@ -1237,7 +926,7 @@ modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool
 
 
 
-modbusRequestAndResponseStatusValues addToPayload(char* addition)
+modbusRequestAndResponseStatusValues addToPayload(const char* addition)
 {
 	int targetRequestedSize = strlen(_mqttPayload) + strlen(addition);
 
@@ -1285,9 +974,7 @@ void sendData()
 	{
 		numberOfRegisters = sizeof(_mqttOneMinuteStatusRegisters) / sizeof(_mqttOneMinuteStatusRegisters[0]);
 		sendDataFromAppropriateArray(_mqttOneMinuteStatusRegisters, numberOfRegisters, DEVICE_NAME MQTT_MES_STATE_MINUTE_ONE);
-#if defined MP_PICOW
 		sendDeviceState();
-#endif
 	}
 
 	// Update all parameters and send to MQTT.
@@ -1312,7 +999,6 @@ void sendData()
 	}
 }
 
-#if defined MP_PICOW
 /*
 sendDeviceState
 
@@ -1346,7 +1032,6 @@ void sendDeviceState()
 	addToPayload(stateAddition);
 	sendMqtt(DEVICE_NAME MQTT_MES_STATE_DEVICE);
 }
-#endif
 
 /*
 sendFastState
@@ -1364,6 +1049,7 @@ void sendFastState()
 	char stateAddition[128];
 	char* interruptedPayload;
 	modbusRequestAndResponseStatusValues resultAddedToPayload;
+	bool anyMember = false;
 	int numberOfRegisters = sizeof(_mqttFastStatusRegisters) / sizeof(_mqttFastStatusRegisters[0]);
 
 	if (!checkTimer(&lastRun, STATUS_INTERVAL_FAST))
@@ -1380,13 +1066,13 @@ void sendFastState()
 	resultAddedToPayload = addToPayload("{\r\n");
 	for (int l = 0; l < numberOfRegisters && resultAddedToPayload == modbusRequestAndResponseStatusValues::addedToPayload; l++)
 	{
-		// Always a comma, the stamp below closes the object
-		addStateInfo(_mqttFastStatusRegisters[l], true, resultAddedToPayload);
+		addStateInfo(_mqttFastStatusRegisters[l], anyMember, resultAddedToPayload);
 	}
 
+	// The stamp is the last member and closes the object
 	if (resultAddedToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 	{
-		snprintf(stateAddition, sizeof(stateAddition), "    \"seq\": %lu,\r\n    \"ms\": %lu,\r\n    \"read_ms\": %lu,\r\n    \"haIdle\": %d\r\n}", ++seq, started, millis() - started, haGone(_idleHold) ? 1 : 0);
+		snprintf(stateAddition, sizeof(stateAddition), "%s    \"seq\": %lu,\r\n    \"ms\": %lu,\r\n    \"read_ms\": %lu,\r\n    \"haIdle\": %d\r\n}", jsonMemberSeparator(anyMember), ++seq, started, millis() - started, haGone(_idleHold) ? 1 : 0);
 		addToPayload(stateAddition);
 	}
 
@@ -1397,6 +1083,7 @@ void sendFastState()
 void sendDataFromAppropriateArray(const uint16_t* registerArray, int numberOfRegisters, char* topic)
 {
 	int	l = 0;
+	bool anyMember = false;
 
 	// For storing results
 	modbusRequestAndResponseStatusValues resultAddedToPayload;
@@ -1414,8 +1101,8 @@ void sendDataFromAppropriateArray(const uint16_t* registerArray, int numberOfReg
 	{
 		for (l = 0; l < numberOfRegisters; l++)
 		{
-			addStateInfo(registerArray[l], l < (numberOfRegisters - 1), resultAddedToPayload);
-			
+			addStateInfo(registerArray[l], anyMember, resultAddedToPayload);
+
 			if (resultAddedToPayload == modbusRequestAndResponseStatusValues::payloadExceededCapacity)
 			{
 				// If the response to addStateInfo is payload exceeded get out, We will permit failing registers to carry on and try the next one.
@@ -1430,7 +1117,7 @@ void sendDataFromAppropriateArray(const uint16_t* registerArray, int numberOfReg
 		if (resultAddedToPayload != modbusRequestAndResponseStatusValues::payloadExceededCapacity)
 		{
 			// Footer, if we haven't already bombed out with payload issues
-			resultAddedToPayload = addToPayload("}");
+			resultAddedToPayload = addToPayload(jsonObjectEnd(anyMember));
 		}
 
 		// And send
@@ -2064,12 +1751,14 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				uint16_t minPosition = startPosConverted;
 				uint16_t maxPosition = endPosConverted > numberOfRegisters - 1 ? numberOfRegisters - 1 : endPosConverted;
 
+				bool anyMember = false;
+
 				resultAddToPayload = addToPayload("{\r\n");
 				if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 				{
 					for (int l = minPosition; l <= maxPosition; l++)
 					{
-						result = addStateInfo(_mqttAllHandledRegisters[l], l < maxPosition, resultAddToPayload);
+						result = addStateInfo(_mqttAllHandledRegisters[l], anyMember, resultAddToPayload);
 						if (resultAddToPayload == modbusRequestAndResponseStatusValues::payloadExceededCapacity)
 						{
 							// If the response to addStateInfo is payload exceeded get out, We will permit failing registers to carry on and try the next one.
@@ -2079,7 +1768,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					if (resultAddToPayload != modbusRequestAndResponseStatusValues::payloadExceededCapacity)
 					{
 						// Footer, if we haven't already bombed out with payload issues
-						resultAddToPayload = addToPayload("}");
+						resultAddToPayload = addToPayload(jsonObjectEnd(anyMember));
 					}
 				}
 			}

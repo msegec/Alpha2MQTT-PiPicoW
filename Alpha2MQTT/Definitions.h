@@ -24,19 +24,6 @@ Customise these options as per README.txt.  Please read README.txt before contin
 #endif
 
 
-// Compiling for ESP8266, ESP32 or Raspberry Pi Pico W?
-//#define MP_ESP32
-//#define MP_ESP8266
-#define MP_PICOW
-#if (!defined MP_ESP8266) && (!defined MP_ESP32) && (!defined MP_PICOW)
-#error You must specify the microprocessor in use
-#endif
-
-#if ((defined MP_ESP8266) + (defined MP_ESP32) + (defined MP_PICOW)) > 1
-#error You must only select one microprocessor from the list
-#endif
-
-
 // If values for some registers such as voltage or temperatures appear to be out by a decimal place or two, try the following:
 // Documentation declares 1V - However Presume 0.1 as result appears to reflect this.  I.e. my voltage reading was 2421, * 0.1 for 242.1
 #define GRID_VOLTAGE_MULTIPLIER 0.1
@@ -67,17 +54,10 @@ Customise these options as per README.txt.  Please read README.txt before contin
 // If you need more than one Alpha2MQTT on your network, give them unique names.
 #define DEVICE_NAME "Alpha2MQTT"
 
-// If your OLED doesn't have an RST pin, set this to true.
-// An OLED Shield compatible with an ESP8266 does have a RESET pin and it is linked to GPIO0 if using an ESP8266.
-// If you are using the same OLED Shield with an ESP32, by default for this project it is linked to GIO13.
-//#define OLED_HAS_RST_PIN true
-
 // Default address of inverter is 0x55 as per Alpha Modbus documentation.  If you have altered it, reflect that change here.
 #define ALPHA_SLAVE_ID 0x55
 
-// The ESP8266 has limited memory and so reserving lots of RAM to build a payload and MQTT buffer causes out of memory exceptions.
 // 4096 works well given the RAM requirements of Alpha2MQTT.
-// If you aren't using an ESP8266 you may be able to increase this.
 // At 4096 (4095 usable) you can request up to around 70 to 80 registers on a schedule or by request.
 // Alpha2MQTT on boot will request a buffer size of (MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE) for MQTT, and
 // MAX_MQTT_PAYLOAD_SIZE for building payloads.  If these fail and your device doesn't boot, you can assume you've set this too high.
@@ -100,7 +80,7 @@ Customise these options as per README.txt.  Please read README.txt before contin
 #define WATCHDOG_TIMEOUT 8000
 inline void feedWatchdog()
 {
-#if defined MP_PICOW && defined ARDUINO
+#if defined ARDUINO
 	rp2040.wdt_reset();
 #endif
 }
@@ -941,25 +921,6 @@ enum modbusRequestAndResponseStatusValues
 #define MODBUS_REQUEST_AND_RESPONSE_UNEXPECTED_RESPONSE_MQTT_DESC "unexpectedResponse"
 
 
-#define MODBUS_REQUEST_AND_RESPONSE_PREPROCESSING_DISPLAY_DESC "PRE-PROC"
-#define MODBUS_REQUEST_AND_RESPONSE_NOT_HANDLED_REGISTER_DISPLAY_DESC "NOT-HANDL"
-#define MODBUS_REQUEST_AND_RESPONSE_INVALID_FRAME_DISPLAY_DESC "RSP-BADCRC"
-#define MODBUS_REQUEST_AND_RESPONSE_RESPONSE_TOO_SHORT_DISPLAY_DESC "RSP-SHORT"
-#define MODBUS_REQUEST_AND_RESPONSE_NO_RESPONSE_DISPLAY_DESC "NO-RSP"
-#define MODBUS_REQUEST_AND_RESPONSE_NO_DISPLAY_PAYLOAD_DISPLAY_DESC "NO-PAYLOAD"
-#define MODBUS_REQUEST_AND_RESPONSE_INVALID_DISPLAY_PAYLOAD_DISPLAY_DESC "INV-PAYLOA"
-#define MODBUS_REQUEST_AND_RESPONSE_WRITE_SINGLE_REGISTER_SUCCESS_DISPLAY_DESC "W-SR-SUC"
-#define MODBUS_REQUEST_AND_RESPONSE_WRITE_DATA_REGISTER_SUCCESS_DISPLAY_DESC "W-DR-SUC"
-#define MODBUS_REQUEST_AND_RESPONSE_READ_DATA_REGISTER_SUCCESS_DISPLAY_DESC "R-DR-SUC"
-#define MODBUS_REQUEST_AND_RESPONSE_ERROR_DISPLAY_DESC "SLA-ERROR"
-#define MODBUS_REQUEST_AND_RESPONSE_SET_DISCHARGE_SUCCESS_DISPLAY_DESC "SET-DI-SUC"
-#define MODBUS_REQUEST_AND_RESPONSE_SET_CHARGE_SUCCESS_DISPLAY_DESC "SET-CH-SUC"
-#define MODBUS_REQUEST_AND_RESPONSE_SET_NORMAL_SUCCESS_DISPLAY_DESC "SET-NO-SUC"
-#define MODBUS_REQUEST_AND_RESPONSE_PAYLOAD_EXCEEDED_CAPACITY_DISPLAY_DESC "PAYLOAD-ER"
-#define MODBUS_REQUEST_AND_RESPONSE_ADDED_TO_PAYLOAD_DISPLAY_DESC "ADDED-PAYL"
-#define MODBUS_REQUEST_AND_RESPONSE_NOT_VALID_INCOMING_TOPIC_DISPLAY_DESC "notValidIncomingTopic"
-#define MODBUS_REQUEST_AND_RESPONSE_UNCONFIRMED_ZERO_DISPLAY_DESC "ZERO-UNCNF"
-#define MODBUS_REQUEST_AND_RESPONSE_UNEXPECTED_RESPONSE_DISPLAY_DESC "RSP-OTHER"
 
 #define MAX_CHARACTER_VALUE_LENGTH 21
 #define MAX_MQTT_NAME_LENGTH 81
@@ -967,7 +928,6 @@ enum modbusRequestAndResponseStatusValues
 #define MAX_FORMATTED_DATA_VALUE_LENGTH 129
 #define MAX_DATA_TYPE_DESC_LENGTH 20
 #define MAX_FORMATTED_DATE_LENGTH 21
-#define OLED_CHARACTER_WIDTH 11
 
 
 // This is the request and return object for the sendModbus() function.
@@ -981,7 +941,6 @@ struct modbusRequestAndResponse
 	uint8_t functionCode = 0;
 
 	char statusMqttMessage[MAX_MQTT_STATUS_LENGTH] = MODBUS_REQUEST_AND_RESPONSE_PREPROCESSING_MQTT_DESC;
-	char displayMessage[OLED_CHARACTER_WIDTH] = MODBUS_REQUEST_AND_RESPONSE_PREPROCESSING_DISPLAY_DESC;
 
 	// These variables will be set by the sending process
 	char mqttName[MAX_MQTT_NAME_LENGTH] = "";

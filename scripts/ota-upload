@@ -24,5 +24,5 @@ fi
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
-"$cli" compile --fqbn "$fqbn" --build-property "compiler.cpp.extra_flags=-include pgmspace.h" --output-dir "$out" "$repo/Alpha2MQTT"
+"$cli" compile --fqbn "$fqbn" --output-dir "$out" "$repo/Alpha2MQTT"
 python3 "$espota" -i "$host" -p 2040 ${OTA_HOST_PORT:+-P "$OTA_HOST_PORT"} -a "$password" -f "$out/Alpha2MQTT.ino.bin" -r

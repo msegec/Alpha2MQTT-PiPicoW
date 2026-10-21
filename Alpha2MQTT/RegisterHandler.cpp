@@ -113,7 +113,6 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 		// Not a valid register we have written code to handle, do something here to prevent the send
 		result = modbusRequestAndResponseStatusValues::notHandledRegister;
 		strcpy(rs->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_NOT_HANDLED_REGISTER_MQTT_DESC);
-		strcpy(rs->displayMessage, MODBUS_REQUEST_AND_RESPONSE_NOT_HANDLED_REGISTER_DISPLAY_DESC);
 	}
 	else
 	{
@@ -342,7 +341,6 @@ modbusRequestAndResponseStatusValues RegisterHandler::readPvMeterPower(modbusReq
 		{
 			result = modbusRequestAndResponseStatusValues::unconfirmedZero;
 			strcpy(rs->statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_UNCONFIRMED_ZERO_MQTT_DESC);
-			strcpy(rs->displayMessage, MODBUS_REQUEST_AND_RESPONSE_UNCONFIRMED_ZERO_DISPLAY_DESC);
 		}
 	}
 	return result;
