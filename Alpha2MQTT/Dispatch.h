@@ -21,14 +21,14 @@ inline bool dispatchRequestValid(unsigned long watts, unsigned long socPercent)
 
 // The dispatch SOC register counts 0.4 % per bit. Round up, so a charge reaches at least the target
 // and a discharge stops at or above it. The inverter ends a charge two bits short of its target, so 100 %
-// (250) stops at 99.2 % and never lets the BMS finish its top. 101 % sends 251, a target the SOC never
-// reads, so the BMS, not the target, should end the charge. One owner reports this works; untested on a SMILE-B3.
+// (250) stops at 99.2 % and 251 at 99.6 %, both short of full on a SMILE-B3. 101 % sends 255, so the stop
+// lands at 101.2 %, a SOC never read, and the BMS, not the target, ends the charge.
 #define DISPATCH_SOC_PAST_FULL 101
 inline uint16_t dispatchSocFromPercent(uint16_t percent)
 {
 	if (percent >= DISPATCH_SOC_PAST_FULL)
 	{
-		return 251;
+		return 255;
 	}
 	return (uint16_t)((percent * 5u + 1u) / 2u);
 }

@@ -66,11 +66,11 @@ Registers from `Definitions.h`. Function code 0x10 (`MODBUS_FN_WRITEDATAREGISTER
 | 0x0881-0x0882 | `REG_DISPATCH_RW_ACTIVE_POWER_1` | 2 regs | 32000 + W discharge, 32000 - W charge |
 | 0x0883-0x0884 | `REG_DISPATCH_RW_REACTIVE_POWER_1` | 2 regs | 32000 (zero), frame path only |
 | 0x0885 | `REG_DISPATCH_RW_DISPATCH_MODE` | 1 reg | always 2, SOC control |
-| 0x0886 | `REG_DISPATCH_RW_DISPATCH_SOC` | 1 reg | `dispatchSocFromPercent(pct)` = (pct*5+1)/2, 0.4 %/bit, rounded up; 101 sends 251 |
+| 0x0886 | `REG_DISPATCH_RW_DISPATCH_SOC` | 1 reg | `dispatchSocFromPercent(pct)` = (pct*5+1)/2, 0.4 %/bit, rounded up; 101 sends 255 |
 | 0x0887-0x0888 | `REG_DISPATCH_RW_DISPATCH_TIME_1` | 2 regs | duration in seconds, 1 s/bit |
 
 - Sign: `multiplier` is -1 for charge, +1 for discharge. 0 W in either kind is 32000.
-- SOC examples pinned by tests: 0 to 0, 1 to 3, 10 to 25, 25 to 63, 90 to 225, 100 to 250, 101 to 251. Never below the target, under one step above (3637105).
+- SOC examples pinned by tests: 0 to 0, 1 to 3, 10 to 25, 25 to 63, 90 to 225, 100 to 250, 101 to 255. Never below the target, under one step above (3637105).
 - Charge 2200 W is 29800. 14400 s spans both time registers.
 
 Dispatch mode lookup (`Note7` in `Definitions.h`). Only mode 2 is ever written. Meanings beyond the names: unknown.
@@ -211,5 +211,5 @@ Gone rules (`haGone` = `offlineGone || mqttGone`):
 
 - Does the inverter apply a power only write mid dispatch, and does it restart its timer? Unknown.
 - Inverter behaviour for `duration` 0 or very large values: unknown. No firmware check.
-- Does mode 2 end dispatch when the SOC target is reached, or hold? The vendor dispatch guide says the charge stops at the target and the battery idles for the rest of the duration. Live: a charge stops 0.8 points (two bits) short of its target, so 250 stops at 99.2 % and battery power drops to 0 W within one sample while the BMS still allows full charge current. 101 % (251) is the past-full target for a balance charge; one owner reports 251 charges on past 99.2 %. Not yet tested on the B3.
+- Does mode 2 end dispatch when the SOC target is reached, or hold? The vendor dispatch guide says the charge stops at the target and the battery idles for the rest of the duration. Live: a charge stops 0.8 points (two bits) short of its target, so 250 stops at 99.2 % and battery power drops to 0 W within one sample while the BMS still allows full charge current. Live on the B3: 251 charged on past 99.2 % and stopped at 99.6 %, cells 3.42 V. 101 % (255) is the past-full target for a balance charge.
 - Effect of the fallback leaving reactive power 0x0883 unwritten: unknown.

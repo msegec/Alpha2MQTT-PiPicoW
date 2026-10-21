@@ -35,7 +35,7 @@ int main()
 	expect(dispatchSocFromPercent(1) == 3, "1 % rounds up to 3");
 	expect(dispatchSocFromPercent(90) == 225, "90 % sends 225");
 	expect(dispatchSocFromPercent(100) == 250, "100 % sends 250");
-	expect(dispatchSocFromPercent(101) == 251, "101 % sends 251, one bit past full");
+	expect(dispatchSocFromPercent(101) == 255, "101 % sends 255, so the stop two bits short is past full");
 	for (uint16_t p = 0; p <= 100; p++)
 	{
 		expect(dispatchSocFromPercent(p) * 2 >= p * 5, "never below the requested percent");

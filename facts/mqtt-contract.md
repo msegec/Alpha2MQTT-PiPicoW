@@ -87,7 +87,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 | `REG_CUSTOM_GRID_CURRENT_A_PHASE` | A, integer | phase A power / phase A voltage. `Definitions.h` comment says 0.1 A; the code divides by volts |
 | `REG_CUSTOM_TOTAL_SOLAR_POWER` | W | sum from `readTotalSolarPower` |
 | Request `watts` | W | always positive; the topic picks the direction. Firmware writes 32000 - W for charge, 32000 + W for discharge |
-| Request `socPercent` | % | integer; firmware rounds up to the 0.4 % register; 101 means past full (251) |
+| Request `socPercent` | % | integer; firmware rounds up to the 0.4 % register; 101 means past full (255) |
 | Controller `signed_w` | W | + discharge, - charge, same as battery power |
 
 ## The HA package (`Home Assistant/alpha2mqtt.yaml`)
