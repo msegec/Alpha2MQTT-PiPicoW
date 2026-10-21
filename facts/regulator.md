@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: b9cad9a plus the integral reset, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 283 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: daeb28a plus the integral import factor, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 285 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -105,6 +105,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `target_w` | 20 W | Grid setpoint. |
 | `kp` | 1.0 | Share of grid error corrected at once. |
 | `ki` | 0.01 /s | Integral gain, trims the inverter's own error. |
+| `ki_import_x` | 1.0 | Integral gain on an import error (`e > 0`) is `ki * ki_import_x`; export keeps `ki`. 1 is symmetric. Not the reverted import gain of 9630537, which was on the proportional side (see design history). |
 | `integral_band_w` | 300 W | Integrate only when deadbanded error is within this. Bigger is a load step. |
 | `integral_limit_w` | 300 W | Integral clamp, both signs. |
 | `kff` | 0.0 | Solar feed forward gain: `ff_w = -kff * (solar change since the last sample)`, held for the steps on that sample only. |
@@ -138,7 +139,7 @@ The integral runs only if all hold:
 4. `sign(e) != _saturation`: conditional integration, frozen when the output is pinned in the error's direction.
 5. Not a held spike (`_spike`, see `spike_confirm_w`).
 
-Then `integral += ki * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit_w`.
+Then `integral += g * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit_w`, with `g = ki * ki_import_x` on import (`e > 0`) and `ki` otherwise.
 
 ## Decision order in `step` (regulating path)
 
@@ -211,6 +212,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_the_inverter_offset_*`, `test_offset_correction_*`, `test_a_plant_on_the_table_*`, `test_the_caps_stay_battery_watts_*`, `test_under_offset_correction_*` | Table, a plant on the table lands within 5.9 W from -4000 to 4000 W for `offset_comp` 0, 0.5 and 1, off by default, caps in battery watts, no change to HOLD/FIXED, arrival gate and slew against `_sent_w`. The ready floor fuzz also runs with `offset_comp=1`. |
 | `test_with_the_guard_*`, `test_the_feed_forward_guard_is_off_by_default` | Guard off by default; on, feed forward never turns a discharge round alone but still leads a ramp in the running direction. |
 | `test_a_big_move_starts_the_integral_from_zero`, `test_the_integral_reset_is_off_by_default` | Integral reset on a command move of `integral_reset_w`, off by default. |
+| `test_the_integral_winds_faster_on_import_than_on_export`, `test_the_integral_import_factor_is_1_by_default` | Import factor on the integral gain, symmetric by default. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |

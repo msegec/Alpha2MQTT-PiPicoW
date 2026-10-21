@@ -74,6 +74,9 @@ class Settings:
     target_w: float = 20.0  # grid power to hold, positive is a little import
     kp: float = 1.0  # share of the grid error corrected at once
     ki: float = 0.01  # per second, trims the inverter's own error
+    # The integral gain on import errors is ki times this. Import costs about four times what export earns, so above 1
+    # the integral leans on import first and settles a little on the export side. 1 is symmetric.
+    ki_import_x: float = 1.0
     integral_band_w: float = 300.0  # bigger errors are load steps: proportional only
     integral_limit_w: float = 300.0
     # Solar feed forward: -kff x the solar change since the last sample, for that sample only. Replayed on 20 to
@@ -267,7 +270,8 @@ class Regulator:
             # Conditional integration: stop when the output is pinned in the error's direction.
             if _sign(e) != self._saturation:
                 dt = min(t - self._t_measure, MAX_INTEGRATE_S)
-                self.integral_w = _clip(self.integral_w + s.ki * e * dt, -s.integral_limit_w, s.integral_limit_w)
+                g = s.ki * (s.ki_import_x if e > 0 else 1.0)
+                self.integral_w = _clip(self.integral_w + g * e * dt, -s.integral_limit_w, s.integral_limit_w)
         self.grid_w, self.battery_w, self._t_measure = grid_w, battery_w, t
         if fresh:
             self._t_fresh = t

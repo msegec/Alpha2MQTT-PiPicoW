@@ -1344,3 +1344,18 @@ def test_the_integral_reset_is_off_by_default():
     reg.update_grid(30, 2000, 460)
     reg.step(30, BOTH)
     assert reg.integral_w > 20
+
+
+# Import factor on the integral gain.
+
+def test_the_integral_winds_faster_on_import_than_on_export():
+    up, down = (make(ki=0.01, ki_import_x=3, deadband_w=0, target_w=0) for _ in range(2))
+    for reg, g in ((up, 40), (down, -40)):
+        reg.update_grid(0, g, 500)
+        reg.step(0, BOTH)
+        reg.update_grid(1, g, 500)
+    assert abs(up.integral_w - 3 * -down.integral_w) < 1e-9 and up.integral_w > 0
+
+
+def test_the_integral_import_factor_is_1_by_default():
+    assert R.Settings().ki_import_x == 1

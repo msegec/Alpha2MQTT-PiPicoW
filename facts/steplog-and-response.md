@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: b9cad9a plus the integral reset, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 283 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: daeb28a plus the integral import factor, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 285 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 ## Files
 
@@ -35,7 +35,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `k` | Written when | Fields |
 |---|---|---|
 | `start` | `async_start`, log open | `code`: first 12 hex of a sha256 over `regulator.py` and `controller.py`, also the Loop version sensor |
-| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `full_register` |
+| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `full_register` |
 | `step` | each new fast message (`_take`), enabled or not | see below |
 | `cmd` | every message on `<base>/request/#` | `topic` (str), `p` (raw payload) |
 | `ack` | every message on `<base>/response/set/+` | `topic`, `p` (raw payload) |
