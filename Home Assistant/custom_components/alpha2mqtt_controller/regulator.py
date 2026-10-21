@@ -154,6 +154,33 @@ class Regulator:
         self.sent: Command | None = None
         self.status = "waiting"
         self.limit = "none"  # what holds the output this step, for diagnosis: see step()
+        # Also for diagnosis only, never read back: the proportional term, the caps after floor, refusal and full,
+        # the output before the slew (None while handed back), and whether the slew cut it.
+        self.p_w = 0.0
+        self.lo_w: float | None = None
+        self.hi_w: float | None = None
+        self.u_w: float | None = None
+        self.slewed = False
+
+    @property
+    def direction(self) -> int:
+        """-1 charging, 0 none yet, +1 discharging, as the turn round check sees it."""
+        return self._direction
+
+    @property
+    def direction_since(self) -> float | None:
+        """When the direction last turned, None if it never has since the start."""
+        return self._t_direction if math.isfinite(self._t_direction) else None
+
+    @property
+    def refusal_since(self) -> float | None:
+        """When the battery began giving under REFUSED_W against a discharge ask, None while it gives."""
+        return self._t_low
+
+    @property
+    def fresh_at(self) -> float | None:
+        """When the last fresh sample came in."""
+        return self._t_fresh
 
     def update_grid(self, t: float, grid_w: float, battery_w: float, fresh: bool = True,
                     soc: float | None = None) -> None:
@@ -196,6 +223,7 @@ class Regulator:
         self.status = status
         self._restart()
         self.output_w = 0.0
+        self.p_w, self.lo_w, self.hi_w, self.u_w, self.slewed = 0.0, None, None, None, False
         retry = (self.sent is not None and self.sent.kind == "normal" and self._failed
                  and t - self._t_sent >= self.settings.min_interval_s)
         # A restart forgets what the inverter was told, and a crash sends no release: until the first command,
@@ -242,6 +270,7 @@ class Regulator:
             self._restart()
             self.ff_w = 0.0
             self.error_w = 0.0 if self.grid_w is None else self.grid_w - s.target_w
+            self.p_w = 0.0
             request = lo = hi = policy.fixed_w
         elif not live:
             # Hand the inverter back now. Holding the last watts until the lease ran out could mean
@@ -259,7 +288,8 @@ class Regulator:
             self.status = "regulating"
             have_load = self.load_w is not None and self._load_ref is not None
             self.ff_w = s.kff * (self.load_w - self._load_ref) if have_load else 0.0
-            request = self.battery_w + s.kp * e + self.integral_w + self.ff_w
+            self.p_w = s.kp * e
+            request = self.battery_w + self.p_w + self.integral_w + self.ff_w
             if s.smoothing_s > 0 and self._filtered is not None:
                 request = self._filtered + (request - self._filtered) * min(1.0, dt / s.smoothing_s)
             self._filtered = request
@@ -278,6 +308,7 @@ class Regulator:
             elif request < lo:
                 self.limit = ceiling
         self.request_w = request
+        self.lo_w, self.hi_w = lo, hi
         u = _clip(request, lo, hi)
         self._saturation = _sign(request - u)
 
@@ -304,11 +335,13 @@ class Regulator:
 
         # Slew counts from the last command sent, over the time since it went out. Steps come several
         # a second, so a per-step limit split a load step across two commands a Min gap apart.
+        self.u_w = u
         if self.sent is None:
             self.output_w = u
         else:
             step_max = s.slew_w_per_s * (t - self._t_sent)
             self.output_w = _clip(u, self.sent.signed_w - step_max, self.sent.signed_w + step_max)
+        self.slewed = self.output_w != u
         if ready_w and u >= ready_w and self.output_w > -WARM_BAND_W:
             # A turn out of a charge that the slew cuts short lands on the floor, not at idle or under it.
             self.output_w = max(self.output_w, ready_w)

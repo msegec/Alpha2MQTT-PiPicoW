@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 75e08a8, 2026-10-21. `python3 -m pytest "Home Assistant/tests/test_controller.py" -q`: 43 passed in 0.10s.
+Last verified: working tree on 1e945f6 plus the diagnosis attributes, 2026-10-21. `python3 -m pytest "Home Assistant/tests/test_controller.py" -q`: 47 passed in 0.09s.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -169,16 +169,29 @@ Restore: last value, else the `Settings` default, clamped into the current range
 | slew_w_per_s | 50..5000 W/s, 50 | min_interval_s | 2..30 s, 0.5 |
 | write_threshold_w | 10..500 W, 10 | | |
 
-Not exposed: `integral_band_w`, `integral_limit_w`, `duration_s` (120 s lease).
+Not numbers: `integral_band_w`, `integral_limit_w`, `duration_s` (120 s lease). They show read only on the status sensor.
 
 Sensors (`ControllerSensor`, push only, all attributes unrecorded via `MATCH_ALL`). Control never reads them.
 
 | Key | Value |
 |---|---|
-| status | `regulator.status`, or `disabled` |
+| status | `regulator.status`, or `disabled`; attrs `policy_gap_since`, `sample_gap_since`, `integral_band_w`, `integral_limit_w`, `lease_s` |
 | grid (power) | `grid_w` rounded |
-| error, output, battery, integral (power) | regulator fields; output attrs request, integral, feed_forward |
-| limit | `regulator.limit` when enabled, else None |
+| error, output, battery, integral (power) | regulator fields; output attrs request, integral, feed_forward, `p`, `u`, `slewed` |
+| limit | `regulator.limit` when enabled, else None; attrs `lo`, `hi`, `direction`, `direction_since`, `refusal_since`, `refused_soc` |
+
+Diagnosis attributes (all for display, control never reads them):
+
+- Times are UTC text to the second from `Controller.wall(name, t)`, which converts a monotonic time once per
+  value and caches it per name, so the text stays put until the time itself changes.
+- `policy_gap_since`: while the policy is in a gap, the last good read; the policy is kept until `stale_after_s`
+  from it. None otherwise.
+- `sample_gap_since`: the last fresh sample, once it is older than `SAMPLE_LATE_S` 3 s; None before. Firmware on the
+  10 s topic would set and clear it every sample.
+- `direction_since`, `refusal_since`: the regulator properties of those names; None when unset.
+- Write cost: status and limit attributes change only at those edges. `p`, `u`, `slewed` change every step but sit on
+  the output power sensor, which writes only on its own `MOVE_W`/`EVERY_S` gate. All attributes stay unrecorded
+  through `MATCH_ALL`; a state row is still written on each state_changed.
 | sent (power) | `last_command.signed_w` |
 | commands | publishes in the last 3600 s (bebb043) |
 | last_command | `normal` or `"<kind> <watts> W"`; attrs soc, seq, sent time, ack dict |
@@ -232,6 +245,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w` | numbers |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
+| `test_the_status_says_*`, `test_the_output_shows_*`, `test_the_limit_shows_*` | diagnosis attributes, wall times worked out once |
 
 ## Gotchas
 
@@ -241,7 +255,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 - `{base}/request/#` and `log_entities` are subscribed only when the step log opened.
 - Every options save reloads the entry, so `async_stop` runs `async_set_enabled(False)` and may publish normal before the switch re-enables.
 - Platforms are forwarded before `async_start`, so the switch may restore `on` before subscriptions exist. Effect: guess, harmless (no samples yet).
-- Sensors with attributes (`last_command`, `step_response`, `output`) skip the unchanged-value gate. Whether HA then writes rows: unknown.
+- Sensors with attributes (`status`, `limit`, `last_command`, `step_response`, `output`) skip the unchanged-value gate. HA core fires no state_changed for an unchanged state and attributes (from its `async_set`, not measured on a host), so they rely on that.
 
 ## Open questions
 

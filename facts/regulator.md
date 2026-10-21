@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: commit 75e08a8, 2026-10-21. `python3 -m pytest "Home Assistant/tests/test_regulator.py" -q`: 119 passed in 0.45 s.
+Last verified: working tree on 1e945f6 plus the diagnosis fields, 2026-10-21. `python3 -m pytest "Home Assistant/tests/test_regulator.py" -q`: 124 passed in 0.34 s.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -31,6 +31,8 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | `Regulator.lease_active(t)` | | True while a non-normal command's `duration` has not run out. |
 
 Readable fields for status: `status`, `limit`, `error_w` (raw, before the deadband), `request_w`, `output_w`, `integral_w`, `ff_w`, `sent`, `refused_soc`, `soc`, `grid_w`, `battery_w`.
+
+Diagnosis only, never read back by `step`: `p_w` (`kp * e`, 0 outside regulating), `lo_w` and `hi_w` (caps after floor, refusal and full; `fixed_w` under HOLD/FIXED), `u_w` (output after caps, turn round and ready floor, before the slew), `slewed` (the slew clip changed it). A hand back sets `lo_w`, `hi_w`, `u_w` to None, `p_w` to 0, `slewed` to False. Properties: `direction`, `direction_since` (`_t_direction`, None while it is still `-inf`), `refusal_since` (`_t_low`), `fresh_at` (`_t_fresh`). Adding them left `GOLDEN_FLOOR_OFF` unchanged.
 
 ## Modes
 
@@ -193,6 +195,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_a_refus*`, `test_a_normal_start_is_not_a_refusal`, `test_a_hand_back_forgets_*` | Refusal state machine. |
 | `test_keep_warm_*`, `test_the_ready_floor_*`, `test_the_floor_hold_wins_*`, `test_the_slew_does_not_leave_*` | Ready floor. Seeded fuzz: no discharge under `warm_w`, no charge under a discharge-only policy. |
 | `test_a_trim_under_fifty_watts_*`, `test_a_load_step_still_follows_*` | Trim gap vs load steps. |
+| `test_the_proportional_term_*`, `test_the_caps_after_*`, `test_the_output_before_the_slew_*`, `test_the_direction_and_*`, `test_the_refusal_clock_*` | Diagnosis fields and properties. |
 | `test_with_the_ready_floor_at_zero_*` | Golden hash `GOLDEN_FLOOR_OFF = (265, "fba5a193a8a348a0")` of the full command list with `warm_w=0` against `RampingInverter`. Any behaviour change with the floor off breaks it. |
 
 ## Gotchas

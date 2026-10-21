@@ -57,6 +57,9 @@ MATCH_WAIT_S = 0.5
 # A block write is acked within about 2 s. No response this long after a publish means the request or its
 # response was lost, as in a Pico reconnecting: the command counts as failed and goes again in full.
 ACK_TIMEOUT_S = 10.0
+# Samples come every second. Once the last is this old, the status sensor says when it came; under it, nothing, so
+# the attribute changes at the edges of a gap and not with every sample.
+SAMPLE_LATE_S = 3.0
 
 GRID_KEY = "REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1"
 BATTERY_KEY = "REG_BATTERY_HOME_R_BATTERY_POWER"
@@ -122,6 +125,7 @@ class Controller:
         self._response = ResponseMonitor()
         self.last_response: dict | None = None  # the last step response timed out or reached, not cancelled
         self._slow: tuple[object, int] = (None, 0)  # local date, slow responses on it
+        self._walls: dict[str, tuple[float, str]] = {}  # name: (monotonic time, the same as wall clock text)
 
     @property
     def status(self) -> str:
@@ -137,6 +141,28 @@ class Controller:
     def slow_responses_today(self) -> int:
         day, count = self._slow
         return count if day == dt_util.now().date() else 0
+
+    def wall(self, name: str, t: float | None) -> str | None:
+        """A monotonic time as UTC wall clock text, to the second. Worked out once per time, so a display attribute
+        holding it stays the same text and causes no state write until the time itself changes."""
+        if t is None or not math.isfinite(t):
+            return None
+        known = self._walls.get(name)
+        if known is None or known[0] != t:
+            wall = dt_util.utcnow() - timedelta(seconds=time.monotonic() - t)
+            known = self._walls[name] = (t, wall.isoformat(timespec="seconds"))
+        return known[1]
+
+    @property
+    def policy_gap_since(self) -> str | None:
+        """While the policy is unreadable, when it was last read; it is kept until stale_after_s from then."""
+        return self.wall("policy", self._good_policy[0]) if "policy" in self._gaps else None
+
+    @property
+    def sample_gap_since(self) -> str | None:
+        """When the last fresh sample came, once it is SAMPLE_LATE_S old; the regulator goes stale at stale_after_s."""
+        t = self.regulator.fresh_at
+        return self.wall("sample", t) if t is not None and time.monotonic() - t > SAMPLE_LATE_S else None
 
     def _responses(self, records: list[dict]) -> None:
         for record in records:

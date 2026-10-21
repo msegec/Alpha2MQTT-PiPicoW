@@ -29,17 +29,37 @@ def _last_command(c):
 
 # key, name, power, value, attributes
 SENSORS = [
-    ("status", "Status", False, lambda c: c.status, None),
+    # How long an input has been missing, and the settings no number exposes. Each changes only at an edge.
+    ("status", "Status", False, lambda c: c.status, lambda c: {
+        "policy_gap_since": c.policy_gap_since,
+        "sample_gap_since": c.sample_gap_since,
+        "integral_band_w": c.regulator.settings.integral_band_w,
+        "integral_limit_w": c.regulator.settings.integral_limit_w,
+        "lease_s": c.regulator.settings.duration_s,
+    }),
     ("grid", "Grid estimate", True, lambda c: _round(c.grid_w), None),
     ("error", "Error", True, lambda c: _round(c.regulator.error_w), None),
     ("output", "Output", True, lambda c: _round(c.regulator.output_w), lambda c: {
         "request": _round(c.regulator.request_w),
         "integral": _round(c.regulator.integral_w),
         "feed_forward": _round(c.regulator.ff_w),
+        # The proportional term, and the output before the slew. These move with every step, so they ride on this
+        # power sensor's own writes (MOVE_W or EVERY_S) and add none.
+        "p": _round(c.regulator.p_w),
+        "u": _round(c.regulator.u_w),
+        "slewed": c.regulator.slewed,
     }),
     # What holds the output (floor, refused, full, warm, a cap, turn_round, none), and the three numbers that say
     # why the grid sits off target: the battery as read, the watts the inverter was told, and the integral trim.
-    ("limit", "Limit", False, lambda c: c.regulator.limit if c.enabled else None, None),
+    # The caps the request was clipped to, the direction and when it last turned, and the refusal clock and latch.
+    ("limit", "Limit", False, lambda c: c.regulator.limit if c.enabled else None, lambda c: {
+        "lo": _round(c.regulator.lo_w),
+        "hi": _round(c.regulator.hi_w),
+        "direction": c.regulator.direction,
+        "direction_since": c.wall("direction", c.regulator.direction_since),
+        "refusal_since": c.wall("refusal", c.regulator.refusal_since),
+        "refused_soc": c.regulator.refused_soc,
+    }),
     ("battery", "Battery", True, lambda c: _round(c.regulator.battery_w), None),
     ("sent", "Sent", True, lambda c: c.last_command.signed_w if c.last_command else None, None),
     ("integral", "Integral", True, lambda c: _round(c.regulator.integral_w), None),

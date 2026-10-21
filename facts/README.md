@@ -4,9 +4,9 @@ The control system in one page, and which facts file to read for a task.
 Each file states what its author read or ran, anchors code by symbol, and
 marks the rest "unknown".
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup.
-`tests/firmware/run` 7 suites OK; `python3 -m pytest "Home Assistant/tests"`
-178 passed; the Pico W build compiles.
+Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup; the Pico W build
+compiles and `tests/firmware/run` 7 suites OK. On 1e945f6 plus the diagnosis
+attributes: `python3 -m pytest "Home Assistant/tests"` 187 passed.
 
 ## Keeping it true
 

@@ -13,7 +13,7 @@ import pytest
 
 for _name in ("homeassistant", "homeassistant.components", "homeassistant.config_entries", "homeassistant.core",
               "homeassistant.helpers", "homeassistant.helpers.device_registry", "homeassistant.helpers.entity_platform",
-              "homeassistant.helpers.event", "homeassistant.util", "voluptuous"):
+              "homeassistant.helpers.event", "homeassistant.util", "homeassistant.const", "voluptuous"):
     sys.modules.setdefault(_name, MagicMock())
 
 
@@ -39,6 +39,8 @@ class _Flow:
 
 
 sys.modules["homeassistant.components.number"] = types.SimpleNamespace(NumberMode=MagicMock(), RestoreNumber=_RestoreNumber)
+sys.modules["homeassistant.components.sensor"] = types.SimpleNamespace(
+    SensorDeviceClass=MagicMock(), SensorEntity=object, SensorStateClass=MagicMock())
 sys.modules["homeassistant.config_entries"].ConfigFlow = _Flow
 sys.modules["homeassistant.config_entries"].OptionsFlow = _Flow
 sys.modules["homeassistant.core"].callback = lambda f: f
@@ -50,6 +52,7 @@ sys.modules["a2m_controller"] = _pkg
 C = importlib.import_module("a2m_controller.controller")
 F = importlib.import_module("a2m_controller.config_flow")
 N = importlib.import_module("a2m_controller.number")
+S = importlib.import_module("a2m_controller.sensor")
 R = sys.modules["a2m_controller.regulator"]
 DISCHARGE = R.Policy(R.REGULATE, max_discharge_w=3000, discharge_soc=20)
 
@@ -573,3 +576,63 @@ def test_a_9_w_per_s_step_response_is_counted_slow(monkeypatch):
     (resp,) = house.log.kind("resp")
     assert resp["result"] == "timeout" and resp["slow"]
     assert house.c.slow_responses_today == 1
+
+
+# Diagnosis attributes. They change only at edges or ride on a power sensor, so they add no state writes of their own.
+
+def attributes(c, key):
+    return next(s for s in S.SENSORS if s[0] == key)[4](c)
+
+
+def ago(seconds):
+    return (NOW - C.timedelta(seconds=seconds)).isoformat(timespec="seconds")
+
+
+def test_the_status_says_how_long_the_policy_has_been_unreadable(monkeypatch):
+    house = House(monkeypatch)
+    house.second()
+    assert attributes(house.c, "status") == {"policy_gap_since": None, "sample_gap_since": None,
+                                             "integral_band_w": 300, "integral_limit_w": 300, "lease_s": 120}
+    house.set("sensor.battery_auto_action", "unavailable")
+    for _ in range(5):
+        house.second()
+    assert attributes(house.c, "status")["policy_gap_since"] == ago(5)  # the last good read, 5 s ago
+    house.second()
+    assert attributes(house.c, "status")["policy_gap_since"] == ago(5)  # worked out once: the text does not move
+    house.set("sensor.battery_auto_action", "discharge", soc_target=20)
+    house.second()
+    assert attributes(house.c, "status")["policy_gap_since"] is None
+
+
+def test_the_status_says_when_the_last_sample_came_once_it_is_late(monkeypatch):
+    house = House(monkeypatch)
+    house.second()
+    house.t += 2.5
+    house.c._on_tick(None)
+    assert attributes(house.c, "status")["sample_gap_since"] is None  # within SAMPLE_LATE_S
+    house.t += 1.5
+    house.c._on_tick(None)
+    assert attributes(house.c, "status")["sample_gap_since"] == ago(4)
+    house.second()
+    assert attributes(house.c, "status")["sample_gap_since"] is None
+
+
+def test_the_output_shows_the_proportional_term_and_the_output_before_the_slew(monkeypatch):
+    house = House(monkeypatch)
+    house.second()  # grid 1000 - 500 = 500 W, 460 W off target after the deadband, from 500 W
+    assert attributes(house.c, "output") == {"request": 960, "integral": 0, "feed_forward": 0, "p": 460,
+                                             "u": 960, "slewed": False}
+
+
+def test_the_limit_shows_the_caps_the_direction_and_the_refusal_clock(monkeypatch):
+    house = House(monkeypatch)
+    house.second(**{C.SOC_KEY: 50.0})
+    assert attributes(house.c, "limit") == {"lo": 0, "hi": 3000, "direction": 1, "direction_since": None,
+                                            "refusal_since": None, "refused_soc": None}
+    for _ in range(3):
+        house.second(**{C.SOC_KEY: 22.0, C.BATTERY_KEY: 0})  # asked for 960 W, giving nothing
+    assert attributes(house.c, "limit")["refusal_since"] == ago(2)
+    for _ in range(22):
+        house.second(**{C.SOC_KEY: 22.0, C.BATTERY_KEY: 0})
+    limit = attributes(house.c, "limit")
+    assert (limit["refused_soc"], limit["refusal_since"], limit["hi"]) == (22.0, None, 0)

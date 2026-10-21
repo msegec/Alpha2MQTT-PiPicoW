@@ -1055,3 +1055,59 @@ def test_with_the_ready_floor_at_zero_the_commands_are_as_before():
 
 
 GOLDEN_FLOOR_OFF = (265, "fba5a193a8a348a0")
+
+
+# Read-only diagnosis: the values a status display needs to say why the output is what it is. They never feed back.
+
+def test_the_proportional_term_is_kept_for_display():
+    reg = make(kp=0.5, deadband_w=20)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(1, 1020, 500)
+    reg.step(1, DISCHARGE)
+    assert (reg.p_w, reg.request_w) == (490, 990)  # 0.5 x (1000 - 20 deadband), on top of 500 W
+
+
+def test_the_caps_after_floor_and_full_are_kept_and_cleared_on_a_release():
+    reg = make()
+    reg.update_grid(0, 20, 500, soc=50)
+    reg.step(0, DISCHARGE)
+    assert (reg.lo_w, reg.hi_w) == (0, 3000)
+    reg.update_grid(1, 20, 500, soc=21)  # within FLOOR_MARGIN of the policy SOC
+    reg.step(1, DISCHARGE)
+    assert (reg.lo_w, reg.hi_w, reg.limit) == (0, 0, "floor")
+    reg.step(2, R.Policy(R.RELEASE))
+    assert (reg.lo_w, reg.hi_w, reg.u_w) == (None, None, None)
+
+
+def test_the_output_before_the_slew_and_whether_the_slew_cut_it_are_kept():
+    reg = make(slew_w_per_s=100)
+    reg.update_grid(0, 20, 0)
+    reg.step(0, DISCHARGE)
+    assert reg.slewed is False
+    reg.update_grid(1, 1020, 0)
+    reg.step(1, DISCHARGE)
+    assert (reg.u_w, reg.output_w, reg.slewed) == (980, 100, True)
+
+
+def test_the_direction_and_when_it_last_turned_are_readable():
+    reg = make(flip_dwell_s=5)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, BOTH)
+    assert (reg.direction, reg.direction_since) == (1, None)  # a bumpless start sets no time
+    reg.update_grid(5, -2000, 500)
+    reg.step(5, BOTH)
+    assert (reg.direction, reg.direction_since) == (-1, 5)
+
+
+def test_the_refusal_clock_and_the_last_fresh_sample_are_readable():
+    reg = make()
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    assert reg.refusal_since is None and reg.fresh_at == 0
+    reg.update_grid(1, 520, 0)  # asked for 500 W, giving nothing
+    reg.step(1, DISCHARGE)
+    assert reg.refusal_since == 1
+    reg.update_grid(2, 20, 500, fresh=False)
+    reg.step(2, DISCHARGE)
+    assert reg.refusal_since is None and reg.fresh_at == 1
