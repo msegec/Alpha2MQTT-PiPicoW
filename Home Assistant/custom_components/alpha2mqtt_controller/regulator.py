@@ -193,7 +193,7 @@ class Regulator:
         self.refused_soc: float | None = None  # the SOC a refusal near the floor began at; None while armed
         self._refused_floor: int | None = None
         self.integral_w = 0.0
-        self._offset_w = 0.0
+        self._target_offset_w = 0.0
         self.error_w = 0.0
         self.ff_w = 0.0
         self.request_w = 0.0
@@ -264,7 +264,7 @@ class Regulator:
             self._t_fresh = t
 
     def _error(self, grid_w: float) -> float:
-        e = grid_w - self.settings.target_w - self._offset_w
+        e = grid_w - self.settings.target_w - self._target_offset_w
         return _sign(e) * max(abs(e) - self.settings.deadband_w, 0.0)
 
     def lease_active(self, t: float) -> bool:
@@ -337,9 +337,9 @@ class Regulator:
                 self._direction = _sign(self.battery_w)
                 self._solar_step = 0.0
             self._regulating = policy.mode == REGULATE
-            self._offset_w = policy.target_offset_w
+            self._target_offset_w = policy.target_offset_w
             e = self._error(self.grid_w)
-            self.error_w = self.grid_w - s.target_w - self._offset_w
+            self.error_w = self.grid_w - s.target_w - self._target_offset_w
             self.status = "regulating"
             if self._spike:
                 self.limit = "spike"  # see Settings.spike_confirm_w

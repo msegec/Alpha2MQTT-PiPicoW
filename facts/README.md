@@ -5,8 +5,8 @@ Each file states what its author read or ran, anchors code by symbol, and
 marks the rest "unknown".
 
 Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup; the Pico W build
-compiles and `tests/firmware/run` 7 suites OK. On 851230d plus the loop version
-stamp, 2026-10-22: `python3 -m pytest "Home Assistant/tests"` 234 passed.
+compiles and `tests/firmware/run` 7 suites OK. On 5689ec1 plus the
+`_target_offset_w` rename, 2026-10-22: `python3 -m pytest "Home Assistant/tests"` 243 passed.
 
 ## Keeping it true
 

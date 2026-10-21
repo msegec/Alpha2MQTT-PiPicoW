@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: 851230d plus the loop version stamp, 2026-10-22. `python3 -m pytest "Home Assistant/tests/test_regulator.py" -q`: 169 passed in 0.66 s. `GOLDEN_FLOOR_OFF` unchanged with every new setting at its default.
+Last verified: 5689ec1 plus the `_target_offset_w` rename, 2026-10-22. `python3 -m pytest "Home Assistant/tests/test_regulator.py" -q`: 178 passed in 0.76 s. `GOLDEN_FLOOR_OFF` unchanged with every new setting at its default.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -130,7 +130,7 @@ The test file's `LIVE` dict, labelled "the live tuning": `target_w=-20, deadband
 The integral runs only if all hold:
 
 1. The previous step regulated (`_regulating`) and there was an earlier sample.
-2. Deadbanded error `|e| <= integral_band_w`. `e` uses the offset from the last regulating step.
+2. Deadbanded error `|e| <= integral_band_w`. `e` uses the policy's grid offset from the last regulating step (`_target_offset_w`; not `offset_w`, the inverter correction).
 3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: `signed_w + offset_comp * inverter_offset(signed_w)`, also after a HOLD or FIXED command), or `ARRIVE_S` has passed since it was sent. A battery past its setpoint counts as arrived.
 4. `sign(e) != _saturation`: conditional integration, frozen when the output is pinned in the error's direction.
 5. Not a held spike (`_spike`, see `spike_confirm_w`).
