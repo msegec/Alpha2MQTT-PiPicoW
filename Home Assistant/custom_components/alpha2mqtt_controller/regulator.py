@@ -148,6 +148,10 @@ class Settings:
     # On, no discharge while no SOC has been read since the start, as after a restart whose first sample lacked it,
     # since the floor cannot be checked. Off keeps the old rule: the inverter's own dispatch SOC is then the only floor.
     discharge_needs_soc: bool = False
+    # Above 0, a battery still closing on its setpoint by this much since the arrival clock last restarted has not
+    # arrived: the clock restarts, so a slow start's ramp does not wind the integral after ARRIVE_S. 0 is off: the
+    # clock runs from the send.
+    arrive_restart_w: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -233,6 +237,7 @@ class Regulator:
         self._direction = 0
         self._t_direction = float("-inf")
         self._t_sent = float("-inf")
+        self._t_arrive, self._arrive_w = float("-inf"), 0.0  # the arrival clock and the battery it started at
         self._sent_w = 0.0  # the battery watts the last command should deliver: its watts plus offset_comp x the table
         self._t_ack: float | None = None
         self._ack_power = False
@@ -362,9 +367,11 @@ class Regulator:
                        and abs(demand - self._demand) > s.spike_confirm_w)
         self._demand = demand
         e = self._error(grid_w)
+        if s.arrive_restart_w > 0 and _sign(self._sent_w) * (battery_w - self._arrive_w) >= s.arrive_restart_w:
+            self._t_arrive, self._arrive_w = t, battery_w  # still closing: lag, not an offset
         arrived = (self.sent is None or self.sent.kind == "normal"
                    or _sign(self._sent_w) * (self._sent_w - battery_w) <= LAG_W
-                   or t - self._t_sent >= ARRIVE_S)
+                   or t - self._t_arrive >= ARRIVE_S)
         if (self._regulating and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived
                 and not self._spike):
             # Conditional integration: stop when the output is pinned in the error's direction.
@@ -627,5 +634,6 @@ class Regulator:
         if last is None or (last.kind, last.signed_w) != (cmd.kind, cmd.signed_w):
             self._t_change = t
         self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
+        self._t_arrive, self._arrive_w = t, self.battery_w or 0.0
         self._sent_w = cmd.signed_w + self.table(cmd.signed_w)
         return cmd

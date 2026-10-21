@@ -1517,3 +1517,41 @@ def test_feed_forward_can_ignore_west_crossing_its_95_w_floor():
 def test_the_feed_forward_minimum_solar_is_off_by_default():
     assert R.Settings().solar_ff_min_w == 0
     assert _ff_on(make(kff=1.0), [0, 100, 0]) == [0.0, -100.0, 100.0]
+
+
+class SlowStart:
+    """A discharge start from idle climbing about 10 W/s whatever is asked, as logged on 20 Oct."""
+
+    def __init__(self):
+        self.battery_w = 0.0
+        self.aim = 0.0
+
+    def read(self):
+        self.battery_w = min(self.aim, self.battery_w + 10.0) if self.aim > self.battery_w else self.aim
+        return self.battery_w
+
+
+def _slow_start_peak_integral(**kw):
+    reg = make(**{**LIVE, "warm_w": 0, **kw})
+    inverter = SlowStart()
+    policy = R.Policy(R.REGULATE, max_discharge_w=3000, discharge_soc=10)
+    peak = 0.0
+    for t in range(0, 120):
+        battery = inverter.read()
+        reg.update_grid(t, 600 - battery, battery, soc=50)  # 600 W of demand
+        cmd = reg.step(t, policy)
+        if cmd is not None:
+            inverter.aim = cmd.signed_w
+            reg.ack(t + 0.3, power_write=cmd.power_only)
+        peak = max(peak, reg.integral_w)
+    return peak
+
+
+def test_a_slow_start_need_not_wind_the_integral_once_arrive_s_has_passed():
+    # The arrival clock restarts each time the battery closes arrive_restart_w on its setpoint: a ramp is lag.
+    assert _slow_start_peak_integral(arrive_restart_w=100) <= 5
+
+
+def test_the_arrival_restart_is_off_by_default():
+    assert R.Settings().arrive_restart_w == 0
+    assert _slow_start_peak_integral() > 20  # past ARRIVE_S the integral winds on the last 300 W of the ramp

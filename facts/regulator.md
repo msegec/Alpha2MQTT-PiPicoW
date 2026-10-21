@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: b6f96ed plus the feed forward minimum solar, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 313 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: f06becc plus the arrival restart, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 317 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -129,6 +129,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `power_write_gap_s` | 0.0 s | 0 means every command is a full block write. Above 0: same-block changes go `power_only`, and after a power write ack the next may follow after this gap. |
 | `warm_w` | 0.0 W | Ready floor ("Keep warm"). 0 is off. |
 | `discharge_needs_soc` | False | On: no discharge (`hi = 0`, `limit = "soc_unknown"`) while `soc` is None, as after a restart whose first samples lacked it. Seen once in 219,759 logged steps. Off: the inverter's own dispatch SOC is the only floor then. |
+| `arrive_restart_w` | 0 W | Above 0, restarts the arrival clock each time the battery closes this much on its setpoint. Against a 10 W/s start to 600 W of demand with the test's `LIVE` tuning, 0 lets the integral wind to 24 W and 100 holds it at 5 W (`test_a_slow_start_*`). Recommended 100 at deploy. 0 is off. |
 | `full_register` | 252 | Not used by the regulator. The controller publishes a charge to 100 % as `socPercent` this minus 150, since register 250 stopped the battery at 99.2 %. |
 | `spike_confirm_w` | 0.0 W | Above 0, a sample whose net demand (`grid_w + battery_w`) moved more than this from the last sample is held: every step on it returns None with `limit = "spike"`, and the integral skips it. The next sample always acts. 0 is off. |
 | `integral_reset_w` | 0.0 W | Above 0, `_send` sets the integral to 0 when the new command's `signed_w` moves this much or more from the last one's: what it held trimmed the old level. 0 is off. |
@@ -150,7 +151,7 @@ The integral runs only if all hold:
 
 1. The previous step regulated (`_regulating`) and there was an earlier sample.
 2. Deadbanded error `|e| <= integral_band_w`. `e` uses the policy's grid offset from the last regulating step (`_target_offset_w`; not `offset_w`, the inverter correction).
-3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: `signed_w + table(signed_w)`, also after a HOLD or FIXED command), or `ARRIVE_S` has passed since it was sent. A battery past its setpoint counts as arrived.
+3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: `signed_w + table(signed_w)`, also after a HOLD or FIXED command), or `ARRIVE_S` has passed on the arrival clock (`_t_arrive`, set at each send). With `arrive_restart_w` above 0, the clock restarts, and `_arrive_w` takes the battery reading, whenever the battery has moved that much towards the setpoint's sign since the last restart, so a slow ramp stays lag. A battery past its setpoint counts as arrived.
 4. `sign(e) != _saturation`: conditional integration, frozen when the output is pinned in the error's direction.
 5. Not a held spike (`_spike`, see `spike_confirm_w`).
 
@@ -235,6 +236,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_a_negative_cap_never_pushes_*` | A negative cap is 0 W. |
 | `test_discharge_waits_for_a_known_soc_*`, `test_discharge_without_a_known_soc_*` | `discharge_needs_soc`, off by default. |
 | `test_feed_forward_can_ignore_west_crossing_*`, `test_the_feed_forward_minimum_solar_*` | `solar_ff_min_w`, off by default. |
+| `test_a_slow_start_need_not_wind_*`, `test_the_arrival_restart_is_off_by_default` | `arrive_restart_w`, off by default. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |

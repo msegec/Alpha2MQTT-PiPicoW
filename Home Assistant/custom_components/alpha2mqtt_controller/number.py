@@ -43,6 +43,7 @@ NUMBERS = [
     ("trim_band_w", "Offset learning band", 10, 300, 5, "W", ADVANCED),  # raw grid error must be within this to learn
     ("trim_min_w", "Offset learning minimum", 20, 1000, 10, "W", ADVANCED),  # smaller setpoints teach nothing
     ("trim_max_soc", "Offset learning top SOC", 50, 100, 1, "%", ADVANCED),  # BMS taper above this teaches nothing
+    ("arrive_restart_w", "Arrival restart step", 0, 500, 10, "W", ADVANCED),  # 0 is off: the arrival wait runs from the send
     ("full_register", "Full charge register", 250, 255, 1, None, SAFETY),  # dispatch SOC register for a 100 % charge
 ]
 
