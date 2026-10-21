@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: 5689ec1 plus the `_target_offset_w` rename, 2026-10-22. `python3 -m pytest "Home Assistant/tests/test_regulator.py" -q`: 178 passed in 0.76 s. `GOLDEN_FLOOR_OFF` unchanged with every new setting at its default.
+Last verified: dee06df plus the feed forward guard, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 281 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -108,6 +108,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `integral_band_w` | 300 W | Integrate only when deadbanded error is within this. Bigger is a load step. |
 | `integral_limit_w` | 300 W | Integral clamp, both signs. |
 | `kff` | 0.0 | Solar feed forward gain: `ff_w = -kff * (solar change since the last sample)`, held for the steps on that sample only. |
+| `ff_guard` | False | On: `ff_w` is set to 0 when it alone would turn the request against the running direction (`_direction`). Replayed on 20 to 22 Oct, kff 1 without it gave 60 % more turn rounds. |
 | `deadband_w` | 20 W | Subtracted from the error magnitude. |
 | `smoothing_s` | 0.0 s | Low pass on the request. 0 is off. |
 | `slew_w_per_s` | 2000 W/s | Max move from the last sent command, times the time since it was sent. |
@@ -145,7 +146,7 @@ Then `integral += ki * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit
 3. `HOLD`/`FIXED`: restart, `request = lo = hi = fixed_w`, skip to 9.
 4. Not live: hand back as "stale", return.
 5. Bumpless start if the last step did not regulate: `output_w = battery_w`, `_direction = sign(battery_w)`, solar step 0 (every `_restart` leads here). Then a held spike returns None with `limit = "spike"`; output, sent and the diagnosis fields keep their last values.
-6. `request = battery_w + kp * e + integral_w + ff_w`, then optional smoothing. `ff_w` is `-kff` times the solar step stored by `update_grid`; P already sends the whole measured demand change, so feed forward only leads a solar ramp.
+6. `request = battery_w + kp * e + integral_w + ff_w`, then optional smoothing. `ff_w` is `-kff` times the solar step stored by `update_grid`; P already sends the whole measured demand change, so feed forward only leads a solar ramp. With `ff_guard` on, a feed forward that would flip the sign of `battery_w + p + integral` against a non-zero `_direction` is dropped (`ff_w = 0`).
 7. Caps: `lo = -max_charge_w`, `hi = max_discharge_w`. SOC <= `discharge_soc + FLOOR_MARGIN`: `hi = 0` ("floor"). Else refused: `hi = 0` ("refused"). SOC >= `charge_soc`: `lo = 0` ("full"). `limit` names the cap the request crosses ("discharge_cap" / "charge_cap" by default).
 8. `u = clip(request, lo, hi)`, `_saturation = sign(request - u)`.
 9. Turn round check (above).
@@ -207,6 +208,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_a_trim_under_fifty_watts_*`, `test_a_load_step_still_follows_*` | Trim gap vs load steps. |
 | `test_the_proportional_term_*`, `test_the_caps_after_*`, `test_the_output_before_the_slew_*`, `test_the_direction_and_*`, `test_the_refusal_clock_*` | Diagnosis fields and properties. |
 | `test_the_inverter_offset_*`, `test_offset_correction_*`, `test_a_plant_on_the_table_*`, `test_the_caps_stay_battery_watts_*`, `test_under_offset_correction_*` | Table, a plant on the table lands within 5.9 W from -4000 to 4000 W for `offset_comp` 0, 0.5 and 1, off by default, caps in battery watts, no change to HOLD/FIXED, arrival gate and slew against `_sent_w`. The ready floor fuzz also runs with `offset_comp=1`. |
+| `test_with_the_guard_*`, `test_the_feed_forward_guard_is_off_by_default` | Guard off by default; on, feed forward never turns a discharge round alone but still leads a ramp in the running direction. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |

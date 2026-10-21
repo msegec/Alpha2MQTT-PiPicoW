@@ -1284,3 +1284,35 @@ def test_the_slew_never_holds_the_output_past_a_cap(soc, policy):
     reg.update_grid(0.5, 20, 2000, soc=soc)  # at the floor, or discharge no longer allowed
     assert reg.step(0.5, policy).signed_w == 0
     assert reg.output_w == 0
+
+
+# Feed forward guard: the solar lead never turns the battery round on its own.
+
+def test_with_the_guard_feed_forward_never_turns_a_discharge_round_on_its_own():
+    reg = make(kff=1.0, ff_guard=True, ki=0, deadband_w=0, target_w=0, min_interval_s=0, flip_dwell_s=0,
+               flip_hysteresis_w=0)
+    reg.update_grid(0, 0, 100, solar_w=1000)
+    reg.step(0, BOTH)  # discharging 100 W
+    reg.update_grid(1, 0, 100, solar_w=1300)  # solar +300 W in a second: the demand is still met
+    reg.step(1, BOTH)
+    assert reg.ff_w == 0  # -300 W of feed forward would have asked for a 200 W charge
+    assert reg.output_w > 0
+
+
+def test_with_the_guard_feed_forward_still_leads_a_ramp_in_the_running_direction():
+    reg = make(kff=1.0, ff_guard=True, ki=0, deadband_w=0, target_w=0, min_interval_s=0)
+    reg.update_grid(0, 0, 1000, solar_w=1000)
+    reg.step(0, BOTH)
+    reg.update_grid(1, 0, 1000, solar_w=1300)
+    reg.step(1, BOTH)
+    assert reg.ff_w == -300
+
+
+def test_the_feed_forward_guard_is_off_by_default():
+    assert R.Settings().ff_guard is False
+    reg = make(kff=1.0, ki=0, deadband_w=0, target_w=0, min_interval_s=0, flip_dwell_s=0, flip_hysteresis_w=0)
+    reg.update_grid(0, 0, 100, solar_w=1000)
+    reg.step(0, BOTH)
+    reg.update_grid(1, 0, 100, solar_w=1300)
+    reg.step(1, BOTH)
+    assert reg.ff_w == -300

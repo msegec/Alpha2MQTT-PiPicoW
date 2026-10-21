@@ -79,6 +79,9 @@ class Settings:
     # Solar feed forward: -kff x the solar change since the last sample, for that sample only. Replayed on 20 to
     # 22 Oct, 0.5 to 1.0 cut a cloudy day's cost 9 to 16 % and changed little on the others.
     kff: float = 0.0
+    # On, the feed forward only leads a ramp: it never turns the battery round on its own. At kff 1 without it,
+    # replayed on 20 to 22 Oct, it cost 60 % more turn rounds. Off is the old rule.
+    ff_guard: bool = False
     deadband_w: float = 20.0
     smoothing_s: float = 0.0  # low pass on the request, 0 chases every load step
     slew_w_per_s: float = 2000.0
@@ -349,7 +352,11 @@ class Regulator:
                 return None
             self.ff_w = -s.kff * self._solar_step  # more solar is less demand
             self.p_w = s.kp * e
-            request = self.battery_w + self.p_w + self.integral_w + self.ff_w
+            request = self.battery_w + self.p_w + self.integral_w
+            d = self._direction
+            if s.ff_guard and d and _sign(request + self.ff_w) == -d and _sign(request) != -d:
+                self.ff_w = 0.0  # see Settings.ff_guard
+            request += self.ff_w
             if s.smoothing_s > 0 and self._filtered is not None:
                 request = self._filtered + (request - self._filtered) * min(1.0, dt / s.smoothing_s)
             self._filtered = request

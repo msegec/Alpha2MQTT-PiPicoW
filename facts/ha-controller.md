@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 3fecf03 plus the number groups, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 273 passed.
+Last verified: dee06df plus the feed forward guard, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 281 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -151,6 +151,14 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 
 ## Entities
 
+Setting switches (`SettingSwitch`, `SWITCHES` in `switch.py`, rows `(key, name, group)`): each writes a boolean
+`Settings` field via `set_setting`, logs `cfg`, carries the `group` attribute like a number, and restores its last
+`on` or `off`, else the `Settings` default.
+
+| Key | Name | Group | Default |
+|---|---|---|---|
+| ff_guard | Feed forward guard | Basic | off |
+
 Switch `Enabled` (`{entry_id}_enabled`): off by default. Restores `on` after restart via `RestoreEntity`.
 Off -> on: just sets `enabled`. On -> off: `regulator.step(now, Policy(RELEASE))`, publishes normal if the
 regulator returns one, even if MQTT is down the switch still turns off; the 120 s lease then ends dispatch.
@@ -256,6 +264,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_solar_comes_from_*` | solar from `west` + `east`, None when either is missing or not a number; `ff_w` in the step |
 | `test_net_demand_*`, `test_a_sample_waits_*`, `test_without_*seq*`, `test_a_new_sample_steps_on_one_still_waiting_first` | seq matching and 0.5 s wait |
 | `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_start_record_and_the_loop_version_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
+| `test_a_setting_switch_*` | switch restore, default, cfg log, group |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |

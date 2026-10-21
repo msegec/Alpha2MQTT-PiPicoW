@@ -42,6 +42,8 @@ class _Flow:
 sys.modules["homeassistant.components.number"] = types.SimpleNamespace(NumberMode=MagicMock(), RestoreNumber=_RestoreNumber)
 sys.modules["homeassistant.components.sensor"] = types.SimpleNamespace(
     SensorDeviceClass=MagicMock(), SensorEntity=object, SensorStateClass=MagicMock())
+sys.modules["homeassistant.components.switch"] = types.SimpleNamespace(SwitchEntity=type("SwitchEntity", (), {}))
+sys.modules["homeassistant.helpers.restore_state"] = types.SimpleNamespace(RestoreEntity=type("RestoreEntity", (), {}))
 sys.modules["homeassistant.config_entries"].ConfigFlow = _Flow
 sys.modules["homeassistant.config_entries"].OptionsFlow = _Flow
 sys.modules["homeassistant.core"].callback = lambda f: f
@@ -54,6 +56,7 @@ C = importlib.import_module("a2m_controller.controller")
 F = importlib.import_module("a2m_controller.config_flow")
 N = importlib.import_module("a2m_controller.number")
 S = importlib.import_module("a2m_controller.sensor")
+W = importlib.import_module("a2m_controller.switch")
 R = sys.modules["a2m_controller.regulator"]
 DISCHARGE = R.Policy(R.REGULATE, max_discharge_w=3000, discharge_soc=20)
 
@@ -482,6 +485,35 @@ def test_every_number_names_its_section_as_an_attribute():
         assert row[6] in (N.BASIC, N.SAFETY, N.ADVANCED), row
         assert N.TuningNumber(entry, *row)._attr_extra_state_attributes == {"group": row[6]}
     assert {n[0]: n[6] for n in N.NUMBERS}["target_w"] == "Basic"
+
+
+def setting_switch(c, key, last_state=None):
+    entry = MagicMock(entry_id="entry", runtime_data=c)
+    switch = W.SettingSwitch(entry, *next(w for w in W.SWITCHES if w[0] == key))
+    switch.async_get_last_state = AsyncMock(return_value=None if last_state is None else MagicMock(state=last_state))
+    switch.async_write_ha_state = MagicMock()
+    asyncio.run(switch.async_added_to_hass())
+    return switch
+
+
+@pytest.mark.parametrize("last_state, on", [(None, False), ("on", True), ("off", False), ("unavailable", False)])
+def test_a_setting_switch_restores_its_last_state_or_the_default(last_state, on):
+    c = C.Controller(MagicMock(), {}, "entry")
+    switch = setting_switch(c, "ff_guard", last_state)
+    assert c.regulator.settings.ff_guard is on and switch.is_on is on
+
+
+def test_a_setting_switch_writes_the_setting_logs_it_and_names_its_section(monkeypatch):
+    house = logged_house(monkeypatch)
+    switch = setting_switch(house.c, "ff_guard")
+    asyncio.run(switch.async_turn_on())
+    assert house.c.regulator.settings.ff_guard is True and house.log.kind("cfg")[-1]["ff_guard"] is True
+    asyncio.run(switch.async_turn_off())
+    assert house.c.regulator.settings.ff_guard is False
+    for row in W.SWITCHES:
+        assert row[2] in (N.BASIC, N.SAFETY, N.ADVANCED)
+        assert isinstance(getattr(R.Settings(), row[0]), bool), row
+    assert switch._attr_extra_state_attributes == {"group": "Basic"}
 
 
 @pytest.mark.parametrize("warm_w, logged", [(20, [{"from_w": 960, "to_w": -1000}]), (0, [])])
