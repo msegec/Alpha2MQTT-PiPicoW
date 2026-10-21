@@ -888,6 +888,15 @@ def test_a_full_battery_is_not_asked_to_charge():
     assert reg.step(60, CHARGE).watts > 500
 
 
+def test_a_charge_past_full_keeps_asking_at_100():
+    # A balance charge targets 101 % (register 251), so the BMS, not the inverter, ends it.
+    reg = make()
+    reg.update_grid(0, -600, 0, soc=100)
+    cmd = reg.step(0, R.Policy(R.REGULATE, max_charge_w=5000, charge_soc=101))
+    assert cmd.kind == "charge" and cmd.watts > 500 and cmd.soc == 101
+    assert reg.limit != "full"
+
+
 def test_limit_names_what_holds_the_output():
     reg = make()
     reg.update_grid(0, 20, 500, soc=50)

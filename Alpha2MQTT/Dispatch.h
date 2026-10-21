@@ -13,16 +13,23 @@ inline bool requestPayloadFits(unsigned int length)
 }
 
 // The active power register is 32000 plus the discharge watts or minus the charge watts, so a charge over
-// 32000 W would wrap below zero. A SOC above 100 % is no target. Checked before either is narrowed.
+// 32000 W would wrap below zero. A SOC above 101 % is no target. Checked before either is narrowed.
 inline bool dispatchRequestValid(unsigned long watts, unsigned long socPercent)
 {
-	return watts <= 32000ul && socPercent <= 100ul;
+	return watts <= 32000ul && socPercent <= 101ul;
 }
 
 // The dispatch SOC register counts 0.4 % per bit. Round up, so a charge reaches at least the target
-// and a discharge stops at or above it.
+// and a discharge stops at or above it. The inverter ends a charge two bits short of its target, so 100 %
+// (250) stops at 99.2 % and never lets the BMS finish its top. 101 % sends 251, a target the SOC never
+// reads, so the BMS, not the target, should end the charge. One owner reports this works; untested on a SMILE-B3.
+#define DISPATCH_SOC_PAST_FULL 101
 inline uint16_t dispatchSocFromPercent(uint16_t percent)
 {
+	if (percent >= DISPATCH_SOC_PAST_FULL)
+	{
+		return 251;
+	}
 	return (uint16_t)((percent * 5u + 1u) / 2u);
 }
 

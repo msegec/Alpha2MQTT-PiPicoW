@@ -2,7 +2,7 @@
 
 Every topic between the Pico firmware and Home Assistant, who writes and reads it, and what the HA package wires up.
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup; package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
+Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101; package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
 
 ## Ground rules
 
@@ -57,7 +57,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
   A `.` is stripped, so `"watts": 1500.0` would parse as `15000`. The controller and package scripts send integers.
 - A name or value over 31 chars fails the request as `invalidMQTTPayload`.
 - `powerOnly` is honoured only when its cleaned value is exactly `1`. `true` cleans to `e` and is ignored.
-- `watts` over 32000 or `socPercent` over 100 is refused with `failureDetail: "range"` (`dispatchRequestValid`).
+- `watts` over 32000 or `socPercent` over 101 is refused with `failureDetail: "range"` (`dispatchRequestValid`).
   Negative numbers wrap through `strtoul` and are refused the same way. A missing key gives `failureDetail: "missing"`.
 - An empty payload gives the generic response (`responseStatus: "noMQTTPayload"`, `end`) with no `seq`.
 - Any `set/*` request calls `idleHoldCommand`, which marks HA online and cancels a firmware idle hold.
@@ -87,7 +87,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 | `REG_CUSTOM_GRID_CURRENT_A_PHASE` | A, integer | phase A power / phase A voltage. `Definitions.h` comment says 0.1 A; the code divides by volts |
 | `REG_CUSTOM_TOTAL_SOLAR_POWER` | W | sum from `readTotalSolarPower` |
 | Request `watts` | W | always positive; the topic picks the direction. Firmware writes 32000 - W for charge, 32000 + W for discharge |
-| Request `socPercent` | % | integer; firmware rounds up to the 0.4 % register |
+| Request `socPercent` | % | integer; firmware rounds up to the 0.4 % register; 101 means past full (251) |
 | Controller `signed_w` | W | + discharge, - charge, same as battery power |
 
 ## The HA package (`Home Assistant/alpha2mqtt.yaml`)

@@ -23,7 +23,8 @@ int main()
 	expect(dispatchRequestValid(0, 0), "0 W to 0 %");
 	expect(dispatchRequestValid(32000, 100), "32000 W to 100 % is the edge");
 	expect(!dispatchRequestValid(32001, 50), "a charge over 32000 W would wrap the register below 0");
-	expect(!dispatchRequestValid(50, 101), "a SOC over 100 %");
+	expect(dispatchRequestValid(50, 101), "101 % asks for a charge past full");
+	expect(!dispatchRequestValid(50, 102), "a SOC over 101 %");
 	expect(!dispatchRequestValid(65636, 50), "a watts that a 16 bit cast would shrink");
 	expect(!dispatchRequestValid(50, 65636), "a SOC that a 16 bit cast would shrink to 100");
 	expect(!dispatchRequestValid(0xFFFFFFFBul, 50), "a negative watts parsed as unsigned");
@@ -34,6 +35,7 @@ int main()
 	expect(dispatchSocFromPercent(1) == 3, "1 % rounds up to 3");
 	expect(dispatchSocFromPercent(90) == 225, "90 % sends 225");
 	expect(dispatchSocFromPercent(100) == 250, "100 % sends 250");
+	expect(dispatchSocFromPercent(101) == 251, "101 % sends 251, one bit past full");
 	for (uint16_t p = 0; p <= 100; p++)
 	{
 		expect(dispatchSocFromPercent(p) * 2 >= p * 5, "never below the requested percent");
