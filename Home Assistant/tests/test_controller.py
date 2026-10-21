@@ -1,6 +1,7 @@
 """Tests for the Home Assistant glue. Home Assistant is stubbed, so it is not needed."""
 
 import asyncio
+import hashlib
 import importlib
 import json
 import sys
@@ -398,6 +399,7 @@ def test_every_fast_message_logs_a_step_enabled_or_not(monkeypatch, enabled):
     assert {k: steps[0][k] for k in ("grid", "pv", "battery", "soc", "dispatch", "ms", "read_ms")} == {
         "grid": 0, "pv": -120, "battery": 500, "soc": 55.0, "dispatch": "Start", "ms": 1000500, "read_ms": 150}
     assert steps[0]["grid_w"] == 500 and steps[0]["status"] == ("regulating" if enabled else "disabled")
+    assert steps[0]["limit"] == "none" and steps[0]["solar_w"] is None
     assert {"error_w", "integral_w", "ff_w", "request_w", "output_w", "offset_w", "solar_w", "wait_ms"} <= steps[0].keys()
     sent = [step["sent"] for step in steps]
     assert sent == ([{"kind": "discharge", "watts": 960, "soc": 20, "power_only": False}, None, None] if enabled
@@ -522,6 +524,21 @@ def test_start_and_stop_are_logged_with_the_settings_in_the_default_directory(tm
     assert "Alpha2MQTT/request/#" in topics
     assert paths == [tmp_path / "config" / "alpha2mqtt_controller" / "alpha2mqtt.jsonl"]
     assert kinds == ["start", "cfg", "stop"]
+
+
+def test_the_start_record_and_the_loop_version_sensor_name_the_loop_code(tmp_path):
+    started(tmp_path, {})
+    (path,) = tmp_path.rglob("*.jsonl")
+    start = json.loads(path.read_text().splitlines()[0])
+    folder = Path(C.__file__).parent
+    code = hashlib.sha256((folder / "regulator.py").read_bytes() + (folder / "controller.py").read_bytes())
+    assert start == {"k": "start", "t": start["t"], "code": code.hexdigest()[:12]}
+    c = C.Controller(MagicMock(), {}, "entry")
+    c.code = "abc"
+    key, *rest = next(s for s in S.SENSORS if s[0] == "code")
+    sensor = S.ControllerSensor(MagicMock(runtime_data=c), key, *rest)
+    assert (sensor._attr_name, sensor._value(c)) == ("Loop version", "abc")
+    assert sensor._attr_entity_category == S.EntityCategory.DIAGNOSTIC
 
 
 def test_the_log_directory_can_be_set(tmp_path):

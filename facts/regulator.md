@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: working tree on 1e945f6 plus the diagnosis fields, 2026-10-21. `python3 -m pytest "Home Assistant/tests/test_regulator.py" -q`: 124 passed in 0.34 s.
+Last verified: 851230d plus the loop version stamp, 2026-10-22. `python3 -m pytest "Home Assistant/tests/test_regulator.py" -q`: 169 passed in 0.66 s. `GOLDEN_FLOOR_OFF` unchanged with every new setting at its default.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 

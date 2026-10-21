@@ -8,7 +8,7 @@ import time
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import MATCH_ALL, UnitOfPower
+from homeassistant.const import MATCH_ALL, EntityCategory, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -76,7 +76,10 @@ SENSORS = [
     ("step_response", "Step response time", False, lambda c: (c.last_response or {}).get("t80_s"),
      lambda c: dict(c.last_response or {})),
     ("slow_responses", "Slow step responses today", False, lambda c: c.slow_responses_today, None),
+    # A hash of the loop's code, the same as the start record's code: which regulator and controller are running.
+    ("code", "Loop version", False, lambda c: c.code, None),
 ]
+DIAGNOSTIC = {"code"}
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddEntitiesCallback) -> None:
@@ -96,6 +99,8 @@ class ControllerSensor(SensorEntity):
         self._attr_name = name
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = self._controller.device_info
+        if key in DIAGNOSTIC:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
         if power:
             self._attr_device_class = SensorDeviceClass.POWER
             self._attr_native_unit_of_measurement = UnitOfPower.WATT

@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: working tree on 1e945f6 plus the diagnosis attributes, 2026-10-21. `python3 -m pytest "Home Assistant/tests/test_controller.py" -q`: 47 passed in 0.09s.
+Last verified: 851230d plus the loop version stamp, 2026-10-22. `python3 -m pytest "Home Assistant/tests/test_controller.py" -q`: 49 passed in 0.09s.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -30,10 +30,11 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
   "Alpha2MQTT battery controller", plus " (<base>)" when the base topic is not `Alpha2MQTT`, so a shadow
   controller gets its own entity ids (24f5a85).
 - `async_start` creates, in order:
+  - `code`: `_code_version()` on the executor, the first 12 hex of a sha256 over the bytes of `regulator.py` then `controller.py`.
   - `StepLog` at `<log_dir or hass.config.path(DOMAIN)>/file_name(base)` on the executor. `OSError` logs a warning and leaves the step log off.
   - MQTT subscribe: state topic -> `_on_state`.
   - MQTT subscribe: `{base}/response/set/+` -> `_on_response`.
-  - Only with a step log: logs `start` and `cfg`, subscribes `{base}/request/#` -> `_on_request` (raw log only), and tracks `log_entities` state changes -> `_on_log_entity`.
+  - Only with a step log: logs `start` (with `code`) and `cfg`, subscribes `{base}/request/#` -> `_on_request` (raw log only), and tracks `log_entities` state changes -> `_on_log_entity`.
   - State change tracking of the configured policy, grid scale, correction, max charge, max discharge entities -> `_on_entity`.
   - `async_track_time_interval` 1 s -> `_on_tick`.
 - `async_unload_entry`: `Controller.async_stop`, then unload platforms.
@@ -197,6 +198,7 @@ Diagnosis attributes (all for display, control never reads them):
 | last_command | `normal` or `"<kind> <watts> W"`; attrs soc, seq, sent time, ack dict |
 | step_response | `t80_s` of the last non-cancelled response record; attrs the record |
 | slow_responses | slow responses today, local date |
+| code ("Loop version") | `Controller.code`; entity category diagnostic (`DIAGNOSTIC` in `sensor.py`) |
 
 Power sensors write on a move of 25 W (`MOVE_W`) or after 10 s (`EVERY_S`), to cut recorder rows (e0e291d).
 Non-power sensors without attributes write only on change.
@@ -242,7 +244,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_at_the_policy_soc_the_battery_is_held_at_zero_not_asked_to_discharge` | SOC passed through; one charge 0 W |
 | `test_solar_comes_from_*` | solar from `west` + `east`, None when either is missing or not a number; `ff_w` in the step |
 | `test_net_demand_*`, `test_a_sample_waits_*`, `test_without_*seq*`, `test_a_new_sample_steps_on_one_still_waiting_first` | seq matching and 0.5 s wait |
-| `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
+| `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_start_record_and_the_loop_version_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w` | numbers |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |

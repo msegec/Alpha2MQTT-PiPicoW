@@ -2,7 +2,7 @@
 
 Why the dispatch path, the regulator, the idle hold and the step timing look the way they do, from commit messages and diffs.
 
-Last verified: 75e08a8, 2026-10-21.
+Last verified: 75e08a8, 2026-10-21; rows for the solar feed forward and offset correction added 2026-10-22.
 
 Scope: fork commits from ec388dc onward. Upstream (dxoverdy, up to febfd78, 2024-05-16) is out of scope.
 Dates are author dates. Several commits authored 2026-10-13 and 10-14 sit after 2026-10-17 commits in history, so the branch was rebased. Commit 3a6e951 cites `5e56998`, which is not an ancestor of HEAD: it is a pre-rebase copy of 66e7f49.

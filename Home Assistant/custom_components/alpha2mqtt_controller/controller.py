@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -73,6 +74,16 @@ def _plausible(x: float) -> bool:
     return math.isfinite(x) and abs(x) <= MAX_PLAUSIBLE_W
 
 
+def _code_version() -> str:
+    """The first 12 hex of a sha256 over regulator.py and controller.py, so a log says which loop ran."""
+    folder = os.path.dirname(__file__)
+    digest = hashlib.sha256()
+    for name in ("regulator.py", "controller.py"):
+        with open(os.path.join(folder, name), "rb") as f:
+            digest.update(f.read())
+    return digest.hexdigest()[:12]
+
+
 def _number(hass: HomeAssistant, entity_id: str | None, max_age_s: float | None = None) -> float | None:
     if not entity_id:
         return None
@@ -98,6 +109,7 @@ class Controller:
         self.config = config
         self.regulator = Regulator()
         self.enabled = False
+        self.code: str | None = None  # see _code_version
         self.grid_w: float | None = None
         self._raw_grid: float | None = None
         self._battery_w: float | None = None
@@ -181,6 +193,7 @@ class Controller:
         cfg = self.config
         base = cfg.get(CONF_BASE_TOPIC, DEFAULT_BASE_TOPIC)
         log_dir = cfg.get(CONF_LOG_DIR) or self.hass.config.path(DOMAIN)
+        self.code = await self.hass.async_add_executor_job(_code_version)
         try:
             self._steplog = await self.hass.async_add_executor_job(StepLog, os.path.join(log_dir, file_name(base)))
         except OSError as err:
@@ -189,7 +202,7 @@ class Controller:
             self.hass, cfg.get(CONF_STATE_TOPIC, DEFAULT_STATE_TOPIC), self._on_state))
         self._unsubs.append(await mqtt.async_subscribe(self.hass, f"{base}/response/set/+", self._on_response))
         if self._steplog is not None:
-            self._log("start")
+            self._log("start", code=self.code)
             self._log("cfg", **asdict(self.regulator.settings))
             # Every request on the bus, so writes by hand or by a script show next to the controller's own.
             self._unsubs.append(await mqtt.async_subscribe(self.hass, f"{base}/request/#", self._on_request))
@@ -360,7 +373,7 @@ class Controller:
             ("grid_w", self.grid_w), ("solar_w", r.solar_w), ("error_w", r.error_w), ("integral_w", r.integral_w),
             ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w), ("offset_w", r.offset_w))}
         self._log("step", **{name: data.get(key) for name, key in FAST_FIELDS},
-                  wait_ms=round((time.monotonic() - t_seen) * 1000), status=self.status, **watts,
+                  wait_ms=round((time.monotonic() - t_seen) * 1000), status=self.status, limit=r.limit, **watts,
                   sent=None if cmd is None else {"kind": cmd.kind, "watts": cmd.watts, "soc": cmd.soc,
                                                  "power_only": cmd.power_only})
 

@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: 75e08a8, 2026-10-21.
+Last verified: 851230d plus the loop version stamp, 2026-10-22.
 
 ## Files
 
@@ -34,8 +34,8 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 
 | `k` | Written when | Fields |
 |---|---|---|
-| `start` | `async_start`, log open | none |
-| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `integral_band_w`, `integral_limit_w`, `kff`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w` |
+| `start` | `async_start`, log open | `code`: first 12 hex of a sha256 over `regulator.py` and `controller.py`, also the Loop version sensor |
+| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `integral_band_w`, `integral_limit_w`, `kff`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w` |
 | `step` | each new fast message (`_take`), enabled or not | see below |
 | `cmd` | every message on `<base>/request/#` | `topic` (str), `p` (raw payload) |
 | `ack` | every message on `<base>/response/set/+` | `topic`, `p` (raw payload) |
@@ -56,10 +56,11 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `grid`, `pv`, `battery`, `soc`, `dispatch` | fast message keys in `FAST_FIELDS` | raw values (W, %, dispatch start as sent, `"Start"` in tests); null if absent |
 | `wait_ms` | `time.monotonic() - t_seen` | int ms the sample waited for its correction (up to `MATCH_WAIT_S`, 0.5 s) |
 | `status` | `Controller.status` | str, `"disabled"` when off, else regulator status |
-| `grid_w`, `solar_w`, `error_w`, `integral_w`, `ff_w`, `request_w`, `output_w`, `offset_w` | controller and regulator after this step | float W rounded to 0.1, or null |
+| `limit` | `Regulator.limit` | str: what held the output (`none`, `floor`, `refused`, `full`, `warm`, `discharge_cap`, `charge_cap`, `turn_round`, `spike`); kept from the last step while disabled |
+| `grid_w`, `solar_w`, `error_w`, `integral_w`, `ff_w`, `request_w`, `output_w`, `offset_w` | controller and regulator after this step | float W rounded to 0.1, or null. `solar_w` is the solar the feed forward used (null when unknown), `ff_w` the feed forward, `offset_w` the offset correction (the command asks for `output_w + offset_w`) |
 | `sent` | `Command` returned by this step's `_run` | null or `{kind, watts, soc, power_only}` |
 
-Not in `step`: firmware `haIdle`, regulator `limit`, ack round trip (`ack_after_ms` lives only in `Controller.ack`, shown as attributes of the `last_command` sensor).
+Not in `step`: firmware `haIdle`, ack round trip (`ack_after_ms` lives only in `Controller.ack`, shown as attributes of the `last_command` sensor).
 
 ## Step response monitor (`ResponseMonitor`)
 
@@ -113,7 +114,8 @@ Sensors: `step_response` state is `last_response["t80_s"]` (null after a timeout
 | Did the battery follow? | `step.battery` over following steps against the signed setpoint; `resp.result` |
 | How long did it take? | `resp.t80_s`, `elapsed_s`, `slope_w_s` (about 9 W/s is the slow ramp; hundreds is healthy); `ack.p.ms` minus the matching `step.ms` window; `t` gap between `cmd` and `ack` |
 | Was the sample late or stale? | `step.wait_ms`, `read_ms`, `seq` gaps, `ms` resets (reboot) |
-| Why did the regulator do X? | `step.status`, `error_w`, `integral_w`, `ff_w`, `offset_w`, `request_w`, `output_w`, `grid_w`, `solar_w`; `cfg` in force; `gap`, `refused`, `rearmed`, `cross`; `e` for policy or input entities |
+| Which code ran? | `start.code`, the Loop version sensor |
+| Why did the regulator do X? | `step.status`, `limit`, `error_w`, `integral_w`, `ff_w`, `offset_w`, `request_w`, `output_w`, `grid_w`, `solar_w`; `cfg` in force; `gap`, `refused`, `rearmed`, `cross`; `e` for policy or input entities |
 | Who wrote the inverter? | `cmd` records with no matching `step.sent` came from a tick, an entity change, a person or a script |
 
 ## History
@@ -124,6 +126,7 @@ Sensors: `step_response` state is `last_response["t80_s"]` (null after a timeout
 - 9684b66: added `cross` with the ready floor (`warm_w`).
 - 7a07eab: `response.py`, `resp` records and the two sensors. Reason: the inverter can answer a discharge step with a slow ramp, and nothing showed it.
 - 75e08a8: added `refused` and `rearmed`.
+- 2026-10-22: `step` lost `load_w` and gained `solar_w`, `offset_w` and `limit`; `start` gained `code`.
 
 ## Invariants pinned by tests
 

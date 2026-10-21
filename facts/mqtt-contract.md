@@ -2,7 +2,7 @@
 
 Every topic between the Pico firmware and Home Assistant, who writes and reads it, and what the HA package wires up.
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101; package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
+Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101, plus the correction entity's `west` and `east` attributes on 2026-10-22; package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
 
 ## Ground rules
 
