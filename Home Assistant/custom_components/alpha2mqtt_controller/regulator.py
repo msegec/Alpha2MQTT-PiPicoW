@@ -50,11 +50,11 @@ WARM_BAND_W = 50.0
 # a gap longer than SOLAR_MAX_GAP_S: it is not a ramp the inverter lags, and the error already holds all of it.
 SOLAR_DEADBAND_W, SOLAR_MAX_GAP_S = 20.0, 2.0
 # The inverter's steady offset, battery reading minus setpoint, against the signed setpoint (positive is discharge).
-# Measured on an AlphaESS SMILE-B3 over 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, rising
-# about linearly to +198 W at 2750 W and +220 W at 3000 W. Linear between the points, flat past the ends. The integral
-# alone held it, so after a 2 kW load it wound to about -155 W and gave back about +175 W of import when the load
-# stopped.
-INVERTER_OFFSET = ((-100.0, -8.0), (0.0, 0.0), (100.0, -25.0), (1500.0, -25.0), (2500.0, 210.0))
+# Measured on an AlphaESS SMILE-B3 over 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, +198 W
+# at 2750 W and +220 W at 3000 W. Chosen, not measured: 0 W at 0 W so a stop stays a stop, the ramps either side of
+# it, the line from 1500 to 2750 W, and flat past the ends. The integral alone held it, so after a 2 kW load it
+# wound to about -155 W and gave back about +175 W of import when the load stopped.
+INVERTER_OFFSET = ((-100.0, -8.0), (0.0, 0.0), (100.0, -25.0), (1500.0, -25.0), (2750.0, 198.0), (3000.0, 220.0))
 
 
 @dataclass(frozen=True)
@@ -143,6 +143,20 @@ def inverter_offset(w: float) -> float:
     return y0
 
 
+def setpoint_for(w: float, k: float) -> float:
+    """The setpoint c with c + k * inverter_offset(c) = w: what to ask for so the battery gives w. Exact on the
+    piecewise linear table, which rises with c for k up to 4 (its steepest fall is 0.25 W per W)."""
+    points = [(x, x + k * y) for x, y in INVERTER_OFFSET]
+    (x0, f0), *rest = points
+    if w <= f0:
+        return w - k * INVERTER_OFFSET[0][1]
+    for x1, f1 in rest:
+        if w <= f1:
+            return x0 + (x1 - x0) * (w - f0) / (f1 - f0)
+        x0, f0 = x1, f1
+    return w - k * INVERTER_OFFSET[-1][1]
+
+
 def _clip(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
@@ -170,7 +184,7 @@ class Regulator:
         self._direction = 0
         self._t_direction = float("-inf")
         self._t_sent = float("-inf")
-        self._sent_w = 0.0  # the battery watts the last command should deliver: its watts less the offset correction
+        self._sent_w = 0.0  # the battery watts the last command should deliver: its watts plus offset_comp x the table
         self._t_ack: float | None = None
         self._ack_power = False
         self._failed = False
@@ -184,7 +198,7 @@ class Regulator:
         self.ff_w = 0.0
         self.request_w = 0.0
         self.output_w = 0.0
-        self.offset_w = 0.0  # the offset correction: the command asks for output_w + offset_w
+        self.offset_w = 0.0  # the offset correction: the command asks for output_w + offset_w, see setpoint_for
         self.sent: Command | None = None
         self.status = "waiting"
         self.limit = "none"  # what holds the output this step, for diagnosis: see step()
@@ -389,7 +403,8 @@ class Regulator:
             # A turn out of a charge that the slew cuts short lands on the floor, not at idle or under it.
             self.output_w = max(self.output_w, ready_w)
         # Everything above is battery watts. Only the command asks for less where the inverter gives more.
-        self.offset_w = -s.offset_comp * inverter_offset(self.output_w) if policy.mode == REGULATE else 0.0
+        k = s.offset_comp if policy.mode == REGULATE else 0.0
+        self.offset_w = setpoint_for(self.output_w, k) - self.output_w if k else 0.0
         return self._maybe_send(t, policy)
 
     def _refused(self, t: float, policy: Policy) -> bool:
@@ -465,5 +480,5 @@ class Regulator:
 
     def _send(self, t: float, cmd: Command) -> Command:
         self.sent, self._t_sent, self._t_ack, self._ack_power, self._failed = cmd, t, None, False, False
-        self._sent_w = cmd.signed_w - self.offset_w
+        self._sent_w = cmd.signed_w + self.settings.offset_comp * inverter_offset(cmd.signed_w)
         return cmd
