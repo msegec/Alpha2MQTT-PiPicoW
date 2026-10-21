@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: daeb28a plus the integral import factor, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 285 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 1e0ac66 plus the import trim wait, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 288 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -125,6 +125,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `full_register` | 252 | Not used by the regulator. The controller publishes a charge to 100 % as `socPercent` this minus 150, since register 250 stopped the battery at 99.2 %. |
 | `spike_confirm_w` | 0.0 W | Above 0, a sample whose net demand (`grid_w + battery_w`) moved more than this from the last sample is held: every step on it returns None with `limit = "spike"`, and the integral skips it. The next sample always acts. 0 is off. |
 | `integral_reset_w` | 0.0 W | Above 0, `_send` sets the integral to 0 when the new command's `signed_w` moves this much or more from the last one's: what it held trimmed the old level. 0 is off. |
+| `import_trim_gap_s` | 6.0 s | A small trim that raises `signed_w` (cuts import) waits this long instead of `TRIM_GAP_S`; a trim towards export keeps `TRIM_GAP_S`. 6 is the old rule. |
 | `offset_comp` | 0.0 | Share of the table the command allows for under `REGULATE`: it asks for `setpoint_for(output_w, offset_comp)`, so the battery lands on the output. 0 is off, 1 full. |
 
 The test file's `LIVE` dict, labelled "the live tuning": `target_w=-20, deadband_w=5, ki=0.01, write_threshold_w=20, min_interval_s=2.5, slew_w_per_s=2400, flip_hysteresis_w=150, flip_dwell_s=3, keepalive_s=40, power_write_gap_s=0.5, warm_w=20`. Whether it matches the deployed config: unknown.
@@ -162,7 +163,7 @@ Then `integral += g * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit_
     2. No last command, last failed, lease over, or keepalive due: send full.
     3. Kind changed and either side is non-zero: send full.
     4. `to_floor`: `REGULATE`, floor > 0, last signed under `ceil(warm_w)` and new at or over it.
-    5. Small trim: not `to_floor`, non-zero watts, same SOC, move under `SMALL_TRIM_W` and under `TRIM_GAP_S` since last: None.
+    5. Small trim: not `to_floor`, non-zero watts, same SOC, move under `SMALL_TRIM_W` and under `TRIM_GAP_S` since last (`import_trim_gap_s` for a move up): None.
     6. `to_floor`, SOC changed, or move >= `write_threshold_w`: send, as `power_only` if same kind/SOC/duration and `power_write_gap_s > 0`.
     7. Else None.
 
@@ -213,6 +214,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_with_the_guard_*`, `test_the_feed_forward_guard_is_off_by_default` | Guard off by default; on, feed forward never turns a discharge round alone but still leads a ramp in the running direction. |
 | `test_a_big_move_starts_the_integral_from_zero`, `test_the_integral_reset_is_off_by_default` | Integral reset on a command move of `integral_reset_w`, off by default. |
 | `test_the_integral_winds_faster_on_import_than_on_export`, `test_the_integral_import_factor_is_1_by_default` | Import factor on the integral gain, symmetric by default. |
+| `test_a_small_import_cut_goes_out_after_the_import_trim_gap`, `test_a_small_export_cut_still_waits_the_trim_gap`, `test_the_import_trim_wait_is_the_trim_gap_by_default` | Import trim wait for moves up only, equal to the trim gap by default. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |

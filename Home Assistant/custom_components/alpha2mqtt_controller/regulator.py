@@ -113,6 +113,9 @@ class Settings:
     # Above 0, a command that moves this much starts the integral from 0: what it held trimmed the old level, and the
     # offset table owns the new one. 0 is off.
     integral_reset_w: float = 0.0
+    # Small trims that cut import (raise the signed command) wait this long instead of TRIM_GAP_S. Trims towards
+    # export keep TRIM_GAP_S: export is the cheap side. Equal to TRIM_GAP_S is the old rule.
+    import_trim_gap_s: float = 6.0
     # Dispatch SOC register sent for a charge to 100 %. The register is 0.4 % a step, but 250 stopped the
     # battery at 99.2 % and 252 is full, so 100 % goes as this, as socPercent register - 150.
     full_register: int = 252
@@ -481,7 +484,7 @@ class Regulator:
         to_floor = policy.mode == REGULATE and floor > 0 and last.signed_w < floor <= cmd.signed_w
         # A stop at 0 W goes out however small, as at the floor or a refusal: it is not a trim.
         if (not to_floor and cmd.watts and cmd.soc == last.soc and abs(cmd.signed_w - last.signed_w) < SMALL_TRIM_W
-                and since < TRIM_GAP_S):
+                and since < (s.import_trim_gap_s if cmd.signed_w > last.signed_w else TRIM_GAP_S)):
             return None
         if to_floor or cmd.soc != last.soc or abs(cmd.signed_w - last.signed_w) >= s.write_threshold_w:
             same_block = (cmd.kind, cmd.soc, cmd.duration) == (last.kind, last.soc, last.duration)

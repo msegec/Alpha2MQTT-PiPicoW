@@ -1359,3 +1359,25 @@ def test_the_integral_winds_faster_on_import_than_on_export():
 
 def test_the_integral_import_factor_is_1_by_default():
     assert R.Settings().ki_import_x == 1
+
+
+# Import trim wait: a small trim that cuts import may go sooner than one towards export.
+
+def test_a_small_import_cut_goes_out_after_the_import_trim_gap():
+    reg = make(import_trim_gap_s=2, ki=0, deadband_w=0, target_w=0, min_interval_s=0, write_threshold_w=20)
+    reg.update_grid(0, 0, 500)
+    reg.step(0, BOTH)
+    reg.update_grid(2.5, 30, 500)  # 30 W of import: a small trim up
+    assert reg.step(2.5, BOTH) is not None
+
+
+def test_a_small_export_cut_still_waits_the_trim_gap():
+    reg = make(import_trim_gap_s=2, ki=0, deadband_w=0, target_w=0, min_interval_s=0, write_threshold_w=20)
+    reg.update_grid(0, 0, 500)
+    reg.step(0, BOTH)
+    reg.update_grid(2.5, -30, 500)
+    assert reg.step(2.5, BOTH) is None
+
+
+def test_the_import_trim_wait_is_the_trim_gap_by_default():
+    assert R.Settings().import_trim_gap_s == R.TRIM_GAP_S

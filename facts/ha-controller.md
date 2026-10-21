@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: daeb28a plus the integral import factor, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 285 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 1e0ac66 plus the import trim wait, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 288 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -189,6 +189,7 @@ entity's only attribute, `group`, so a dashboard can build its sections from the
 | offset_comp | Offset correction | 0..1.5, 0.05 | Basic | 0 off |
 | spike_confirm_w | Spike confirm | 0..3000 W, 50 | Advanced | 0 off |
 | integral_reset_w | Integral reset step | 0..2000 W, 50 | Advanced | 0 off |
+| import_trim_gap_s | Import trim wait | 0..30 s, 0.5 | Advanced | 6 is the old rule |
 | full_register | Full charge register | 250..255, 1 | Safety | a charge to 100 % is published as socPercent register - 150 |
 
 Not numbers: `integral_band_w`, `integral_limit_w`, `duration_s` (120 s lease). They show read only on the status sensor.
