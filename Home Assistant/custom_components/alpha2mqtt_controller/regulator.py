@@ -31,10 +31,18 @@ FLOOR_MARGIN = 1.5
 # the request and would otherwise freeze it for good. A battery past the setpoint is not lag (cuts land in
 # about 3 s) but a steady offset, such as a DC reading over an AC setpoint, which only the integral can trim.
 LAG_W, ARRIVE_S = 100.0, 15.0
-# Under this battery power for this long against a real request, the inverter is refusing (at its cutoff,
-# whatever the SOC says): ask for 0 W, drop the integral, try again after the hold. A slow start passes
-# 30 W within about 7 s of the command, so 20 s is not a slow start.
-REFUSED_W, REFUSED_AFTER_S, REFUSED_HOLD_S = 30.0, 20.0, 60.0
+# Under this battery power for this long against a request of REFUSED_ASK_W or more, the inverter is refusing
+# (at its cutoff, whatever the SOC says): ask for 0 W, drop the integral, try again after the hold. Every start
+# logged since 17 Oct left 10 W within 5.1 s, so 20 s is not a slow start. A battery reads about 35 W under a
+# 100 to 400 W command, so 100 W asked still reads over 30 W.
+REFUSED_W, REFUSED_AFTER_S, REFUSED_HOLD_S, REFUSED_ASK_W = 30.0, 20.0, 60.0, 100.0
+# A refusal this close to the policy SOC is the cutoff: no retry each minute, which only asks again into a
+# refusal (on 19 Oct, 2 h of it at 12.8 %). It holds until the SOC rises this much or the policy SOC changes.
+REFUSED_NEAR_SOC, REARM_SOC = 3.0, 1.0
+# Moves under SMALL_TRIM_W are noise and integral creep: they wait TRIM_GAP_S, so the bus carries load steps. On
+# 21 Oct three commands in four moved under 50 W, most within a second of the last. Replayed on that day, this
+# cut the commands by a third for 0.6 W more mean import; a 10 s wait cut half for 1.8 W.
+SMALL_TRIM_W, TRIM_GAP_S = 50.0, 6.0
 # Keep warm stands in for a trickle charge this close to idle; a bigger surplus the battery can store is stored.
 WARM_BAND_W = 50.0
 
@@ -135,6 +143,8 @@ class Regulator:
         self._failed = False
         self._t_low: float | None = None  # battery under REFUSED_W against a request, since
         self._t_refused = float("-inf")
+        self.refused_soc: float | None = None  # the SOC a refusal near the floor began at; None while armed
+        self._refused_floor: int | None = None
         self.integral_w = 0.0
         self._offset_w = 0.0
         self.error_w = 0.0
@@ -208,6 +218,7 @@ class Regulator:
         self._regulating = False
         self.integral_w = 0.0
         self._t_low = None
+        self.refused_soc = None
         self._filtered = None
         self._saturation = 0
 
@@ -257,7 +268,7 @@ class Regulator:
             if self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN:
                 # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.
                 hi, floor = 0.0, "floor"
-            elif self._refused(t):
+            elif self._refused(t, policy):
                 hi, floor = 0.0, "refused"
             if self.soc is not None and self.soc >= policy.charge_soc:
                 # Full: the same for a charge, so the export it cannot store does not wind the integral.
@@ -303,17 +314,23 @@ class Regulator:
             self.output_w = max(self.output_w, ready_w)
         return self._maybe_send(t, policy)
 
-    def _refused(self, t: float) -> bool:
+    def _refused(self, t: float, policy: Policy) -> bool:
         """The battery gives nothing against a real request: the inverter is refusing."""
-        asking = self.sent is not None and self.sent.kind == "discharge" and self.sent.watts > 200
+        asking = self.sent is not None and self.sent.kind == "discharge" and self.sent.watts >= REFUSED_ASK_W
         if asking and self.battery_w is not None and self.battery_w < REFUSED_W:
             if self._t_low is None:
                 self._t_low = t
             elif t - self._t_low >= REFUSED_AFTER_S:
                 self._t_refused, self._t_low = t, None
                 self.integral_w = 0.0
+                if self.soc is not None and self.soc <= policy.discharge_soc + REFUSED_NEAR_SOC:
+                    self.refused_soc, self._refused_floor = self.soc, policy.discharge_soc
         else:
             self._t_low = None
+        if self.refused_soc is not None:
+            if self.soc < self.refused_soc + REARM_SOC and policy.discharge_soc == self._refused_floor:
+                return True
+            self.refused_soc, self._t_refused = None, float("-inf")
         return t - self._t_refused < REFUSED_HOLD_S
 
     def _command(self, policy: Policy) -> Command:
@@ -347,6 +364,10 @@ class Regulator:
         # A rise to the ready floor goes out however small, or the battery idles until the keepalive.
         floor = math.ceil(s.warm_w)
         to_floor = policy.mode == REGULATE and floor > 0 and last.signed_w < floor <= cmd.signed_w
+        # A stop at 0 W goes out however small, as at the floor or a refusal: it is not a trim.
+        if (not to_floor and cmd.watts and cmd.soc == last.soc and abs(cmd.signed_w - last.signed_w) < SMALL_TRIM_W
+                and since < TRIM_GAP_S):
+            return None
         if to_floor or cmd.soc != last.soc or abs(cmd.signed_w - last.signed_w) >= s.write_threshold_w:
             same_block = (cmd.kind, cmd.soc, cmd.duration) == (last.kind, last.soc, last.duration)
             return self._send(t, replace(cmd, power_only=True) if same_block and s.power_write_gap_s > 0 else cmd)

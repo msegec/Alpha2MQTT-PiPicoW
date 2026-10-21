@@ -462,6 +462,15 @@ def test_a_turn_through_0_w_with_the_ready_floor_on_is_logged(monkeypatch, warm_
     assert house.log.kind("cross") == logged
 
 
+def test_a_refusal_near_the_floor_and_its_rearm_are_logged(monkeypatch):
+    house = logged_house(monkeypatch)
+    for _ in range(25):
+        house.second(**{C.SOC_KEY: 22.0, C.BATTERY_KEY: 0})
+    assert house.log.kind("refused") == [{"soc": 22.0, "floor": 20}]
+    house.second(**{C.SOC_KEY: 23.0, C.BATTERY_KEY: 0})
+    assert house.log.kind("rearmed") == [{"soc": 23.0}]
+
+
 def test_log_entities_are_logged_on_change(monkeypatch):
     house = logged_house(monkeypatch)
     state = types.SimpleNamespace(state="95.0", attributes={"unit_of_measurement": "W"})

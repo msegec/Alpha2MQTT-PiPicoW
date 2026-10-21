@@ -655,8 +655,8 @@ def test_zero_watts_keeps_the_last_kind_so_no_block_write_is_needed():
     reg.update_grid(6, -200, 200, soc=50)  # load gone: want 0 W
     assert reg.step(6, BOTH) == R.Command("discharge", 0, 20, 120)
     reg.ack(6.1)
-    reg.update_grid(9, 70, 0, soc=50)  # 50 W over target: a small discharge, same kind
-    cmd = reg.step(9, BOTH)
+    reg.update_grid(16, 70, 0, soc=50)  # 50 W over target: a small discharge, same kind
+    cmd = reg.step(16, BOTH)
     assert cmd.kind == "discharge" and cmd.watts == 30
 
 
@@ -694,6 +694,93 @@ def test_a_refused_discharge_is_held_at_zero():
     reg.update_grid(90, 520, 400, soc=30)  # the hold is over and it delivers: regulate
     reg.step(90, DISCHARGE)
     assert reg.output_w > 200
+
+
+def _refuse_near_the_floor(reg, policy=DISCHARGE, soc=22.0):
+    """The battery stays at 0 W against a 500 W request for 21 s, 2 points over the policy SOC."""
+    for t in range(0, 27, 3):
+        reg.update_grid(t, 520, 0, soc=soc)
+        reg.step(t, policy)
+
+
+def test_a_refusal_near_the_floor_holds_zero_until_the_soc_rises():
+    # On 19 Oct a SMILE-B3 refused at 12.8 % for 2 h while it was asked for discharge about every 40 s.
+    # Near the floor a retry each minute only asks again; the SOC rising is the sign it may deliver.
+    reg = make()
+    _refuse_near_the_floor(reg)
+    assert reg.output_w == 0 and reg.refused_soc == 22.0
+    sent = []
+    for t in range(24, 1800, 3):
+        reg.update_grid(t, 520, 0, soc=22.9)
+        sent.append(reg.step(t, DISCHARGE))
+    assert all(cmd is None or cmd.watts == 0 for cmd in sent)
+    assert sum(cmd is not None for cmd in sent) <= 1800 / 40 + 1  # keepalives only
+    reg.update_grid(1800, 520, 0, soc=23.0)
+    assert reg.step(1800, DISCHARGE).watts > 200 and reg.refused_soc is None
+
+
+def test_a_refusal_near_the_floor_rearms_when_the_policy_soc_changes():
+    reg = make()
+    _refuse_near_the_floor(reg)
+    reg.update_grid(90, 520, 0, soc=22.0)
+    assert reg.step(90, replace(DISCHARGE, discharge_soc=15)).watts > 200
+
+
+def test_a_refusal_near_the_floor_still_stores_a_real_surplus_but_does_not_flip_for_a_trim():
+    reg = make()
+    _refuse_near_the_floor(reg, policy=BOTH)
+    reg.update_grid(30, -80, 0, soc=22.0)  # a trim's worth of export: no flip into a charge
+    assert reg.step(30, BOTH) is None and reg.output_w == 0
+    reg.update_grid(33, -600, 0, soc=22.0)
+    cmd = reg.step(33, BOTH)
+    assert cmd.kind == "charge" and cmd.watts >= 400
+
+
+def test_a_refusal_far_from_the_floor_still_retries_after_the_hold():
+    reg = make()
+    _refuse_near_the_floor(reg, soc=40.0)
+    assert reg.output_w == 0 and reg.refused_soc is None
+    reg.update_grid(90, 520, 0, soc=40.0)
+    reg.step(90, DISCHARGE)
+    assert reg.output_w > 200
+
+
+def test_a_normal_start_is_not_a_refusal():
+    # Every start in the step logs since 17 Oct left the 10 W band within 5.1 s of the command.
+    reg = make()
+    for t in range(0, 6):
+        reg.update_grid(t, 520, 0, soc=22.0)
+        reg.step(t, DISCHARGE)
+    reg.update_grid(6, 20, 480, soc=22.0)
+    reg.step(6, DISCHARGE)
+    assert reg.output_w > 200 and reg.refused_soc is None and reg.limit != "refused"
+
+
+def _trimmed(reg, grid_w):
+    """500 W discharge, power written and acked, then a sample 3 s later with the grid at grid_w."""
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(10, 1020, 500)
+    reg.step(10, DISCHARGE)
+    reg.ack(10.15, power_write=True)
+    reg.update_grid(13, grid_w, 1480)
+
+
+def test_a_trim_under_fifty_watts_waits_six_seconds():
+    # On 21 Oct three commands in four were moves under 50 W, most a second or less after the last.
+    reg = make(min_interval_s=2.5, power_write_gap_s=0.5, write_threshold_w=20, deadband_w=5)
+    _trimmed(reg, grid_w=75)  # about 40 W over the 1500 W sent
+    assert reg.step(13, DISCHARGE) is None
+    reg.update_grid(15.9, 75, 1480)
+    assert reg.step(15.9, DISCHARGE) is None
+    reg.update_grid(16, 75, 1480)
+    assert 1530 <= reg.step(16, DISCHARGE).watts <= 1550
+
+
+def test_a_load_step_still_follows_a_power_write_at_the_gap():
+    reg = make(min_interval_s=2.5, power_write_gap_s=0.5, write_threshold_w=20, deadband_w=5)
+    _power_written(reg, grid_w=220)  # 200 W more, a sample 0.85 s after the ack
+    assert reg.step(11, DISCHARGE).watts == 1680
 
 
 def test_a_hand_back_forgets_a_half_counted_refusal():
@@ -959,7 +1046,7 @@ def test_the_floor_hold_wins_over_the_ready_floor():
 
 
 def test_with_the_ready_floor_at_zero_the_commands_are_as_before():
-    # The commands of 9ef2224 on this run. A change here changes the controller with the setting off.
+    # The commands on this run since small trims wait the trim gap. A change here changes the controller with the setting off.
     rnd = random.Random(7)
     levels = [rnd.choice([-600, -160, -80, -40, 0, 40, 300, 1500]) for _ in range(40)]
     rows = on_inverter(make(**{**LIVE, "warm_w": 0}), lambda t: levels[t // 45] + rnd.randint(-30, 30), BOTH, 1800)
@@ -967,4 +1054,4 @@ def test_with_the_ready_floor_at_zero_the_commands_are_as_before():
     assert (len(sent), hashlib.sha256(repr(sent).encode()).hexdigest()[:16]) == GOLDEN_FLOOR_OFF
 
 
-GOLDEN_FLOOR_OFF = (693, "7143bd9b5475dcd4")
+GOLDEN_FLOOR_OFF = (265, "fba5a193a8a348a0")

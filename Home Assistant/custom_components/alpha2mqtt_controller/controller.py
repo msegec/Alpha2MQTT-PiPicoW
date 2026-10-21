@@ -401,13 +401,19 @@ class Controller:
         if self.enabled:
             now = time.monotonic()
             last = self.regulator.sent
+            refused = self.regulator.refused_soc
             try:
-                cmd = self.regulator.step(now, self._policy())
+                policy = self._policy()
+                cmd = self.regulator.step(now, policy)
             except Exception:  # one bad value must not stop regulation silently
                 self._fail("step", "Battery controller step failed, handing the inverter back")
                 cmd = self.regulator.step(now, Policy(RELEASE))
             else:
                 self._recover("step")
+                if refused is None and self.regulator.refused_soc is not None:
+                    self._log("refused", soc=self.regulator.refused_soc, floor=policy.discharge_soc)
+                elif refused is not None and self.regulator.refused_soc is None:
+                    self._log("rearmed", soc=self.regulator.soc)
             if cmd is not None:
                 if (self.regulator.settings.warm_w > 0 and last is not None
                         and {last.kind, cmd.kind} == {"charge", "discharge"}):
