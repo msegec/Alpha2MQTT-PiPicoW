@@ -89,6 +89,7 @@ Do not retry these without new evidence.
 | HA gone 60 s after disconnect, hold at the will | 5bd64cc | 3ed37e9 | Planned restarts triggered it. |
 | Display refresh calling `_mqtt.loop()` | upstream | d45d5c0 | Could run `mqttCallback` inside a half built payload. |
 | Smaller flip margin than 150 W | replay only | 9ef2224 | Did not help in replay and added flips. |
+| Feed forward on a `load_entity` change since the last sample | 3ba305d | solar feed forward, 2026-10-22 | Never ran: no load entity was set, `load_w` null in every step. With 1 s samples that already carry the load, it would count the change twice. |
 
 ## Rules that look arbitrary
 

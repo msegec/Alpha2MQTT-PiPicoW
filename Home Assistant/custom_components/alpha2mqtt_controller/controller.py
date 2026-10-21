@@ -33,7 +33,6 @@ CONF_GRID_SOURCE = "grid_source"
 CONF_GRID_SCALE = "grid_scale"
 CONF_GRID_SCALE_ENTITY = "grid_scale_entity"
 CONF_CORRECTION_ENTITY = "correction_entity"
-CONF_LOAD_ENTITY = "load_entity"
 CONF_MAX_CHARGE_ENTITY = "max_charge_entity"
 CONF_MAX_DISCHARGE_ENTITY = "max_discharge_entity"
 CONF_LOG_DIR = "log_dir"  # default <config>/alpha2mqtt_controller
@@ -198,13 +197,10 @@ class Controller:
                 self._unsubs.append(async_track_state_change_event(
                     self.hass, cfg[CONF_LOG_ENTITIES], self._on_log_entity))
         watched = [cfg.get(k) for k in (CONF_POLICY_ENTITY, CONF_GRID_SCALE_ENTITY, CONF_CORRECTION_ENTITY,
-                                        CONF_LOAD_ENTITY, CONF_MAX_CHARGE_ENTITY, CONF_MAX_DISCHARGE_ENTITY)]
+                                        CONF_MAX_CHARGE_ENTITY, CONF_MAX_DISCHARGE_ENTITY)]
         self._unsubs.append(async_track_state_change_event(
             self.hass, [e for e in watched if e], self._on_entity))
         self._unsubs.append(async_track_time_interval(self.hass, self._on_tick, timedelta(seconds=1)))
-        load = _number(self.hass, cfg.get(CONF_LOAD_ENTITY))
-        if load is not None:
-            self.regulator.update_load(time.monotonic(), load)
 
     async def async_stop(self) -> None:
         try:
@@ -361,7 +357,7 @@ class Controller:
     def _log_step(self, data: dict, t_seen: float, cmd: Command | None) -> None:
         r = self.regulator
         watts = {k: None if v is None else round(v, 1) for k, v in (
-            ("grid_w", self.grid_w), ("load_w", r.load_w), ("error_w", r.error_w), ("integral_w", r.integral_w),
+            ("grid_w", self.grid_w), ("solar_w", r.solar_w), ("error_w", r.error_w), ("integral_w", r.integral_w),
             ("ff_w", r.ff_w), ("request_w", r.request_w), ("output_w", r.output_w))}
         self._log("step", **{name: data.get(key) for name, key in FAST_FIELDS},
                   wait_ms=round((time.monotonic() - t_seen) * 1000), status=self.status, **watts,
@@ -373,6 +369,16 @@ class Controller:
         entity_id = self.config.get(CONF_CORRECTION_ENTITY)
         state = self.hass.states.get(entity_id) if entity_id else None
         return None if state is None else state.attributes.get("seq")
+
+    def _solar(self) -> float | None:
+        """Solar in W from the correction entity's west and east attributes, None unless both are numbers."""
+        entity_id = self.config.get(CONF_CORRECTION_ENTITY)
+        state = self.hass.states.get(entity_id) if entity_id else None
+        try:
+            solar = float(state.attributes["west"]) + float(state.attributes["east"])
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return None
+        return solar if _plausible(solar) else None
 
     def _correction_behind(self, seq) -> bool:
         """True while the correction comes from an older message. Without a seq on either side it never waits."""
@@ -386,16 +392,12 @@ class Controller:
             self._gap("grid estimate", self.grid_w is None)
         if self.grid_w is not None and self._battery_w is not None:
             self.regulator.update_grid(time.monotonic(), self.grid_w, self._battery_w, fresh=fresh,
-                                       soc=self._soc)
+                                       soc=self._soc, solar_w=self._solar())
         return self._run()
 
     @callback
     def _on_entity(self, event: Event[EventStateChangedData]) -> None:
         entity_id = event.data["entity_id"]
-        if entity_id == self.config.get(CONF_LOAD_ENTITY):
-            load = _number(self.hass, entity_id)
-            if load is not None:
-                self.regulator.update_load(time.monotonic(), load)
         if entity_id == self.config.get(CONF_CORRECTION_ENTITY) and self._correction_seq() is not None:
             # A correction rendered from a sample steps that sample and is never paired with another.
             if self._waiting is not None and not self._correction_behind(self._waiting[0].get("seq")):

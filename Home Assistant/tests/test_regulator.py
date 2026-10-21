@@ -228,18 +228,26 @@ def test_charge_uses_policy_soc():
     assert reg.step(0, CHARGE) == R.Command("charge", 1500, 100, 120)
 
 
-def test_feed_forward_adds_load_change_since_sample():
-    reg = make(kff=1.0)
-    reg.update_load(0, 300)
-    reg.update_grid(0, 20, 300)
+def test_solar_feed_forward_answers_a_solar_change_on_that_sample_only():
+    reg = make(kff=1.0, ki=0, min_interval_s=0)
+    reg.update_grid(0, 20, 1000, solar_w=500)
     reg.step(0, DISCHARGE)
-    reg.update_load(4, 2400)
-    assert reg.step(4, DISCHARGE).watts == 2400
-    # The next sample already holds the new load: feed forward drops out, output stays.
-    reg.update_grid(10, 2120, 300)
-    assert reg.step(10, DISCHARGE) is None
+    reg.update_grid(5, -280, 1000, solar_w=800)  # 300 W more solar: P takes 280 W off, feed forward 300 more
+    assert reg.step(5, DISCHARGE).watts == 420
+    assert reg.ff_w == -300
+    reg.update_grid(10, 20, 420, solar_w=800)  # solar steady: feed forward drops out
+    reg.step(10, DISCHARGE)
     assert reg.ff_w == 0
-    assert reg.output_w == pytest.approx(2380)
+
+
+@pytest.mark.parametrize("before, after", [(500, 520), (500, 480), (None, 800), (500, None), (500, math.nan)])
+def test_solar_feed_forward_skips_small_or_unknown_changes(before, after):
+    reg = make(kff=1.0)
+    reg.update_grid(0, 20, 1000, solar_w=before)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(5, 20, 1000, solar_w=after)
+    reg.step(5, DISCHARGE)
+    assert reg.ff_w == 0
 
 
 def test_integral_bounded_when_battery_does_not_follow():

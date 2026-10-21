@@ -398,10 +398,25 @@ def test_every_fast_message_logs_a_step_enabled_or_not(monkeypatch, enabled):
     assert {k: steps[0][k] for k in ("grid", "pv", "battery", "soc", "dispatch", "ms", "read_ms")} == {
         "grid": 0, "pv": -120, "battery": 500, "soc": 55.0, "dispatch": "Start", "ms": 1000500, "read_ms": 150}
     assert steps[0]["grid_w"] == 500 and steps[0]["status"] == ("regulating" if enabled else "disabled")
-    assert {"error_w", "integral_w", "ff_w", "request_w", "output_w", "load_w", "wait_ms"} <= steps[0].keys()
+    assert {"error_w", "integral_w", "ff_w", "request_w", "output_w", "solar_w", "wait_ms"} <= steps[0].keys()
     sent = [step["sent"] for step in steps]
     assert sent == ([{"kind": "discharge", "watts": 960, "soc": 20, "power_only": False}, None, None] if enabled
                     else [None, None, None])
+
+
+def test_solar_comes_from_the_net_demand_attributes_and_feeds_forward_its_change(monkeypatch):
+    house = logged_house(monkeypatch)
+    house.c.set_setting("kff", 1.0)
+    house.set("sensor.net_demand", "1000", west=300, east=200.5)
+    house.second()
+    house.set("sensor.net_demand", "700", west="600", east=200.5)  # 300 W more solar
+    house.second()
+    for west, east in ((None, 200), ("unknown", 200), (300, None)):
+        house.set("sensor.net_demand", "700", **{k: v for k, v in (("west", west), ("east", east)) if v is not None})
+        house.second()
+    steps = house.log.kind("step")
+    assert [(step["solar_w"], step["ff_w"]) for step in steps] == [
+        (500.5, 0), (800.5, -300), (None, 0), (None, 0), (None, 0)]
 
 
 def test_a_step_that_waited_for_its_net_demand_says_how_long(monkeypatch):

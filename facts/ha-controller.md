@@ -34,9 +34,8 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
   - MQTT subscribe: state topic -> `_on_state`.
   - MQTT subscribe: `{base}/response/set/+` -> `_on_response`.
   - Only with a step log: logs `start` and `cfg`, subscribes `{base}/request/#` -> `_on_request` (raw log only), and tracks `log_entities` state changes -> `_on_log_entity`.
-  - State change tracking of the configured policy, grid scale, correction, load, max charge, max discharge entities -> `_on_entity`.
+  - State change tracking of the configured policy, grid scale, correction, max charge, max discharge entities -> `_on_entity`.
   - `async_track_time_interval` 1 s -> `_on_tick`.
-  - Seeds `regulator.update_load` from the load entity if readable.
 - `async_unload_entry`: `Controller.async_stop`, then unload platforms.
 - `async_stop`: `async_set_enabled(False)` (may publish normal), then in `finally` drops every subscription, cancels a pending match wait timer, logs `stop`, closes the step log on the executor.
 
@@ -49,7 +48,6 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
 | 1 s interval | `_on_tick` | `_check_ack`, then `_run` |
 | Correction entity change, entity carries `seq` | `_on_entity` | steps a waiting sample whose seq now matches, else `_run` only |
 | Correction (no seq) or grid scale entity change | `_on_entity` | `_measure(fresh=False)` |
-| Load entity change | `_on_entity` | `regulator.update_load`, then `_run` |
 | Policy or cap entity change | `_on_entity` | `_run` |
 
 `regulator.step` is called from `_run` only, and only while `enabled`. It runs several times a second
@@ -74,7 +72,9 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
      entity that is unreadable gives `None`. Correction entity optional (0 if unset, `None` if set and unreadable,
      no age check). Result `scale * raw_grid + correction`.
 7. `_measure`: grid `None` logs a `grid estimate` gap and skips `update_grid`; the regulator then holds its last
-   command until `stale_after_s` (70fe0e2). Else `regulator.update_grid(now, grid_w, battery_w, fresh, soc)`.
+   command until `stale_after_s` (70fe0e2). Else `regulator.update_grid(now, grid_w, battery_w, fresh, soc, solar_w)`.
+   `solar_w` is `_solar()`: the correction entity's `west` + `east` attributes, read from the same state as the
+   correction; None unless both parse as numbers and the sum is plausible.
 8. `_run` (enabled only): `_policy()` -> `regulator.step(now, policy)`. Any exception in that: logged once,
    then `regulator.step(now, Policy(RELEASE))`. Logs `refused` / `rearmed` on `regulator.refused_soc` edges
    (75e08a8), and `cross` when `warm_w > 0` and the kind flips between charge and discharge (9684b66).
@@ -137,8 +137,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 | `grid_source` | `clamp` | `clamp` or `estimate` (50850bf) |
 | `grid_scale` | 1.0 (form range -100 to 100) | clamp multiplier |
 | `grid_scale_entity` | none | overrides `grid_scale` |
-| `correction_entity` | none | W added to scaled clamp, or house load less solar under `estimate`; may carry `seq` |
-| `load_entity` | none | feed forward input via `update_load` |
+| `correction_entity` | none | W added to scaled clamp, or house load less solar under `estimate`; may carry `seq`, and `west` and `east` (solar W) for the solar feed forward |
 | `max_charge_entity`, `max_discharge_entity` | none (3000 W) | caps |
 | `log_dir` | `<config>/alpha2mqtt_controller` | step log directory |
 | `log_entities` | `[]` | each change logged as `e` |
@@ -163,7 +162,7 @@ Restore: last value, else the `Settings` default, clamped into the current range
 | target_w | -500..500 W, 5 | keepalive_s | 10..100 s, 0.5 |
 | kp | 0..1.5, 0.05 | flip_hysteresis_w | 0..1000 W, 10 |
 | ki | 0..0.2, 0.005 | flip_dwell_s | 0..600 s, 0.5 |
-| kff | 0..1.5, 0.05 | stale_after_s | 3..100 s, 0.5 |
+| kff ("Solar feed forward gain") | 0..2, 0.05 | stale_after_s | 3..100 s, 0.5 |
 | deadband_w | 0..200 W, 5 | power_write_gap_s | 0..5 s, 0.5 (0 off) |
 | smoothing_s | 0..300 s, 0.5 | warm_w | 0..500 W, 5 (0 off) |
 | slew_w_per_s | 50..5000 W/s, 50 | min_interval_s | 2..30 s, 0.5 |
@@ -240,6 +239,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_gap_in_an_input_holds_the_last_command_until_stale_after`, `test_an_input_back_within_stale_after_keeps_regulating` | gap hold, release after 30 s |
 | `test_a_policy_of_normal_releases_at_once`, `test_an_unknown_policy_state_*` | release paths and once per value logging |
 | `test_at_the_policy_soc_the_battery_is_held_at_zero_not_asked_to_discharge` | SOC passed through; one charge 0 W |
+| `test_solar_comes_from_*` | solar from `west` + `east`, None when either is missing or not a number; `ff_w` in the step |
 | `test_net_demand_*`, `test_a_sample_waits_*`, `test_without_*seq*`, `test_a_new_sample_steps_on_one_still_waiting_first` | seq matching and 0.5 s wait |
 | `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w` | numbers |

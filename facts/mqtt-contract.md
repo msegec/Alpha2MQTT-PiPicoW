@@ -123,8 +123,8 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 | `state_topic` | `Alpha2MQTT/state/fast` | firmware | keys `GRID_KEY`, `BATTERY_KEY`, `SOC_KEY`, `seq`; logs the rest of `FAST_FIELDS` |
 | `base_topic` | `Alpha2MQTT` | firmware | publishes `request/set/{kind}`, subscribes `response/set/+` |
 | `policy_entity` | `sensor.battery_auto_action` | no, only in tests | state `charge`, `discharge`, `hold`, `normal`; attributes `soc_target`, `fixed`, `watts`, `both`, `other_soc`, `grid_offset` |
-| `correction_entity` | none | no (`sensor.net_demand` in tests) | number in W; optional attribute `seq` matching the fast message |
-| `grid_scale_entity`, `load_entity`, `max_charge_entity`, `max_discharge_entity` | none | no | numbers |
+| `correction_entity` | none | no (`sensor.net_demand` in tests) | number in W; optional attribute `seq` matching the fast message; optional attributes `west` and `east`, solar in W, summed for the solar feed forward (both must be numbers) |
+| `grid_scale_entity`, `max_charge_entity`, `max_discharge_entity` | none | no | numbers |
 
 Grid estimate (`estimate_grid` in `regulator.py`, positive on import):
 

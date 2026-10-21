@@ -16,7 +16,7 @@ NUMBERS = [
     ("target_w", "Grid target", -500, 500, 5, "W"),
     ("kp", "Proportional gain", 0, 1.5, 0.05, None),
     ("ki", "Integral gain", 0, 0.2, 0.005, None),
-    ("kff", "Feed forward gain", 0, 1.5, 0.05, None),
+    ("kff", "Solar feed forward gain", 0, 2, 0.05, None),
     ("deadband_w", "Deadband", 0, 200, 5, "W"),
     ("smoothing_s", "Smoothing", 0, 300, 0.5, "s"),
     ("slew_w_per_s", "Slew limit", 50, 5000, 50, "W/s"),
