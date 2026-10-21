@@ -118,6 +118,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `stale_after_s` | 30 s | No fresh sample this long: hand back. |
 | `power_write_gap_s` | 0.0 s | 0 means every command is a full block write. Above 0: same-block changes go `power_only`, and after a power write ack the next may follow after this gap. |
 | `warm_w` | 0.0 W | Ready floor ("Keep warm"). 0 is off. |
+| `spike_confirm_w` | 0.0 W | Above 0, a sample whose net demand (`grid_w + battery_w`) moved more than this from the last sample is held: every step on it returns None with `limit = "spike"`, and the integral skips it. The next sample always acts. 0 is off. |
 | `offset_comp` | 0.0 | Share of `inverter_offset(output_w)` taken off the command under `REGULATE`, so the battery lands on the output. 0 is off, 1 full. |
 
 The test file's `LIVE` dict, labelled "the live tuning": `target_w=-20, deadband_w=5, ki=0.01, write_threshold_w=20, min_interval_s=2.5, slew_w_per_s=2400, flip_hysteresis_w=150, flip_dwell_s=3, keepalive_s=40, power_write_gap_s=0.5, warm_w=20`. Whether it matches the deployed config: unknown.
@@ -130,6 +131,7 @@ The integral runs only if all hold:
 2. Deadbanded error `|e| <= integral_band_w`. `e` uses the offset from the last regulating step.
 3. Arrived: last sent is None or normal, or the battery is no more than `LAG_W` short, in its own direction, of `_sent_w` (the battery watts the last command should deliver: its `signed_w` less the offset correction it went out with), or `ARRIVE_S` has passed since it was sent. A battery past its setpoint counts as arrived.
 4. `sign(e) != _saturation`: conditional integration, frozen when the output is pinned in the error's direction.
+5. Not a held spike (`_spike`, see `spike_confirm_w`).
 
 Then `integral += ki * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit_w`.
 
@@ -139,7 +141,7 @@ Then `integral += ki * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit
 2. `RELEASE`: hand back, return.
 3. `HOLD`/`FIXED`: restart, `request = lo = hi = fixed_w`, skip to 9.
 4. Not live: hand back as "stale", return.
-5. Bumpless start if the last step did not regulate: `output_w = battery_w`, `_direction = sign(battery_w)`.
+5. Bumpless start if the last step did not regulate: `output_w = battery_w`, `_direction = sign(battery_w)`. Then a held spike returns None with `limit = "spike"`; output, sent and the diagnosis fields keep their last values.
 6. `request = battery_w + kp * e + integral_w + ff_w`, then optional smoothing. `ff_w` is `-kff` times the solar step stored by `update_grid`; P already sends the whole measured demand change, so feed forward only leads a solar ramp.
 7. Caps: `lo = -max_charge_w`, `hi = max_discharge_w`. SOC <= `discharge_soc + FLOOR_MARGIN`: `hi = 0` ("floor"). Else refused: `hi = 0` ("refused"). SOC >= `charge_soc`: `lo = 0` ("full"). `limit` names the cap the request crosses ("discharge_cap" / "charge_cap" by default).
 8. `u = clip(request, lo, hi)`, `_saturation = sign(request - u)`.
@@ -202,6 +204,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_a_trim_under_fifty_watts_*`, `test_a_load_step_still_follows_*` | Trim gap vs load steps. |
 | `test_the_proportional_term_*`, `test_the_caps_after_*`, `test_the_output_before_the_slew_*`, `test_the_direction_and_*`, `test_the_refusal_clock_*` | Diagnosis fields and properties. |
 | `test_the_inverter_offset_*`, `test_offset_correction_*`, `test_the_caps_stay_battery_watts_*`, `test_under_offset_correction_*` | Table, off by default, caps in battery watts, no change to HOLD/FIXED, arrival gate and slew against `_sent_w`. The ready floor fuzz also runs with `offset_comp=1`. |
+| `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |
 | `test_with_the_ready_floor_at_zero_*` | Golden hash `GOLDEN_FLOOR_OFF = (265, "fba5a193a8a348a0")` of the full command list with `warm_w=0` against `RampingInverter`. Any behaviour change with the floor off breaks it. |
 
 ## Gotchas

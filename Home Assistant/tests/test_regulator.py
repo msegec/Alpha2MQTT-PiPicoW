@@ -1189,3 +1189,43 @@ def test_under_offset_correction_the_slew_counts_from_the_battery_watts_asked_fo
     reg.update_grid(1, 0, 2500)  # landed: the output holds, it is not slewed back towards the 2290 W command
     reg.step(1, DISCHARGE)
     assert (reg.output_w, reg.slewed) == (2500, False)
+
+
+# Spike confirm: a big jump in demand waits one sample to show it lasts.
+
+def test_spike_confirm_is_off_by_default():
+    reg = make(min_interval_s=0)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(5, 1220, 500)
+    assert reg.step(5, DISCHARGE).watts == 1680
+
+
+def test_a_jump_that_stays_goes_out_one_sample_late():
+    reg = make(spike_confirm_w=800, min_interval_s=0)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(5, 1220, 500)  # 1200 W more demand
+    assert reg.step(5, DISCHARGE) is None and reg.step(5.5, DISCHARGE) is None
+    assert (reg.output_w, reg.limit) == (500, "spike")
+    reg.update_grid(6, 1220, 500)
+    assert reg.step(6, DISCHARGE).watts == 1680
+
+
+def test_a_spike_gone_by_the_next_sample_moves_nothing():
+    reg = make(spike_confirm_w=800, min_interval_s=0, ki=0.05)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(5, 1220, 500)
+    assert reg.step(5, DISCHARGE) is None
+    reg.update_grid(6, 20, 500)
+    assert reg.step(6, DISCHARGE) is None
+    assert reg.output_w == 500 and reg.integral_w == 0
+
+
+def test_a_jump_under_the_spike_confirm_goes_out_at_once():
+    reg = make(spike_confirm_w=800, min_interval_s=0)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(5, 720, 500)
+    assert reg.step(5, DISCHARGE).watts == 1180

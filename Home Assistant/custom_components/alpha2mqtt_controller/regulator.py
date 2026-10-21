@@ -99,6 +99,10 @@ class Settings:
     warm_w: float = 0.0
     # Share of INVERTER_OFFSET taken off each regulated command, so the battery lands on the output: 0 off, 1 full.
     offset_comp: float = 0.0
+    # Demand spikes of 1 to 1.4 kW lasting a sample or two had the battery answer a load that was gone. Above 0, a
+    # sample whose net demand moved more than this from the last one is held a sample: the output stays, and the
+    # next sample acts as usual, so a jump that lasts goes out a sample late. 0 is off.
+    spike_confirm_w: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -154,6 +158,8 @@ class Regulator:
         self.solar_w: float | None = None
         self.soc: float | None = None
         self._solar_step = 0.0  # solar change from the last sample to this one, 0 under SOLAR_DEADBAND_W
+        self._demand: float | None = None  # grid + battery of the last sample
+        self._spike = False  # this sample jumped more than spike_confirm_w: the output waits for the next
         self._t_measure: float | None = None
         self._t_fresh: float | None = None
         self._t_step: float | None = None
@@ -223,11 +229,16 @@ class Regulator:
         self._solar_step = change if abs(change) > SOLAR_DEADBAND_W else 0.0
         self.solar_w = solar_w
         s = self.settings
+        demand = grid_w + battery_w
+        self._spike = (s.spike_confirm_w > 0 and not self._spike and self._demand is not None
+                       and abs(demand - self._demand) > s.spike_confirm_w)
+        self._demand = demand
         e = self._error(grid_w)
         arrived = (self.sent is None or self.sent.kind == "normal"
                    or _sign(self._sent_w) * (self._sent_w - battery_w) <= LAG_W
                    or t - self._t_sent >= ARRIVE_S)
-        if self._regulating and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived:
+        if (self._regulating and self._t_measure is not None and abs(e) <= s.integral_band_w and arrived
+                and not self._spike):
             # Conditional integration: stop when the output is pinned in the error's direction.
             if _sign(e) != self._saturation:
                 dt = min(t - self._t_measure, MAX_INTEGRATE_S)
@@ -312,6 +323,9 @@ class Regulator:
             e = self._error(self.grid_w)
             self.error_w = self.grid_w - s.target_w - self._offset_w
             self.status = "regulating"
+            if self._spike:
+                self.limit = "spike"  # see Settings.spike_confirm_w
+                return None
             self.ff_w = -s.kff * self._solar_step  # more solar is less demand
             self.p_w = s.kp * e
             request = self.battery_w + self.p_w + self.integral_w + self.ff_w

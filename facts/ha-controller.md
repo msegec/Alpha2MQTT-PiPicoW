@@ -166,7 +166,7 @@ Restore: last value, else the `Settings` default, clamped into the current range
 | deadband_w | 0..200 W, 5 | power_write_gap_s | 0..5 s, 0.5 (0 off) |
 | smoothing_s | 0..300 s, 0.5 | warm_w | 0..500 W, 5 (0 off) |
 | slew_w_per_s | 50..5000 W/s, 50 | min_interval_s | 2..30 s, 0.5 |
-| offset_comp ("Offset correction") | 0..1.5, 0.05 (0 off) | | |
+| offset_comp ("Offset correction") | 0..1.5, 0.05 (0 off) | spike_confirm_w ("Spike confirm") | 0..3000 W, 50 (0 off) |
 | write_threshold_w | 10..500 W, 10 | | |
 
 Not numbers: `integral_band_w`, `integral_limit_w`, `duration_s` (120 s lease). They show read only on the status sensor.
