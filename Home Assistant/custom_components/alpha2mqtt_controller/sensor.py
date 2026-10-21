@@ -50,6 +50,11 @@ SENSORS = [
         "sent": c.last_sent.isoformat() if c.last_sent else None,
         **c.ack,
     }),
+    # Seconds the battery took to reach 80 % of the last large step, unknown when it did not within the timeout.
+    # The count is its own sensor so it has history and can raise an alert; attributes are not recorded.
+    ("step_response", "Step response time", False, lambda c: (c.last_response or {}).get("t80_s"),
+     lambda c: dict(c.last_response or {})),
+    ("slow_responses", "Slow step responses today", False, lambda c: c.slow_responses_today, None),
 ]
 
 
