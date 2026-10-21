@@ -50,7 +50,7 @@ SENSORS = [
         "u": _round(c.regulator.u_w),
         "slewed": c.regulator.slewed,
     }),
-    # What holds the output (floor, refused, full, warm, a cap, turn_round, spike, none), and the three numbers that say
+    # What holds the output (floor, soc_unknown, refused, full, warm, a cap, turn_round, spike, none), and the three numbers that say
     # why the grid sits off target: the battery as read, the watts the inverter was told, and the integral trim.
     # The caps the request was clipped to, the direction and when it last turned, and the refusal clock and latch.
     ("limit", "Limit", False, lambda c: c.regulator.limit if c.enabled else None, lambda c: {

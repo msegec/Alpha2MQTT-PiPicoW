@@ -11,13 +11,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .number import BASIC
+from .number import BASIC, SAFETY
 from .regulator import Settings
 
 # key, name, group. Each writes a Settings flag, goes in the step log and survives a restart, as a number does.
 SWITCHES = [
     ("ff_guard", "Feed forward guard", BASIC),  # off: the solar lead may turn the battery round
     ("trim_learn", "Learn offsets", BASIC),  # off: nothing is learned, what was learned is still used
+    ("discharge_needs_soc", "Discharge needs a known SOC", SAFETY),  # off: the inverter's dispatch SOC is the floor
 ]
 
 _DEFAULTS = {f.name: f.default for f in fields(Settings)}

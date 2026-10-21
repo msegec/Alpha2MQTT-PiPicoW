@@ -1479,3 +1479,21 @@ def test_a_negative_cap_never_pushes_the_battery_the_other_way():
     policy = R.Policy(R.REGULATE, max_charge_w=3000, max_discharge_w=-500, charge_soc=100)
     reg.update_grid(0, 0, 0, soc=50)  # balanced: nothing to do
     assert reg.step(0, policy).watts == 0  # was a forced 500 W charge from the grid
+
+
+def test_discharge_waits_for_a_known_soc_when_asked_to():
+    # A restart whose first samples lack the SOC has no floor check: the soc guards skip the floor and full caps.
+    reg = make(discharge_needs_soc=True)
+    reg.update_grid(0, 1020, 0)  # no SOC yet
+    cmd = reg.step(0, DISCHARGE)
+    assert cmd.signed_w <= 0 and reg.limit == "soc_unknown"
+    reg.update_grid(1, 1020, 0, soc=60)
+    reg.step(4, DISCHARGE)
+    assert reg.output_w > 900
+
+
+def test_discharge_without_a_known_soc_goes_out_by_default():
+    assert R.Settings().discharge_needs_soc is False
+    reg = make()
+    reg.update_grid(0, 1020, 0)
+    assert reg.step(0, DISCHARGE).signed_w > 900

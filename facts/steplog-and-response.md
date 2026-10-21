@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: 4ddb237 plus the learned offset table, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 300 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 2622170 plus the discharge needs SOC switch, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 310 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 ## Files
 
@@ -35,7 +35,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `k` | Written when | Fields |
 |---|---|---|
 | `start` | `async_start`, log open | `code`: first 12 hex of a sha256 over `regulator.py` and `controller.py`, also the Loop version sensor |
-| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register` |
+| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register`, `discharge_needs_soc` |
 | `step` | each new fast message (`_take`), enabled or not | see below |
 | `cmd` | every message on `<base>/request/#` | `topic` (str), `p` (raw payload) |
 | `ack` | every message on `<base>/response/set/+` | `topic`, `p` (raw payload) |
@@ -58,7 +58,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `grid`, `pv`, `battery`, `soc`, `dispatch` | fast message keys in `FAST_FIELDS` | raw values (W, %, dispatch start as sent, `"Start"` in tests); null if absent |
 | `wait_ms` | `time.monotonic() - t_seen` | int ms the sample waited for its correction (up to `MATCH_WAIT_S`, 0.5 s) |
 | `status` | `Controller.status` | str, `"disabled"` when off, else regulator status |
-| `limit` | `Regulator.limit` | str: what held the output (`none`, `floor`, `refused`, `full`, `warm`, `discharge_cap`, `charge_cap`, `turn_round`, `spike`); kept from the last step while disabled |
+| `limit` | `Regulator.limit` | str: what held the output (`none`, `floor`, `soc_unknown`, `refused`, `full`, `warm`, `discharge_cap`, `charge_cap`, `turn_round`, `spike`); kept from the last step while disabled |
 | `grid_w`, `solar_w`, `error_w`, `integral_w`, `ff_w`, `request_w`, `output_w`, `offset_w` | controller and regulator after this step | float W rounded to 0.1, or null. `solar_w` is the solar the feed forward used (null when unknown), `ff_w` the feed forward, `offset_w` the offset correction (the command asks for `output_w + offset_w`) |
 | `sent` | `Command` returned by this step's `_run` | null or `{kind, watts, soc, power_only}` |
 

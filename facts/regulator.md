@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: 9381e49 plus the negative cap clamp, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 302 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 2622170 plus the discharge needs SOC switch, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 310 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -127,6 +127,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `stale_after_s` | 30 s | No fresh sample this long: hand back. |
 | `power_write_gap_s` | 0.0 s | 0 means every command is a full block write. Above 0: same-block changes go `power_only`, and after a power write ack the next may follow after this gap. |
 | `warm_w` | 0.0 W | Ready floor ("Keep warm"). 0 is off. |
+| `discharge_needs_soc` | False | On: no discharge (`hi = 0`, `limit = "soc_unknown"`) while `soc` is None, as after a restart whose first samples lacked it. Seen once in 219,759 logged steps. Off: the inverter's own dispatch SOC is the only floor then. |
 | `full_register` | 252 | Not used by the regulator. The controller publishes a charge to 100 % as `socPercent` this minus 150, since register 250 stopped the battery at 99.2 %. |
 | `spike_confirm_w` | 0.0 W | Above 0, a sample whose net demand (`grid_w + battery_w`) moved more than this from the last sample is held: every step on it returns None with `limit = "spike"`, and the integral skips it. The next sample always acts. 0 is off. |
 | `integral_reset_w` | 0.0 W | Above 0, `_send` sets the integral to 0 when the new command's `signed_w` moves this much or more from the last one's: what it held trimmed the old level. 0 is off. |
@@ -164,7 +165,7 @@ Learning (long term trim) runs next, on `c`, the running command's `signed_w` (0
 4. Not live: hand back as "stale", return.
 5. Bumpless start if the last step did not regulate: `output_w = battery_w`, `_direction = sign(battery_w)`, solar step 0 (every `_restart` leads here). Then a held spike returns None with `limit = "spike"`; output, sent and the diagnosis fields keep their last values.
 6. `request = battery_w + kp * e + integral_w + ff_w`, then optional smoothing. `ff_w` is `-kff` times the solar step stored by `update_grid`; P already sends the whole measured demand change, so feed forward only leads a solar ramp. With `ff_guard` on, a feed forward that would flip the sign of `battery_w + p + integral` against a non-zero `_direction` is dropped (`ff_w = 0`).
-7. Caps: `lo = -max(0, max_charge_w)`, `hi = max(0, max_discharge_w)`: a negative cap is 0 W, never a push the other way (before, `_clip` returned `lo` when `lo > hi`). SOC <= `discharge_soc + FLOOR_MARGIN`: `hi = 0` ("floor"). Else refused: `hi = 0` ("refused"). SOC >= `charge_soc`: `lo = 0` ("full"). `limit` names the cap the request crosses ("discharge_cap" / "charge_cap" by default).
+7. Caps: `lo = -max(0, max_charge_w)`, `hi = max(0, max_discharge_w)`: a negative cap is 0 W, never a push the other way (before, `_clip` returned `lo` when `lo > hi`). With `discharge_needs_soc` on and no SOC read yet: `hi = 0` ("soc_unknown"). Else SOC <= `discharge_soc + FLOOR_MARGIN`: `hi = 0` ("floor"). Else refused: `hi = 0` ("refused"). SOC >= `charge_soc`: `lo = 0` ("full"). `limit` names the cap the request crosses ("discharge_cap" / "charge_cap" by default).
 8. `u = clip(request, lo, hi)`, `_saturation = sign(request - u)`.
 9. Turn round check (above).
 10. Ready floor: `ready_w = warm_w` if `REGULATE` and `0 < warm_w <= hi`. If `-WARM_BAND_W < u < ready_w` and (direction >= 0 or the dwell has passed): `u = ready_w`, `limit = "warm"`, saturation recomputed, direction forced to +1.
@@ -231,6 +232,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_a_small_import_cut_goes_out_after_the_import_trim_gap`, `test_a_small_export_cut_still_waits_the_trim_gap`, `test_the_import_trim_wait_is_the_trim_gap_by_default` | Import trim wait for moves up only, equal to the trim gap by default. |
 | `test_learning_*`, `test_a_learned_table_*`, `test_nothing_is_learned_*`, `test_forgetting_the_table_zeroes_it` | Learning moves the integral into the table and keeps the command, off by default (and at rate 0), a loaded table applies with learning off, bad tables do not load, nodes stay in bounds, nothing is learned at a cap or under a policy offset. |
 | `test_a_negative_cap_never_pushes_*` | A negative cap is 0 W. |
+| `test_discharge_waits_for_a_known_soc_*`, `test_discharge_without_a_known_soc_*` | `discharge_needs_soc`, off by default. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |

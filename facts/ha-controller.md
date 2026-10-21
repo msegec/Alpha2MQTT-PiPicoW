@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 511be13 plus the correction age_s check, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 308 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 2622170 plus the discharge needs SOC switch, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 310 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -163,6 +163,7 @@ Setting switches (`SettingSwitch`, `SWITCHES` in `switch.py`, rows `(key, name, 
 |---|---|---|---|
 | ff_guard | Feed forward guard | Basic | off |
 | trim_learn | Learn offsets | Basic | off |
+| discharge_needs_soc | Discharge needs a known SOC | Safety | off |
 
 Button `Forget learned offsets` (`ForgetTrimButton`, `{entry_id}_forget_trim`, attribute `group` Basic): `async_forget_trim`
 zeroes the regulator's learned table, saves it at once and logs `trim` with `forgot: true`.

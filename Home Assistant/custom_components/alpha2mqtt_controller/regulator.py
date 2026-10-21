@@ -142,6 +142,9 @@ class Settings:
     # Dispatch SOC register sent for a charge to 100 %. The register is 0.4 % a step, but 250 stopped the
     # battery at 99.2 % and 252 is full, so 100 % goes as this, as socPercent register - 150.
     full_register: int = 252
+    # On, no discharge while no SOC has been read since the start, as after a restart whose first sample lacked it,
+    # since the floor cannot be checked. Off keeps the old rule: the inverter's own dispatch SOC is then the only floor.
+    discharge_needs_soc: bool = False
 
 
 @dataclass(frozen=True)
@@ -475,7 +478,9 @@ class Regulator:
             # A cap is a limit, never a push: a negative one is 0 W, not a forced charge or discharge.
             lo, hi = -max(0.0, policy.max_charge_w), max(0.0, policy.max_discharge_w)
             floor, ceiling = "discharge_cap", "charge_cap"
-            if self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN:
+            if self.soc is None and s.discharge_needs_soc:
+                hi, floor = 0.0, "soc_unknown"  # see Settings.discharge_needs_soc
+            elif self.soc is not None and self.soc <= policy.discharge_soc + FLOOR_MARGIN:
                 # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.
                 hi, floor = 0.0, "floor"
             elif self._refused(t, policy):
