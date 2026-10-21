@@ -54,8 +54,8 @@ All go through `sendMqtt`, which calls `_mqtt.publish(topic, payload)`: not reta
 | `/state/second/ten` | `MQTT_MES_STATE_SECOND_TEN` | every 10000 ms | about 33 (guess: 15 single + 2 + 9 + 7) |
 | `/state/minute/one` | `MQTT_MES_STATE_MINUTE_ONE` | every 60000 ms | 11 |
 | `/state/device` | `MQTT_MES_STATE_DEVICE` | every 60000 ms, right after the minute schedule | 0 (ADC) |
-| `/state/minute/five` | `MQTT_MES_STATE_MINUTE_FIVE` | every 300000 ms; list empty, so never published | 0 |
-| `/state/hour/one` | `MQTT_MES_STATE_HOUR_ONE` | every 3600000 ms | 5 |
+| `/state/minute/five` | `MQTT_MES_STATE_MINUTE_FIVE` | every 300000 ms | 24 |
+| `/state/hour/one` | `MQTT_MES_STATE_HOUR_ONE` | every 3600000 ms | 4 |
 | `/state/day/one` | `MQTT_MES_STATE_DAY_ONE` | every 86400000 ms; list empty, so never published | 0 |
 | `/response/...` | see `mqttCallback` facts | once per request | per request |
 
@@ -86,7 +86,11 @@ Keys: `REG_BATTERY_HOME_R_SOC`, `REG_BATTERY_HOME_R_BATTERY_POWER`, `REG_BATTERY
 
 ### `/state/minute/one` (`_mqttOneMinuteStatusRegisters`)
 
-Keys: `REG_GRID_METER_R_VOLTAGE_OF_A_PHASE`, `REG_PV_METER_R_VOLTAGE_OF_A_PHASE`, `REG_INVERTER_HOME_R_VOLTAGE_L1`, `REG_BATTERY_HOME_R_BATTERY_CHARGE_ENERGY_1`, `REG_BATTERY_HOME_R_BATTERY_DISCHARGE_ENERGY_1`, `REG_BATTERY_HOME_R_BATTERY_ENERGY_CHARGE_FROM_GRID_1`, `REG_SYSTEM_OP_R_SYSTEM_TOTAL_PV_ENERGY_1`, `REG_GRID_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1`, `REG_GRID_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1`, `REG_PV_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1`, `REG_PV_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1`. The energy totals moved here from daily and five minute schedules in 99a1bdf.
+Keys: `REG_GRID_METER_R_VOLTAGE_OF_A_PHASE`, `REG_PV_METER_R_VOLTAGE_OF_A_PHASE`, `REG_INVERTER_HOME_R_VOLTAGE_L1`, `REG_BATTERY_HOME_R_BATTERY_CHARGE_ENERGY_1`, `REG_BATTERY_HOME_R_BATTERY_DISCHARGE_ENERGY_1`, `REG_BATTERY_HOME_R_BATTERY_ENERGY_CHARGE_FROM_GRID_1`, `REG_SYSTEM_OP_R_SYSTEM_TOTAL_PV_ENERGY_1`, `REG_GRID_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1`, `REG_GRID_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1`, `REG_PV_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1`, `REG_PV_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1`. The energy totals moved here from daily and five minute schedules in 99a1bdf. Since c2e334d it also carries 24 battery keys: status, relay status, the cell voltage and temperature extremes with their pack and cell IDs, current and power limits, remaining time, the four SOC limits, `REG_BATTERY_HOME_R_BATTERY_FAULT_1` and `REG_BATTERY_HOME_R_BATTERY_WARNING_1`. 35 keys in all.
+
+### `/state/minute/five` (`_mqttFiveMinuteStatusRegisters`)
+
+Since c2e334d: 24 slow battery keys. Module count, capacity, type, SOH, cut off voltages, BMU, LMU and ISO versions, MOS control, SOC calibration, single cut error code, and the six `BATTERY_FAULT_n_1` and `BATTERY_WARNING_n_1` words. The HOME series has no per pack SOC, voltage or temperature registers; the per BMU block from 0xA200 is INDUSTRY series only.
 
 ### `/state/device` (`sendDeviceState`)
 
@@ -94,7 +98,7 @@ Keys: `REG_GRID_METER_R_VOLTAGE_OF_A_PHASE`, `REG_PV_METER_R_VOLTAGE_OF_A_PHASE`
 
 ### `/state/hour/one` (`_mqttOneHourStatusRegisters`)
 
-Keys: `REG_GRID_METER_R_FREQUENCY`, `REG_PV_METER_R_FREQUENCY`, `REG_INVERTER_HOME_R_FREQUENCY`, `REG_SYSTEM_OP_R_SYSTEM_FAULT_1`, `REG_BATTERY_HOME_R_BATTERY_FAULT_1`.
+Keys: `REG_GRID_METER_R_FREQUENCY`, `REG_PV_METER_R_FREQUENCY`, `REG_INVERTER_HOME_R_FREQUENCY`, `REG_SYSTEM_OP_R_SYSTEM_FAULT_1`. Battery fault moved to the minute schedule in c2e334d.
 
 ### Overflow
 

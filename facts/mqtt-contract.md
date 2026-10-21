@@ -27,9 +27,9 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 |---|---|---|---|---|---|
 | `Alpha2MQTT/state/fast` | FW->HA | `sendFastState` | ctl `_on_state` (default `state_topic`); pkg 4 Fast sensors | JSON: `REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1`, `REG_PV_METER_R_TOTAL_ACTIVE_POWER_1`, `REG_BATTERY_HOME_R_BATTERY_POWER`, `REG_BATTERY_HOME_R_SOC`, `REG_DISPATCH_RW_DISPATCH_START`, then `seq`, `ms`, `read_ms`, `haIdle` | every 1 s (`STATUS_INTERVAL_FAST`) |
 | `Alpha2MQTT/state/second/ten` | FW->HA | `sendData` | pkg 18 sensors | JSON, 18 keys from `_mqttTenSecondStatusRegisters` | every 10 s |
-| `Alpha2MQTT/state/minute/one` | FW->HA | `sendData` | pkg 11 sensors | JSON, 11 keys: 3 voltages, 8 energy totals | every 60 s |
-| `Alpha2MQTT/state/minute/five` | FW->HA | never in practice | none | none | array empty, `sendDataFromAppropriateArray` returns early |
-| `Alpha2MQTT/state/hour/one` | FW->HA | `sendData` | pkg 5 sensors | JSON: 3 frequencies, `REG_SYSTEM_OP_R_SYSTEM_FAULT_1`, `REG_BATTERY_HOME_R_BATTERY_FAULT_1` | every 3600 s |
+| `Alpha2MQTT/state/minute/one` | FW->HA | `sendData` | pkg 35 sensors | JSON, 35 keys: 3 voltages, 8 energy totals, 24 battery health keys | every 60 s |
+| `Alpha2MQTT/state/minute/five` | FW->HA | `sendData` | pkg 24 sensors | JSON, 24 slow battery keys | every 300 s |
+| `Alpha2MQTT/state/hour/one` | FW->HA | `sendData` | pkg 4 sensors | JSON: 3 frequencies, `REG_SYSTEM_OP_R_SYSTEM_FAULT_1` | every 3600 s |
 | `Alpha2MQTT/state/day/one` | FW->HA | never in practice | none | none | array empty |
 | `Alpha2MQTT/state/device` | FW->HA | `sendDeviceState` | pkg Pico VSYS, Pico USB Power | `{"vsys_mv": int, "usb_power": bool}` | every 60 s, with minute/one |
 | `Alpha2MQTT/request/set/charge` | HA->FW | ctl `_publish`; pkg script `alpha2mqtt_set_charge` | FW `mqttCallback` | `watts`, `socPercent`, `duration` required; `seq`, `powerOnly` optional | ctl: each regulator step that emits a command; others on demand |
@@ -153,7 +153,7 @@ so the next charge or discharge writes the full block.
 - Published, no consumer in repo: `response/read/register/*`, `response/write/register/*`.
 - Firmware subscribes to `request/read/register/handled`, `request/read/register/raw`, `request/write/register/raw/single`,
   `request/write/register/raw/data` and `request/read/register/handled/all`; nothing in repo publishes them. README documents all five.
-- `state/minute/five` and `state/day/one` have empty arrays since 99a1bdf, so they are never published.
+- `state/day/one` has an empty array since 99a1bdf, so it is never published. `state/minute/five` carries battery keys since c2e334d.
 - `haIdle` in the fast state: no consumer in the package or controller.
 - Fast `REG_DISPATCH_RW_DISPATCH_START`: the controller logs it in the step log but never acts on it.
 - Response `frames` and `ms`: the controller ignores both; it times acks with its own monotonic clock.
