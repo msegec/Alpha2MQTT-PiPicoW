@@ -57,7 +57,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
   A `.` is stripped, so `"watts": 1500.0` would parse as `15000`. The controller and package scripts send integers.
 - A name or value over 31 chars fails the request as `invalidMQTTPayload`.
 - `powerOnly` is honoured only when its cleaned value is exactly `1`. `true` cleans to `e` and is ignored.
-- `watts` over 32000 or `socPercent` over 101 is refused with `failureDetail: "range"` (`dispatchRequestValid`).
+- `watts` over 32000 or `socPercent` over 105 is refused with `failureDetail: "range"` (`dispatchRequestValid`).
   Negative numbers wrap through `strtoul` and are refused the same way. A missing key gives `failureDetail: "missing"`.
 - An empty payload gives the generic response (`responseStatus: "noMQTTPayload"`, `end`) with no `seq`.
 - Any `set/*` request calls `idleHoldCommand`, which marks HA online and cancels a firmware idle hold.
@@ -87,7 +87,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 | `REG_CUSTOM_GRID_CURRENT_A_PHASE` | A, integer | phase A power / phase A voltage. `Definitions.h` comment says 0.1 A; the code divides by volts |
 | `REG_CUSTOM_TOTAL_SOLAR_POWER` | W | sum from `readTotalSolarPower` |
 | Request `watts` | W | always positive; the topic picks the direction. Firmware writes 32000 - W for charge, 32000 + W for discharge |
-| Request `socPercent` | % | integer; firmware rounds up to the 0.4 % register; 101 means past full (255) |
+| Request `socPercent` | % | integer; firmware rounds up to the 0.4 % register; 101 to 105 are register steps past full (251 to 255) |
 | Controller `signed_w` | W | + discharge, - charge, same as battery power |
 
 ## The HA package (`Home Assistant/alpha2mqtt.yaml`)
