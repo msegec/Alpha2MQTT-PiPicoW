@@ -24,7 +24,7 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | `Policy` (frozen) | `mode`, `max_charge_w`, `max_discharge_w`, `charge_soc` (100), `discharge_soc` (10), `fixed_w`, `target_offset_w`, `reason` | What is allowed. The regulator only clamps to it. |
 | `Settings` (mutable) | tuning, table below | The controller changes fields live with `setattr`. |
 | `Command` (frozen) | `kind` ("charge", "discharge", "normal"), `watts`, `soc`, `duration`, `power_only` | What to publish. |
-| `Regulator.update_grid(t, grid_w, battery_w, fresh=True, soc=None, solar_w=None)` | one sample | Runs the integral, stores the sample. Ignores the call if grid or battery is not finite. Keeps the last SOC when `soc` is None. Stores the solar change since the last call as the feed forward step: 0 unless both are known and finite and the change is over `SOLAR_DEADBAND_W`. `fresh=False` (only a correction changed) does not refresh the stale clock. |
+| `Regulator.update_grid(t, grid_w, battery_w, fresh=True, soc=None, solar_w=None)` | one sample | Runs the integral, stores the sample. Ignores the call if grid or battery is not finite. Keeps the last SOC when `soc` is None. Stores the solar change since the last call as the feed forward step: 0 unless both are known and finite, the last call is at most `SOLAR_MAX_GAP_S` old and the change is over `SOLAR_DEADBAND_W`. `fresh=False` (only a correction changed) does not refresh the stale clock. |
 | `Regulator.step(t, policy)` | policy | Returns a `Command` to publish now, or None. |
 | `Regulator.ack(t, power_write=False)` | | The firmware wrote the last command. |
 | `Regulator.fail()` | | The last command was not published or not written. |
@@ -95,6 +95,7 @@ On refusal the integral is set to 0. `_refused` is not evaluated while the SOC f
 | `WARM_BAND_W` | 50 W | Ready floor replaces only requests above -50 W (trickle charge, idle, small discharge). |
 | `INVERTER_OFFSET` | (-100, -8), (0, 0), (100, -25), (1500, -25), (2500, 210) | Battery reading minus setpoint by signed setpoint, measured 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, +198 W at 2750 W, +220 W at 3000 W. |
 | `SOLAR_DEADBAND_W` | 20 W | A solar change this small between samples gets no feed forward, so night noise stays out. |
+| `SOLAR_MAX_GAP_S` | 2.0 s | A solar change over a longer gap gets no feed forward: after a 20 s gap while solar fell 2500 W it would have asked for 2500 W more discharge. Older firmware's 10 s samples get none. |
 
 ## Settings defaults
 
@@ -141,7 +142,7 @@ Then `integral += ki * e * min(dt, MAX_INTEGRATE_S)`, clipped to `integral_limit
 2. `RELEASE`: hand back, return.
 3. `HOLD`/`FIXED`: restart, `request = lo = hi = fixed_w`, skip to 9.
 4. Not live: hand back as "stale", return.
-5. Bumpless start if the last step did not regulate: `output_w = battery_w`, `_direction = sign(battery_w)`. Then a held spike returns None with `limit = "spike"`; output, sent and the diagnosis fields keep their last values.
+5. Bumpless start if the last step did not regulate: `output_w = battery_w`, `_direction = sign(battery_w)`, solar step 0 (every `_restart` leads here). Then a held spike returns None with `limit = "spike"`; output, sent and the diagnosis fields keep their last values.
 6. `request = battery_w + kp * e + integral_w + ff_w`, then optional smoothing. `ff_w` is `-kff` times the solar step stored by `update_grid`; P already sends the whole measured demand change, so feed forward only leads a solar ramp.
 7. Caps: `lo = -max_charge_w`, `hi = max_discharge_w`. SOC <= `discharge_soc + FLOOR_MARGIN`: `hi = 0` ("floor"). Else refused: `hi = 0` ("refused"). SOC >= `charge_soc`: `lo = 0` ("full"). `limit` names the cap the request crosses ("discharge_cap" / "charge_cap" by default).
 8. `u = clip(request, lo, hi)`, `_saturation = sign(request - u)`.
@@ -204,6 +205,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_a_trim_under_fifty_watts_*`, `test_a_load_step_still_follows_*` | Trim gap vs load steps. |
 | `test_the_proportional_term_*`, `test_the_caps_after_*`, `test_the_output_before_the_slew_*`, `test_the_direction_and_*`, `test_the_refusal_clock_*` | Diagnosis fields and properties. |
 | `test_the_inverter_offset_*`, `test_offset_correction_*`, `test_the_caps_stay_battery_watts_*`, `test_under_offset_correction_*` | Table, off by default, caps in battery watts, no change to HOLD/FIXED, arrival gate and slew against `_sent_w`. The ready floor fuzz also runs with `offset_comp=1`. |
+| `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |
 | `test_with_the_ready_floor_at_zero_*` | Golden hash `GOLDEN_FLOOR_OFF = (265, "fba5a193a8a348a0")` of the full command list with `warm_w=0` against `RampingInverter`. Any behaviour change with the floor off breaks it. |
 

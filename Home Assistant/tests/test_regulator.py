@@ -232,11 +232,41 @@ def test_solar_feed_forward_answers_a_solar_change_on_that_sample_only():
     reg = make(kff=1.0, ki=0, min_interval_s=0)
     reg.update_grid(0, 20, 1000, solar_w=500)
     reg.step(0, DISCHARGE)
-    reg.update_grid(5, -280, 1000, solar_w=800)  # 300 W more solar: P takes 280 W off, feed forward 300 more
-    assert reg.step(5, DISCHARGE).watts == 420
+    reg.update_grid(1, -280, 1000, solar_w=800)  # 300 W more solar: P takes 280 W off, feed forward 300 more
+    assert reg.step(1, DISCHARGE).watts == 420
     assert reg.ff_w == -300
-    reg.update_grid(10, 20, 420, solar_w=800)  # solar steady: feed forward drops out
-    reg.step(10, DISCHARGE)
+    reg.update_grid(2, 20, 420, solar_w=800)  # solar steady: feed forward drops out
+    reg.step(2, DISCHARGE)
+    assert reg.ff_w == 0
+
+
+def test_solar_feed_forward_is_0_after_a_gap_in_samples():
+    reg = make(kff=1.0, ki=0)
+    reg.update_grid(0, 20, 500, solar_w=3000)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(20, 20, 500, solar_w=500)  # 20 s without a sample while the solar fell 2500 W
+    reg.step(20, DISCHARGE)
+    assert reg.ff_w == 0
+
+
+def test_solar_feed_forward_is_0_on_the_first_sample_back_from_stale():
+    reg = make(kff=1.0, ki=0, min_interval_s=0)
+    reg.update_grid(0, 20, 500, solar_w=3000)
+    reg.step(0, DISCHARGE)
+    assert reg.step(35, DISCHARGE) == R.Command("normal")
+    reg.update_grid(36, 20, 0, solar_w=500)
+    reg.step(36, DISCHARGE)
+    assert reg.ff_w == 0
+    reg.update_grid(37, 20, 0, solar_w=200)  # regulating again: a 1 s change feeds forward
+    reg.step(37, DISCHARGE)
+    assert reg.ff_w == 300
+
+
+def test_solar_feed_forward_is_0_on_the_first_step_after_a_start():
+    reg = make(kff=1.0, ki=0)
+    reg.update_grid(0, 20, 500, solar_w=1500)  # samples come in while the controller is off
+    reg.update_grid(1, 20, 500, solar_w=500)
+    assert reg.step(1, DISCHARGE).watts == 500
     assert reg.ff_w == 0
 
 
@@ -245,8 +275,8 @@ def test_solar_feed_forward_skips_small_or_unknown_changes(before, after):
     reg = make(kff=1.0)
     reg.update_grid(0, 20, 1000, solar_w=before)
     reg.step(0, DISCHARGE)
-    reg.update_grid(5, 20, 1000, solar_w=after)
-    reg.step(5, DISCHARGE)
+    reg.update_grid(1, 20, 1000, solar_w=after)
+    reg.step(1, DISCHARGE)
     assert reg.ff_w == 0
 
 

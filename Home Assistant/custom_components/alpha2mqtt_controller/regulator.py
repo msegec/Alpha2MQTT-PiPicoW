@@ -46,8 +46,9 @@ REFUSED_NEAR_SOC, REARM_SOC = 3.0, 1.0
 SMALL_TRIM_W, TRIM_GAP_S = 50.0, 6.0
 # Keep warm stands in for a trickle charge this close to idle; a bigger surplus the battery can store is stored.
 WARM_BAND_W = 50.0
-# Solar changes this small between samples are noise, as at night, and get no feed forward.
-SOLAR_DEADBAND_W = 20.0
+# Solar changes this small between samples are noise, as at night, and get no feed forward. Nor does a change over
+# a gap longer than SOLAR_MAX_GAP_S: it is not a ramp the inverter lags, and the error already holds all of it.
+SOLAR_DEADBAND_W, SOLAR_MAX_GAP_S = 20.0, 2.0
 # The inverter's steady offset, battery reading minus setpoint, against the signed setpoint (positive is discharge).
 # Measured on an AlphaESS SMILE-B3 over 20 to 22 Oct: charge about -8 W, discharge 100 to 1500 W about -25 W, rising
 # about linearly to +198 W at 2750 W and +220 W at 3000 W. Linear between the points, flat past the ends. The integral
@@ -225,7 +226,8 @@ class Regulator:
             self.soc = soc
         if solar_w is not None and not math.isfinite(solar_w):
             solar_w = None
-        change = 0.0 if solar_w is None or self.solar_w is None else solar_w - self.solar_w
+        recent = self._t_measure is not None and t - self._t_measure <= SOLAR_MAX_GAP_S
+        change = solar_w - self.solar_w if recent and solar_w is not None and self.solar_w is not None else 0.0
         self._solar_step = change if abs(change) > SOLAR_DEADBAND_W else 0.0
         self.solar_w = solar_w
         s = self.settings
@@ -315,9 +317,11 @@ class Regulator:
             return self._hand_back(t, "stale", unknown=False)
         else:
             if not self._regulating:
-                # Bumpless start from whatever the inverter is doing on its own.
+                # Bumpless start from whatever the inverter is doing on its own. A solar change seen before it, as
+                # while off, is already in the battery it starts from. Every _restart comes through here.
                 self.output_w = self.battery_w
                 self._direction = _sign(self.battery_w)
+                self._solar_step = 0.0
             self._regulating = policy.mode == REGULATE
             self._offset_w = policy.target_offset_w
             e = self._error(self.grid_w)
