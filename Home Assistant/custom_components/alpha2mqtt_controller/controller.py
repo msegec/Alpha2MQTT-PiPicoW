@@ -52,7 +52,9 @@ GRID_SOURCES = ["clamp", "estimate"]
 # A plausible reading is finite and under this. A kW value read as W, or a NaN, would otherwise drive the battery.
 MAX_PLAUSIBLE_W = 20000.0
 # Net demand rewrites every few seconds, 26 s at most over a measured day. Older than this, a plug or
-# template has frozen and its last value is not the house any more.
+# template has frozen and its last value is not the house any more. So is a correction whose optional age_s
+# attribute, the age of its oldest input, is over this: a template re-rendered every second stays fresh by
+# last_reported even when an input under it froze.
 CORRECTION_MAX_AGE_S = 90.0
 # A correction rendered from the fast message, such as a net demand template, carries its seq and may update just
 # after the controller sees the message. A sample waits this long for it, then steps on the value it has.
@@ -296,7 +298,7 @@ class Controller:
         if self._raw_grid is None:
             return None
         if self.config.get(CONF_GRID_SOURCE) == "estimate":
-            correction = _number(self.hass, self.config.get(CONF_CORRECTION_ENTITY), CORRECTION_MAX_AGE_S)
+            correction = self._correction(CORRECTION_MAX_AGE_S)
             return None if correction is None else estimate_grid(correction, self._battery_w)
         scale = _number(self.hass, self.config.get(CONF_GRID_SCALE_ENTITY))
         if scale is None:
@@ -305,10 +307,23 @@ class Controller:
             scale = float(self.config.get(CONF_GRID_SCALE, 1.0))
         correction = 0.0
         if self.config.get(CONF_CORRECTION_ENTITY):
-            correction = _number(self.hass, self.config[CONF_CORRECTION_ENTITY])
+            correction = self._correction()
             if correction is None:
                 return None
         return estimate_grid(correction, self._battery_w, self._raw_grid, scale)
+
+    def _correction(self, max_age_s: float | None = None) -> float | None:
+        """The correction entity's watts, None when unreadable, older than max_age_s or with age_s over
+        CORRECTION_MAX_AGE_S."""
+        entity_id = self.config.get(CONF_CORRECTION_ENTITY)
+        correction = _number(self.hass, entity_id, max_age_s)
+        if correction is None:
+            return None
+        try:
+            age = float(self.hass.states.get(entity_id).attributes["age_s"])
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return correction  # no age_s, or not a number: the entity makes no claim
+        return None if age > CORRECTION_MAX_AGE_S else correction
 
     def _policy(self) -> Policy:
         """The policy now. A policy that is missing or unreadable for a moment, as in a template reload,

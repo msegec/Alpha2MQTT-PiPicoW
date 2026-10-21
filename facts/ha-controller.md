@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 3b82f93 plus the policy SOC range, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 306 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 511be13 plus the correction age_s check, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 308 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -73,6 +73,9 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
    - `clamp` (default): scale from `grid_scale_entity`, else `grid_scale` config (1.0). A configured scale
      entity that is unreadable gives `None`. Correction entity optional (0 if unset, `None` if set and unreadable,
      no age check). Result `scale * raw_grid + correction`.
+   - Both read the correction through `_correction`: an optional `age_s` attribute (the age of the template's oldest
+     input) over `CORRECTION_MAX_AGE_S` makes it missing, a gap like any other. No `age_s`, or one that is not a
+     number, makes no claim.
 7. `_measure`: grid `None` logs a `grid estimate` gap and skips `update_grid`; the regulator then holds its last
    command until `stale_after_s` (70fe0e2). Else `regulator.update_grid(now, grid_w, battery_w, fresh, soc, solar_w)`.
    `solar_w` is `_solar()`: the correction entity's `west` + `east` attributes, read from the same state as the
@@ -139,7 +142,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 | `grid_source` | `clamp` | `clamp` or `estimate` (50850bf) |
 | `grid_scale` | 1.0 (form range -100 to 100) | clamp multiplier |
 | `grid_scale_entity` | none | overrides `grid_scale` |
-| `correction_entity` | none | W added to scaled clamp, or house load less solar under `estimate`; may carry `seq`, and `west` and `east` (solar W) for the solar feed forward |
+| `correction_entity` | none | W added to scaled clamp, or house load less solar under `estimate`; may carry `seq`, `west` and `east` (solar W) for the solar feed forward, and `age_s` (age of its oldest input) |
 | `max_charge_entity`, `max_discharge_entity` | none (3000 W) | caps |
 | `log_dir` | `<config>/alpha2mqtt_controller` | step log directory |
 | `log_entities` | `[]` | each change logged as `e` |
@@ -287,6 +290,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_saved_table_*`, `test_a_bad_saved_table_*`, `test_a_moved_table_*`, `test_a_stop_saves_*`, `test_the_forget_button_*`, `test_the_integral_sensor_carries_*` | learned table load, save, log cadence, forget, chart attribute |
 | `test_a_negative_cap_reads_as_0_w`, `test_an_unreadable_cap_keeps_*` | cap clamp, last readable cap |
 | `test_a_policy_soc_the_firmware_would_refuse_is_unreadable`, `test_an_other_soc_the_firmware_would_refuse_*` | SOC range |
+| `test_a_correction_with_a_frozen_input_is_a_gap`, `test_a_frozen_correction_is_a_gap_on_the_clamp_too` | `age_s` |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
@@ -295,7 +299,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 ## Gotchas
 
 - An unreadable cap entity keeps its last value, silently, not a gap. After a restart, until its first read, it is 3000 W.
-- In `clamp` mode the correction has no 90 s age check; only `estimate` mode has one.
+- In `clamp` mode the correction has no 90 s `last_reported` check; only `estimate` mode has one. The `age_s` check applies in both.
 - A correction entity with a `seq` attribute never triggers `_measure` on its own change; it only steps a waiting sample or runs `_run`.
 - `{base}/request/#` and `log_entities` are subscribed only when the step log opened.
 - Every options save reloads the entry, so `async_stop` runs `async_set_enabled(False)` and may publish normal before the switch re-enables.

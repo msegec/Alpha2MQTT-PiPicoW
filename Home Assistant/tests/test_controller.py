@@ -857,3 +857,30 @@ def test_an_other_soc_the_firmware_would_refuse_closes_the_other_direction(monke
     assert house.c._read_policy().max_charge_w == 0
     house.set("sensor.battery_auto_action", "discharge", soc_target=20, both="true", other_soc=105)
     assert house.c._read_policy().max_charge_w == C.DEFAULT_MAX_W
+
+
+def test_a_correction_with_a_frozen_input_is_a_gap(monkeypatch):
+    # A template re-rendered every second stays fresh by last_reported though an input under it froze. Its optional
+    # age_s attribute, the age of its oldest input, over CORRECTION_MAX_AGE_S counts as missing: hold, then release.
+    house = House(monkeypatch)
+    house.second()
+    house.set("sensor.net_demand", "1000", age_s=60)
+    house.second()
+    assert house.c.grid_w is not None
+    house.set("sensor.net_demand", "1000", age_s=600)
+    house.second()
+    assert house.c.grid_w is None
+    for _ in range(31):
+        house.second()
+    assert house.released()
+
+
+def test_a_frozen_correction_is_a_gap_on_the_clamp_too(monkeypatch):
+    house = House(monkeypatch)
+    house.c.config = {"correction_entity": "sensor.net_demand"}
+    house.set("sensor.net_demand", "100", age_s="unknown")  # not a number: ignored
+    house.second()
+    assert house.c.grid_w == 100
+    house.set("sensor.net_demand", "100", age_s=91)
+    house.second()
+    assert house.c.grid_w is None
