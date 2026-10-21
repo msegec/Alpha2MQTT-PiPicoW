@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: b8822ea plus the step response limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 330 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: 714d8e4 plus a test that every setting has one entity, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 331 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -333,7 +333,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_west_from_the_10_s_fallback_gives_no_solar_step` | `west_fallback` |
 | `test_a_whole_number_setting_stays_a_whole_number` | int settings stay int, duration published without a `.` |
 | `test_the_controller_limits_are_settings_*`, `test_the_default_cap_*`, `test_the_plausible_limit_*`, `test_the_correction_max_age_*`, `test_the_response_timeout_*`, `test_the_correction_match_wait_*` | controller limits as settings |
-| `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute` | numbers and their group |
+| `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute`, `test_every_setting_has_one_entity_whose_range_holds_its_default` | numbers and their group; every `Settings` field has exactly one number or switch, and each default is inside its range |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
 | `test_the_status_says_*`, `test_the_output_shows_*`, `test_the_limit_shows_*` | diagnosis attributes, wall times worked out once |

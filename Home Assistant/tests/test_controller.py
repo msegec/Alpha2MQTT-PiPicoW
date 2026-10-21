@@ -518,6 +518,13 @@ def test_every_number_names_its_section_as_an_attribute():
     assert {n[0]: n[6] for n in N.NUMBERS}["target_w"] == "Basic"
 
 
+def test_every_setting_has_one_entity_whose_range_holds_its_default():
+    keys = [n[0] for n in N.NUMBERS] + [w[0] for w in W.SWITCHES]
+    assert sorted(keys) == sorted(f.name for f in fields(R.Settings))
+    for key, _name, lo, hi, _step, _unit, _group in N.NUMBERS:
+        assert lo <= getattr(R.Settings(), key) <= hi, key
+
+
 def setting_switch(c, key, last_state=None):
     entry = MagicMock(entry_id="entry", runtime_data=c)
     switch = W.SettingSwitch(entry, *next(w for w in W.SWITCHES if w[0] == key))
