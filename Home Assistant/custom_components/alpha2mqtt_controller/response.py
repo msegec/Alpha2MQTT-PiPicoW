@@ -3,18 +3,15 @@ watches; it changes no command. No Home Assistant imports, so it can be tested a
 
 Signs follow the regulator: positive is discharge. A step is measured in its own direction, so a charge
 step is timed the same way as a discharge step, and a step back towards zero is not timed at all.
+
+The limits are the regulator's Settings fields response_step_w, response_slow_s and response_timeout_s, read live from
+the settings object passed in, so a number changes them at once.
 """
 
 from __future__ import annotations
 
-# Smaller steps sit inside the loop's normal trim and the reading noise; a slow ramp costs real import above this.
-STEP_W = 500.0
 # Arrival is this share of the rise: the last fifth is the integral's trim, not the inverter's response.
 REACH = 0.8
-# The target: the battery matches a load step within 4 s. Anything later is a miss, not a margin.
-SLOW_S = 4.0
-# Long enough that a healthy step never hits it, short enough to report a 9 W/s ramp in the same minute.
-TIMEOUT_S = 30.0
 # A request cut below this share of the step's setpoint is a new decision, not the step held.
 CANCEL = 0.8
 
@@ -24,7 +21,8 @@ def _sign(x: float) -> int:
 
 
 class ResponseMonitor:
-    def __init__(self) -> None:
+    def __init__(self, settings) -> None:
+        self._settings = settings
         self._setpoint: float | None = None  # the last command's signed watts, None for no dispatch
         self._step: tuple[float, float, float, int] | None = None  # t, battery, setpoint, direction
 
@@ -39,7 +37,8 @@ class ResponseMonitor:
         if self._step is None and setpoint_w is not None and battery_w is not None:
             d = _sign(setpoint_w)
             # A step over both the battery and the last setpoint: a keepalive the battery still lags is no new step.
-            if d * (setpoint_w - battery_w) > STEP_W and d * (setpoint_w - (prev or 0.0)) > STEP_W:
+            step_w = self._settings.response_step_w
+            if d * (setpoint_w - battery_w) > step_w and d * (setpoint_w - (prev or 0.0)) > step_w:
                 self._step = (t, battery_w, setpoint_w, d)
         return records
 
@@ -49,8 +48,8 @@ class ResponseMonitor:
             return []
         t0, start, target, d = self._step
         if d * (battery_w - start) >= REACH * d * (target - start):
-            return [self._finish(t, battery_w, "slow" if t - t0 > SLOW_S else "ok")]
-        if t - t0 >= TIMEOUT_S:
+            return [self._finish(t, battery_w, "slow" if t - t0 > self._settings.response_slow_s else "ok")]
+        if t - t0 >= self._settings.response_timeout_s:
             return [self._finish(t, battery_w, "timeout")]
         return []
 

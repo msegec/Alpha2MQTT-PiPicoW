@@ -176,6 +176,13 @@ class Settings:
     # A correction rendered from the fast message, such as a net demand template, carries its seq and may update just
     # after the controller sees the message. A sample waits this long for it, then steps on the value it has.
     match_wait_s: float = 0.5
+    # The step response monitor (response.py), which only watches. Smaller steps sit inside the loop's normal trim and
+    # the reading noise; a slow ramp costs real import above response_step_w. The target: the battery reaches 80 % of a
+    # load step within response_slow_s; anything later is a miss, not a margin. response_timeout_s is long enough that
+    # a healthy step never hits it, short enough to report a 9 W/s ramp in the same minute.
+    response_step_w: float = 500.0
+    response_slow_s: float = 4.0
+    response_timeout_s: float = 30.0
 
 
 @dataclass(frozen=True)

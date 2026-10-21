@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: f7a5380 plus the controller limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 328 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: b8822ea plus the step response limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 330 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -239,8 +239,11 @@ entity's only attribute, `group`, so a dashboard can build its sections from the
 | correction_max_age_s | Correction max age | 5..300 s, 5 | Safety | controller only |
 | ack_timeout_s | Response timeout | 2..60 s, 1 | Safety | controller only |
 | match_wait_s | Correction match wait | 0..2 s, 0.1 | Advanced | controller only |
+| response_step_w | Step response minimum | 100..3000 W, 50 | Advanced | response monitor only |
+| response_slow_s | Step response target | 1..30 s, 0.5 | Advanced | response monitor only |
+| response_timeout_s | Step response timeout | 5..120 s, 1 | Advanced | response monitor only |
 
-The last five are `Settings` fields the regulator never reads: the controller reads them from
+The last eight are `Settings` fields the regulator never reads: the controller and `ResponseMonitor` read them from
 `regulator.settings`, so every limit has one owner and goes in the `cfg` record.
 
 `set_setting` keeps a field whose current value is an int (`duration_s`, `full_register`, `command_step_w`) an int,

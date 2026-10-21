@@ -69,6 +69,9 @@ NUMBERS = [
     ("correction_max_age_s", "Correction max age", 5, 300, 5, "s", SAFETY),  # an older correction is a gap
     ("ack_timeout_s", "Response timeout", 2, 60, 1, "s", SAFETY),  # no response this long: sent again in full
     ("match_wait_s", "Correction match wait", 0, 2, 0.1, "s", ADVANCED),  # a sample waits this long for its correction
+    ("response_step_w", "Step response minimum", 100, 3000, 50, "W", ADVANCED),  # smaller steps are not timed
+    ("response_slow_s", "Step response target", 1, 30, 0.5, "s", ADVANCED),  # 80 % later than this is slow
+    ("response_timeout_s", "Step response timeout", 5, 120, 1, "s", ADVANCED),  # a step not reached by then times out
     ("command_step_w", "Command rounding", 1, 50, 1, "W", ADVANCED),  # commands go out in steps of this
 ]
 

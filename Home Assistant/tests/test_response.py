@@ -1,17 +1,27 @@
 """Tests for the step response monitor. Loads response.py by path so Home Assistant is not needed."""
 
 import importlib.util
+import sys
+from dataclasses import replace
 from pathlib import Path
 
-_PATH = Path(__file__).parents[1] / "custom_components" / "alpha2mqtt_controller" / "response.py"
-_spec = importlib.util.spec_from_file_location("response", _PATH)
-P = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(P)
+_DIR = Path(__file__).parents[1] / "custom_components" / "alpha2mqtt_controller"
 
 
-def run(plant, setpoints, seconds=60, start_w=100.0):
+def _load(name):
+    spec = importlib.util.spec_from_file_location(f"{name}_for_response", _DIR / f"{name}.py")
+    module = sys.modules[spec.name] = importlib.util.module_from_spec(spec)  # dataclasses look their module up
+    spec.loader.exec_module(module)
+    return module
+
+
+P = _load("response")
+R = _load("regulator")  # the monitor's limits are regulator Settings fields
+
+
+def run(plant, setpoints, seconds=60, start_w=100.0, **settings):
     """Sends each setpoint at its second and samples the plant every second; returns the finished records."""
-    m = P.ResponseMonitor()
+    m = P.ResponseMonitor(replace(R.Settings(), **settings))
     battery, records = start_w, []
     target = None
     for t in range(seconds + 1):
@@ -93,3 +103,15 @@ def test_a_resend_of_the_same_setpoint_starts_no_new_measurement():
     # Keepalives repeat a setpoint the battery still lags: one slow step, not one per keepalive.
     records = run(ramp, {0: 2000, 40: 2000, 80: 2000}, seconds=120)
     assert [r["result"] for r in records] == ["timeout"]
+
+
+def test_the_monitor_limits_are_settings_with_the_old_values():
+    s = R.Settings()
+    assert (s.response_step_w, s.response_slow_s, s.response_timeout_s) == (500, 4, 30)
+
+
+def test_the_monitor_reads_its_limits_from_the_settings():
+    slow = lambda b, t: min(t, b + 80)  # noqa: E731  480 W of a 600 W rise takes 6 s
+    assert run(slow, {0: 700}, response_slow_s=6)[0]["result"] == "ok"
+    assert run(ramp, {0: 2000}, response_timeout_s=10)[0]["elapsed_s"] == 10
+    assert run(ramp, {0: 500}, response_step_w=300)[0]["result"] == "timeout"

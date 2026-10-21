@@ -127,7 +127,7 @@ class Controller:
         self._gaps: set[str] = set()  # inputs missing now, logged the same way
         self._unknown_policy_reason = ""  # the policy state the controller does not know, logged once per value
         self._good_policy: tuple[float, Policy] = (float("-inf"), Policy(RELEASE))
-        self._response = ResponseMonitor()
+        self._response = ResponseMonitor(self.regulator.settings)
         self.last_response: dict | None = None  # the last step response timed out or reached, not cancelled
         self._slow: tuple[object, int] = (None, 0)  # local date, slow responses on it
         self._walls: dict[str, tuple[float, str]] = {}  # name: (monotonic time, the same as wall clock text)

@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: f7a5380 plus the controller limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 328 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: b8822ea plus the step response limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 330 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
 
 ## Files
 
@@ -35,7 +35,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `k` | Written when | Fields |
 |---|---|---|
 | `start` | `async_start`, log open | `code`: first 12 hex of a sha256 over `regulator.py` and `controller.py`, also the Loop version sensor |
-| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `solar_ff_min_w`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register`, `discharge_needs_soc`, `arrive_restart_w`, `floor_margin_soc`, `refused_w`, `refused_after_s`, `refused_hold_s`, `refused_ask_w`, `refused_near_soc`, `rearm_soc`, `min_send_gap_s`, `max_integrate_s`, `lag_w`, `arrive_s`, `small_trim_w`, `small_trim_gap_s`, `warm_band_w`, `solar_deadband_w`, `solar_max_gap_s`, `command_step_w`, `default_max_w`, `max_plausible_w`, `correction_max_age_s`, `ack_timeout_s`, `match_wait_s` |
+| `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `solar_ff_min_w`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register`, `discharge_needs_soc`, `arrive_restart_w`, `floor_margin_soc`, `refused_w`, `refused_after_s`, `refused_hold_s`, `refused_ask_w`, `refused_near_soc`, `rearm_soc`, `min_send_gap_s`, `max_integrate_s`, `lag_w`, `arrive_s`, `small_trim_w`, `small_trim_gap_s`, `warm_band_w`, `solar_deadband_w`, `solar_max_gap_s`, `command_step_w`, `default_max_w`, `max_plausible_w`, `correction_max_age_s`, `ack_timeout_s`, `match_wait_s`, `response_step_w`, `response_slow_s`, `response_timeout_s` |
 | `step` | each new fast message (`_take`), enabled or not | see below |
 | `cmd` | every message on `<base>/request/#` | `topic` (str), `p` (raw payload) |
 | `ack` | every message on `<base>/response/set/+` | `topic`, `p` (raw payload) |
@@ -68,22 +68,23 @@ Not in `step`: firmware `haIdle`, ack round trip (`ack_after_ms` lives only in `
 
 Signs follow the regulator: positive is discharge. Pure observer. Its output goes to the log and sensors only.
 
-Constants:
+Limits. `ResponseMonitor(settings)` takes the regulator's `Settings` (the controller passes `regulator.settings`) and
+reads the three settings live, so a number changes them at once:
 
 | Name | Value | Meaning |
 |---|---|---|
-| `STEP_W` | 500.0 W | minimum step to time |
-| `REACH` | 0.8 | arrival is 80 % of the rise |
-| `SLOW_S` | 4.0 s | arrival later than this is `slow` |
-| `TIMEOUT_S` | 30.0 s | give up, result `timeout` |
-| `CANCEL` | 0.8 | a new setpoint below 80 % of the step's target cancels it |
+| `response_step_w` (setting) | 500.0 W | minimum step to time |
+| `REACH` (constant) | 0.8 | arrival is 80 % of the rise |
+| `response_slow_s` (setting) | 4.0 s | arrival later than this is `slow` |
+| `response_timeout_s` (setting) | 30.0 s | give up, result `timeout` |
+| `CANCEL` (constant) | 0.8 | a new setpoint below 80 % of the step's target cancels it |
 
 Algorithm:
 
 - `command(t, setpoint_w, battery_w)`: called from `Controller._publish` after a successful publish, with `time.monotonic()`, `cmd.signed_w` (None for `normal`) and the last battery reading.
   1. If a step is open and the new setpoint is None or `d * setpoint < CANCEL * d * target`, finish it as `cancelled`.
-  2. If no step is open and both values are known, `d = sign(setpoint)`. Open a step if `d * (setpoint - battery) > STEP_W` and `d * (setpoint - prev_setpoint) > STEP_W` (prev None counts as 0). The second test stops keepalives of a lagging setpoint from opening new steps.
-- `sample(t, battery_w)`: called from `Controller._take` on every fast message, with `t_seen` (monotonic arrival time). Finishes `ok` or `slow` when `d * (battery - start) >= REACH * d * (target - start)`, else `timeout` once `t - t0 >= TIMEOUT_S`.
+  2. If no step is open and both values are known, `d = sign(setpoint)`. Open a step if `d * (setpoint - battery) > response_step_w` and `d * (setpoint - prev_setpoint) > response_step_w` (prev None counts as 0). The second test stops keepalives of a lagging setpoint from opening new steps.
+- `sample(t, battery_w)`: called from `Controller._take` on every fast message, with `t_seen` (monotonic arrival time). Finishes `ok` or `slow` when `d * (battery - start) >= REACH * d * (target - start)`, else `timeout` once `t - t0 >= response_timeout_s`.
 - Record from `_finish`:
 
 | Field | Value |
@@ -138,11 +139,12 @@ Sensors: `step_response` state is `last_response["t80_s"]` (null after a timeout
 - `wait_ms` measures the wait for a seq-matched correction (250 in the test).
 - `cfg` holds every `Settings` field. Start and stop write `start`, `cfg`, `stop` in order.
 - A healthy 1.9 kW step: `ok`, `t80_s <= 3`, `rise_w == 1900`. A 9 W/s ramp from 100 to 2000 W: `timeout`, `t80_s` null, `slope_w_s` about 9.
-- 80 % reached at 6 s is `slow`; at 4 s is `ok` (the boundary is strict `> SLOW_S`).
+- 80 % reached at 6 s is `slow`; at 4 s is `ok` (the boundary is strict `> response_slow_s`).
 - A cut to 1500 of a 2000 step cancels; to 1700 keeps measuring. A release cancels.
 - Down steps and steps under 500 W are not timed. A charge step is timed the same way.
 - Keepalives of the same setpoint over 120 s give one `timeout`, not one per resend.
 - Controller: a fast plant leaves `slow_responses_today == 0`; a 9 W/s plant counts 1.
+- The three limits are settings with the old values, and the monitor reads them (`test_the_monitor_*`).
 
 Test run, from the repo root: `python3 -m pytest "Home Assistant/tests/test_steplog.py" "Home Assistant/tests/test_response.py" -q` gave 16 passed. `test_controller.py -k "log or resp or slow"` gave 16 passed.
 
