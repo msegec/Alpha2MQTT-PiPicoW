@@ -14,7 +14,7 @@ This is a fork of [dxoverdy/Alpha2MQTT](https://github.com/dxoverdy/Alpha2MQTT) 
 - **One frame dispatch writes.** `set/charge` and `set/discharge` write the whole dispatch block, registers `0x0880` to `0x0888`, as one Write Data Register, about 50 ms on the bus instead of five writes two seconds apart. An inverter that refuses the nine register write gets the five writes as before; the response says which with `"frames": 1` or `5`. A `set/charge` or `set/discharge` with `"powerOnly": 1` rewrites only the power register when the dispatch Alpha2MQTT last wrote in full has the same kind, SOC and duration and less than half its duration has passed. See [Force Charge From Grid](#force-charge-from-grid).
 - **Idle while Home Assistant is gone.** Alpha2MQTT subscribes to `homeassistant/status`, Home Assistant's default birth and will topic (`MQTT_SUB_HA_STATUS` in Definitions.h). Home Assistant counts as gone 3 minutes after its `offline` will, until the next `online`, or after 3 minutes off the broker, counted from the last time Alpha2MQTT was connected or from boot, until it reconnects. A planned Home Assistant restart sends the will and is back in about 2 minutes, so an `online` or any set request inside the 3 minutes cancels the pending `offline` and nothing is written. While it is gone, Alpha2MQTT writes a full dispatch block every 60 s, charge at 0 W to 100 % SOC for 120 s, so the battery sits idle instead of following the inverter's own mode. A charge of 0 W stores nothing, so solar surplus is exported while the hold is in place. When Home Assistant is back, a hold Alpha2MQTT wrote is ended at once with the same write as `set/normal`, so the inverter returns to its own mode until the controller's first command. A failed hold or release is tried again after 10 s. Any `set/charge`, `set/discharge` or `set/normal` request counts as Home Assistant being up, even after an `offline`, and is never overwritten by the hold: Home Assistant sends its birth non-retained by default, so Alpha2MQTT misses one sent while it is off the broker itself. For the hold to survive a reboot of Alpha2MQTT while Home Assistant is down, and to end after a birth Alpha2MQTT was off the broker for, set Home Assistant's MQTT birth and will messages to retained (MQTT integration, Configure). A `set/normal` sent while Home Assistant is up stays normal. The fast state's `haIdle` is 1 while Home Assistant counts as gone.
 - **Device supply every minute.** `Alpha2MQTT/state/device` reports VSYS and whether USB power is present.
-- **Schedules tuned for a battery only inverter.** Energy totals move from daily to every minute so the Home Assistant Energy dashboard stays current, and the hybrid only PV1 to PV6 reads are dropped from the ten second schedule. The five minute and daily schedules are empty by default.
+- **Schedules tuned for a battery only inverter.** Energy totals move from daily to every minute so the Home Assistant Energy dashboard stays current, and the hybrid only PV1 to PV6 reads are dropped from the ten second schedule. Battery health reports every minute and slow battery facts every five minutes. The daily schedule is empty by default.
 - **Dispatch SOC as a percent.** `socPercent` is converted with the register's 0.4 % per bit scale and rounded up, so a charge reaches at least the target and a discharge stops at or above it, and the response reports the percent rather than 0.
 - **Responsive while busy.** MQTT and OTA are serviced between the register reads of a schedule, RS485 replies are polled every millisecond, and requests over 127 bytes are rejected rather than truncated.
 - **Modbus exceptions reported.** A five byte exception reply is reported as a slave error instead of a timeout.
@@ -134,9 +134,34 @@ Total Energy Fed To Grid (kWh)
 Total Energy Consumed From Grid (kWh)
 Total PV Energy Generated (kWh)
 Total PV Energy Consumed (kWh)
+
+Battery Status, Battery Relay Status (description as per documentation)
+Battery Min and Max Cell Voltage (V), with the pack and cell holding each
+Battery Min Cell Temperature (DegC), with the pack and cell holding it
+Battery Max Cell Temperature pack and cell (the temperature itself is in the ten second schedule)
+Battery Max Charge and Discharge Current (A) and Power (W)
+Battery Remaining Time (minutes)
+Battery Implementation and Remaining Charge and Discharge SOC (%)
+Battery Fault (description as per documentation)
+Battery Warning (raw)
 ```
 
-The energy totals report every minute so the Home Assistant Energy dashboard stays current. The five minute and one day schedules are empty by default and publish nothing until you add registers to them.
+The energy totals report every minute so the Home Assistant Energy dashboard stays current. The one day schedule is empty by default and publishes nothing until you add registers to it.
+
+The HOME series (the SMILE-B3 included) reports the battery as a whole. It names the pack that holds the lowest and highest cell, but has no registers for each pack's own SOC, voltage or temperature; the per BMU registers from `0xA200` are for the INDUSTRY series.
+
+#### Every five minutes:
+```
+Battery Modules (count)
+Battery Capacity (kWh)
+Battery Type (description as per documentation)
+Battery SOH (%)
+Battery Charge and Discharge Cut Off Voltage (V)
+Battery BMU, LMU and ISO Software Version
+Battery MOS Control, Battery SOC Calibration (description as per documentation)
+Battery Single Cut Error Code (raw)
+Battery Fault 1 to 6 and Battery Warning 1 to 6 (raw)
+```
 
 PV1 to PV6 power (REG_INVERTER_HOME_R_PV1_POWER_1 onwards) are left out because they exist on hybrid inverters only. On a hybrid inverter, add them back to the ten second schedule.
 
@@ -146,10 +171,9 @@ Grid Frequency (Hz)
 PV Frequency (Hz)
 Inverter Frequency (Hz)
 System Fault (description as per documentation)
-Battery Fault (description as per documentation)
 ```
 
-You can customise the schedules by modifying Alpha2MQTT.ino.  Search for 'Schedules' and add or remove registers as you see fit from each schedule.  The list of supported registers begins on line 85 in Definitions.h.  A register name which contains _R_ is read only, one which contains _RW_ is read/write, and one which contains _W_ is write only.
+You can customise the schedules by modifying Alpha2MQTT.ino.  Search for 'Schedules' and add or remove registers as you see fit from each schedule.  The supported registers are the table in Registers.h; their addresses are in Definitions.h.  A register name which contains _R_ is read only, one which contains _RW_ is read/write, and one which contains _W_ is write only.
 
 An example response for any subscribed state is a JSON of name/value pairs which are separated by commas, for example:
 ```

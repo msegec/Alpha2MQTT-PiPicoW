@@ -318,6 +318,542 @@ mqtt:
         name: "Alpha2MQTT"
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
+    - name: "Battery Status"
+      unique_id: alpha2mqtt_battery_home_r_status
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_STATUS | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Relay Status"
+      unique_id: alpha2mqtt_battery_home_r_relay_status
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_RELAY_STATUS | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Min Cell Voltage"
+      unique_id: alpha2mqtt_battery_home_r_min_cell_voltage
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_MIN_CELL_VOLTAGE | default(None) }}"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Min Cell Voltage Pack"
+      unique_id: alpha2mqtt_battery_home_r_pack_id_of_min_cell_voltage
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_PACK_ID_OF_MIN_CELL_VOLTAGE | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Min Cell Voltage Cell"
+      unique_id: alpha2mqtt_battery_home_r_cell_id_of_min_cell_voltage
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_CELL_ID_OF_MIN_CELL_VOLTAGE | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Cell Voltage"
+      unique_id: alpha2mqtt_battery_home_r_max_cell_voltage
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_MAX_CELL_VOLTAGE | default(None) }}"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Cell Voltage Pack"
+      unique_id: alpha2mqtt_battery_home_r_pack_id_of_max_cell_voltage
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_PACK_ID_OF_MAX_CELL_VOLTAGE | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Cell Voltage Cell"
+      unique_id: alpha2mqtt_battery_home_r_cell_id_of_max_cell_voltage
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_CELL_ID_OF_MAX_CELL_VOLTAGE | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Min Cell Temperature"
+      unique_id: alpha2mqtt_battery_home_r_min_cell_temperature
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_MIN_CELL_TEMPERATURE | default(None) }}"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Min Cell Temperature Pack"
+      unique_id: alpha2mqtt_battery_home_r_pack_id_of_min_cell_temperature
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_PACK_ID_OF_MIN_CELL_TEMPERATURE | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Min Cell Temperature Cell"
+      unique_id: alpha2mqtt_battery_home_r_cell_id_of_min_cell_temperature
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_CELL_ID_OF_MIN_CELL_TEMPERATURE | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Cell Temperature Pack"
+      unique_id: alpha2mqtt_battery_home_r_pack_id_of_max_cell_temperature
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_PACK_ID_OF_MAX_CELL_TEMPERATURE | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Cell Temperature Cell"
+      unique_id: alpha2mqtt_battery_home_r_cell_id_of_max_cell_temperature
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_CELL_ID_OF_MAX_CELL_TEMPERATURE | default(None) }}"
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Charge Current"
+      unique_id: alpha2mqtt_battery_home_r_max_charge_current
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_MAX_CHARGE_CURRENT | default(None) }}"
+      unit_of_measurement: "A"
+      device_class: current
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Discharge Current"
+      unique_id: alpha2mqtt_battery_home_r_max_discharge_current
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_MAX_DISCHARGE_CURRENT | default(None) }}"
+      unit_of_measurement: "A"
+      device_class: current
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Charge Power"
+      unique_id: alpha2mqtt_battery_home_r_battery_max_charge_power
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_MAX_CHARGE_POWER | default(None) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Max Discharge Power"
+      unique_id: alpha2mqtt_battery_home_r_battery_max_discharge_power
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_MAX_DISCHARGE_POWER | default(None) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Remaining Time"
+      unique_id: alpha2mqtt_battery_home_r_battery_remaining_time
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_REMAINING_TIME | default(None) }}"
+      unit_of_measurement: "min"
+      device_class: duration
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Implementation Charge SOC"
+      unique_id: alpha2mqtt_battery_home_r_battery_implementation_charge_soc
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_IMPLEMENTATION_CHARGE_SOC | default(None) }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Implementation Discharge SOC"
+      unique_id: alpha2mqtt_battery_home_r_battery_implementation_discharge_soc
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_IMPLEMENTATION_DISCHARGE_SOC | default(None) }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Remaining Charge SOC"
+      unique_id: alpha2mqtt_battery_home_r_battery_remaining_charge_soc
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_REMAINING_CHARGE_SOC | default(None) }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Remaining Discharge SOC"
+      unique_id: alpha2mqtt_battery_home_r_battery_remaining_discharge_soc
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_REMAINING_DISCHARGE_SOC | default(None) }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Warning"
+      unique_id: alpha2mqtt_battery_home_r_battery_warning_1
+      state_topic: "Alpha2MQTT/state/minute/one"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_WARNING_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 300
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Modules"
+      unique_id: alpha2mqtt_battery_home_r_battery_number
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_NUMBER | default(None) }}"
+      state_class: measurement
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Capacity"
+      unique_id: alpha2mqtt_battery_home_r_battery_capacity
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_CAPACITY | default(None) }}"
+      unit_of_measurement: "kWh"
+      device_class: energy_storage
+      state_class: measurement
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Type"
+      unique_id: alpha2mqtt_battery_home_r_battery_type
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_TYPE | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery SOH"
+      unique_id: alpha2mqtt_battery_home_r_battery_soh
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_SOH | default(None) }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Charge Cut Off Voltage"
+      unique_id: alpha2mqtt_battery_home_r_charge_cut_off_voltage
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_CHARGE_CUT_OFF_VOLTAGE | default(None) }}"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Discharge Cut Off Voltage"
+      unique_id: alpha2mqtt_battery_home_r_discharge_cut_off_voltage
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_DISCHARGE_CUT_OFF_VOLTAGE | default(None) }}"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery BMU Software Version"
+      unique_id: alpha2mqtt_battery_home_r_bmu_software_version
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BMU_SOFTWARE_VERSION | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery LMU Software Version"
+      unique_id: alpha2mqtt_battery_home_r_lmu_software_version
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_LMU_SOFTWARE_VERSION | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery ISO Software Version"
+      unique_id: alpha2mqtt_battery_home_r_iso_software_version
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_ISO_SOFTWARE_VERSION | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery MOS Control"
+      unique_id: alpha2mqtt_battery_home_rw_battery_mos_control
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_RW_BATTERY_MOS_CONTROL | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery SOC Calibration"
+      unique_id: alpha2mqtt_battery_home_r_battery_soc_calibration
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_SOC_CALIBRATION | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Single Cut Error Code"
+      unique_id: alpha2mqtt_battery_home_r_battery_single_cut_error_code
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_SINGLE_CUT_ERROR_CODE | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Fault 1"
+      unique_id: alpha2mqtt_battery_home_r_battery_fault_1_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_FAULT_1_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Fault 2"
+      unique_id: alpha2mqtt_battery_home_r_battery_fault_2_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_FAULT_2_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Fault 3"
+      unique_id: alpha2mqtt_battery_home_r_battery_fault_3_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_FAULT_3_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Fault 4"
+      unique_id: alpha2mqtt_battery_home_r_battery_fault_4_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_FAULT_4_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Fault 5"
+      unique_id: alpha2mqtt_battery_home_r_battery_fault_5_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_FAULT_5_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Fault 6"
+      unique_id: alpha2mqtt_battery_home_r_battery_fault_6_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_FAULT_6_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Warning 1"
+      unique_id: alpha2mqtt_battery_home_r_battery_warning_1_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_WARNING_1_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Warning 2"
+      unique_id: alpha2mqtt_battery_home_r_battery_warning_2_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_WARNING_2_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Warning 3"
+      unique_id: alpha2mqtt_battery_home_r_battery_warning_3_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_WARNING_3_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Warning 4"
+      unique_id: alpha2mqtt_battery_home_r_battery_warning_4_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_WARNING_4_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Warning 5"
+      unique_id: alpha2mqtt_battery_home_r_battery_warning_5_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_WARNING_5_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
+    - name: "Battery Warning 6"
+      unique_id: alpha2mqtt_battery_home_r_battery_warning_6_1
+      state_topic: "Alpha2MQTT/state/minute/five"
+      value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_WARNING_6_1 | default(None) }}"
+      entity_category: diagnostic
+      expire_after: 1500
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
     - name: "Grid Frequency"
       unique_id: alpha2mqtt_grid_meter_r_frequency
       state_topic: "Alpha2MQTT/state/hour/one"
@@ -369,9 +905,9 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "Battery Fault"
       unique_id: alpha2mqtt_battery_home_r_battery_fault_1
-      state_topic: "Alpha2MQTT/state/hour/one"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_FAULT_1 | default(None) }}"
-      expire_after: 10800
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
