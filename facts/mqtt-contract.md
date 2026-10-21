@@ -112,6 +112,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 - Pico VSYS: `vsys_mv / 1000`, rounded to 2 places, in V. Pico USB Power: `ON` when `usb_power` is true.
 - Scripts `alpha2mqtt_set_charge` and `alpha2mqtt_set_discharge`: fields `watts` (default 3000),
   `soc_percent` (100 charge, 10 discharge), `duration` (default 14400 s). No `seq`, no `powerOnly`.
+  The defaults only fill the UI form; a run missing any field stops before publishing.
   `alpha2mqtt_set_normal` sends `{"void": 0}`.
 - No package entity feeds the controller. The controller reads `state/fast` itself.
 

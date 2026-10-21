@@ -1169,6 +1169,10 @@ script:
         selector:
           number: {min: 60, max: 86400, step: 60, unit_of_measurement: s}
     sequence:
+      # Field defaults only fill the UI form. A run without data, such as a tap in the car app,
+      # would publish zeros, so stop unless all three values were given.
+      - condition: template
+        value_template: "{{ watts is defined and soc_percent is defined and duration is defined }}"
       - action: mqtt.publish
         data:
           topic: "Alpha2MQTT/request/set/charge"
@@ -1198,6 +1202,10 @@ script:
         selector:
           number: {min: 60, max: 86400, step: 60, unit_of_measurement: s}
     sequence:
+      # Field defaults only fill the UI form. A run without data, such as a tap in the car app,
+      # would publish zeros, so stop unless all three values were given.
+      - condition: template
+        value_template: "{{ watts is defined and soc_percent is defined and duration is defined }}"
       - action: mqtt.publish
         data:
           topic: "Alpha2MQTT/request/set/discharge"
