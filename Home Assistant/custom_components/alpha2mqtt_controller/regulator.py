@@ -34,6 +34,9 @@ TRIM_NODES = (-4000.0, -3500.0, -3000.0, -2500.0, -2000.0, -1500.0, -1000.0, -75
 # times offset_comp up to 1.5) the table falls under 1 W per W, so each output has one command. A maths bound, not a
 # tuning choice.
 TRIM_SLOPE = 0.5
+# trim_points rounds each node to 0.1 W, so a stored pair at the slope bound may be this much past it (load_trim
+# adds 1e-9 W for float error).
+TRIM_ROUND_W = 0.1
 
 
 @dataclass(frozen=True)
@@ -336,8 +339,9 @@ class Regulator:
         return [[x, round(y, 1)] for x, y in zip(TRIM_NODES, self.trim)]
 
     def load_trim(self, points) -> bool:
-        """Restore a persisted table. A malformed table, other nodes or a non-zero 0 W node loads nothing and
-        returns False. A value past trim_limit_w loads clipped to it, so a lowered limit keeps the table."""
+        """Restore a persisted table. A malformed table, other nodes, a non-zero 0 W node or neighbours further
+        apart than TRIM_SLOPE allows loads nothing and returns False. A value past trim_limit_w loads clipped to it,
+        so a lowered limit keeps the table."""
         try:
             pts = [(float(x), float(y)) for x, y in points]
         except (TypeError, ValueError):
@@ -346,7 +350,11 @@ class Regulator:
         if ([x for x, _ in pts] != list(TRIM_NODES) or any(not math.isfinite(y) for _, y in pts)
                 or pts[TRIM_NODES.index(0.0)][1] != 0):
             return False
-        self.trim, self._grid = [_clip(y, -lim, lim) for _, y in pts], None
+        ys = [_clip(y, -lim, lim) for _, y in pts]  # clipping never steepens the table
+        if any(abs(ys[j + 1] - ys[j]) - TRIM_SLOPE * (TRIM_NODES[j + 1] - TRIM_NODES[j]) > TRIM_ROUND_W + 1e-9
+               for j in range(len(ys) - 1)):
+            return False  # _teach never builds it, and _solve needs the rising table the slope keeps
+        self.trim, self._grid = ys, None
         return True
 
     def reset_trim(self) -> None:

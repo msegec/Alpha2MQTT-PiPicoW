@@ -1439,6 +1439,26 @@ def test_a_learned_table_off_the_nodes_does_not_load_and_one_past_its_bound_load
     assert not any(reg.trim)
 
 
+def test_a_table_steeper_than_the_trim_slope_does_not_load():
+    # The solve for the command needs a rising table; learning never builds a steeper one, so it is not a learned table.
+    reg = make()
+    pts = reg.trim_points()
+    i = R.TRIM_NODES.index(100.0)
+    pts[i][1] = -R.TRIM_SLOPE * 100 - 25  # 25 W steeper than the slope allows next to the 0 W node
+    assert not reg.load_trim(pts) and not any(reg.trim)
+    pts[i][1] = -R.TRIM_SLOPE * 100 - 0.1  # within the 0.1 W trim_points rounds a pair by
+    assert reg.load_trim(pts)
+
+
+def test_a_table_learned_against_the_trim_slope_loads_back():
+    reg = _settle(make(trim_learn=True, trim_rate=0.2, trim_limit_w=400, ki=0.2, deadband_w=0, target_w=0,
+                       min_interval_s=0, write_threshold_w=10, integral_band_w=1000, lag_w=1000),
+                  short_w=280, battery=300, n=400)
+    xs, ys = R.TRIM_NODES, reg.trim
+    assert max(abs(ys[j + 1] - ys[j]) / (xs[j + 1] - xs[j]) for j in range(len(xs) - 1)) == pytest.approx(R.TRIM_SLOPE)
+    assert make(trim_limit_w=400).load_trim(reg.trim_points())
+
+
 def test_learning_never_takes_a_node_past_its_bound():
     reg = _settle(make(trim_learn=True, trim_rate=0.2, trim_limit_w=30, ki=0.2, deadband_w=0, target_w=0,
                        min_interval_s=0, write_threshold_w=10), short_w=200, n=400)
