@@ -25,7 +25,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 
 | Topic | Dir | Publisher | Consumers | Payload | Period or trigger |
 |---|---|---|---|---|---|
-| `Alpha2MQTT/state/fast` | FW->HA | `sendFastState` | ctl `_on_state` (default `state_topic`); pkg 4 Fast sensors | JSON: `REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1`, `REG_PV_METER_R_TOTAL_ACTIVE_POWER_1`, `REG_BATTERY_HOME_R_BATTERY_POWER`, `REG_BATTERY_HOME_R_SOC`, `REG_DISPATCH_RW_DISPATCH_START`, then `seq`, `ms`, `read_ms`, `haIdle` | every 1 s (`STATUS_INTERVAL_FAST`) |
+| `Alpha2MQTT/state/fast` | FW->HA | `sendFastState` | ctl `_on_state` (default `state_topic`); pkg 4 Fast sensors, Idle Hold | JSON: `REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1`, `REG_PV_METER_R_TOTAL_ACTIVE_POWER_1`, `REG_BATTERY_HOME_R_BATTERY_POWER`, `REG_BATTERY_HOME_R_SOC`, `REG_DISPATCH_RW_DISPATCH_START`, then `seq`, `ms`, `read_ms`, `haIdle` | every 1 s (`STATUS_INTERVAL_FAST`) |
 | `Alpha2MQTT/state/second/ten` | FW->HA | `sendData` | pkg 18 sensors | JSON, 18 keys from `_mqttTenSecondStatusRegisters` | every 10 s |
 | `Alpha2MQTT/state/minute/one` | FW->HA | `sendData` | pkg 35 sensors | JSON, 35 keys: 3 voltages, 8 energy totals, 24 battery health keys | every 60 s |
 | `Alpha2MQTT/state/minute/five` | FW->HA | `sendData` | pkg 24 sensors | JSON, 24 slow battery keys | every 300 s |
@@ -92,8 +92,8 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 
 ## The HA package (`Home Assistant/alpha2mqtt.yaml`)
 
-- Holds only `mqtt.sensor`, one `mqtt.binary_sensor` and three `script`s. No `template:`, no `automation:`.
-- 89 sensors and 1 binary sensor, all on device identifier `alpha2mqtt`: 18 ten second, 35 minute, 24 five
+- Holds only `mqtt.sensor`, two `mqtt.binary_sensor`s and three `script`s. No `template:`, no `automation:`.
+- 89 sensors and 2 binary sensors, all on device identifier `alpha2mqtt`: 18 ten second, 35 minute, 24 five
   minute, 4 hour, 4 fast, 1 device and 3 response sensors. Unique ids are `alpha2mqtt_<register>`, or
   `alpha2mqtt_fast_*`, `alpha2mqtt_pico_*` and `alpha2mqtt_response_set_*`.
   Entity ids are not written in the file. The recorder comment's glob `sensor.alpha2mqtt_*_fast` implies ids
@@ -124,6 +124,9 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 - Dispatch Power shows `REG_DISPATCH_RW_ACTIVE_POWER_1 - 32000` in W, + discharge, - charge, like Battery Power.
   Its long term statistics before this change hold the raw offset value, about 32000.
 - Pico VSYS: `vsys_mv / 1000`, rounded to 2 places, in V. Pico USB Power: `ON` when `usb_power` is true.
+- Idle Hold (`alpha2mqtt_fast_ha_idle`): `ON` when the fast state's `haIdle` is 1, the firmware idle hold
+  being active; unknown when the key is missing. `expire_after` 10 s. Fast SOC and fast dispatch start have no
+  package entity: the ten second Battery SOC and Dispatch State carry the same registers.
 - Scripts `alpha2mqtt_set_charge` and `alpha2mqtt_set_discharge`: fields `watts` (default 3000),
   `soc_percent` (100 charge, 10 discharge), `duration` (default 600 s), `controller_switch`. No `seq`, no
   `powerOnly`. The defaults only fill the UI form; a run missing `watts`, `soc_percent` or `duration` stops
@@ -184,7 +187,7 @@ so the next charge or discharge writes the full block.
 - Firmware subscribes to `request/read/register/handled`, `request/read/register/raw`, `request/write/register/raw/single`,
   `request/write/register/raw/data` and `request/read/register/handled/all`; nothing in repo publishes them. README documents all five.
 - `state/day/one` has an empty array since 99a1bdf, so it is never published. `state/minute/five` carries battery keys since c2e334d.
-- `haIdle` in the fast state: no consumer in the package or controller.
+- `haIdle` in the fast state: the package's Idle Hold shows it; the controller does not read it.
 - Fast `REG_DISPATCH_RW_DISPATCH_START`: the controller logs it in the step log but never acts on it.
 - Response `frames` and `ms`: the controller ignores both; it times acks with its own monotonic clock.
 - README set/charge example omits `frames`, which the firmware sends on every block write.

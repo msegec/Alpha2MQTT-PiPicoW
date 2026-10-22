@@ -1178,6 +1178,20 @@ mqtt:
         name: "Alpha2MQTT"
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
+    # On while the firmware counts Home Assistant as gone and holds the battery idle itself.
+    # Unknown on firmware that does not send haIdle.
+    - name: "Idle Hold"
+      unique_id: alpha2mqtt_fast_ha_idle
+      state_topic: "Alpha2MQTT/state/fast"
+      value_template: >-
+        {%- set v = value_json.haIdle | default(None) | int(None) -%}
+        {%- if v is none -%}None{%- elif v == 1 -%}ON{%- else -%}OFF{%- endif -%}
+      expire_after: 10
+      device:
+        identifiers: ["alpha2mqtt"]
+        name: "Alpha2MQTT"
+        manufacturer: "AlphaESS"
+        model: "Alpha2MQTT"
 
 # One writer at a time. The battery controller, if installed, sends a command every few seconds and would
 # overwrite a script's command, so each script turns the controller's Enabled switch off first. Turning it
