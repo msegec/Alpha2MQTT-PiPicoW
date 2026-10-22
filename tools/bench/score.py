@@ -18,10 +18,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import logs  # noqa: E402
 
-IMPORT_WEIGHT = 4.0  # cost = 4 x import + export
+# cost = IMPORT_WEIGHT x import + export, both of the error from target, not of the grid flow. 4 is the ratio the
+# regulator's ki_import_x comment gives (import costs about four times what export earns); no tariff is in the repo.
+# It sets the ranking of variants that trade import for export; the plain totals are in import_w and export_w.
+IMPORT_WEIGHT = 4.0
 MAX_DT_S = 5.0  # a sample counts for the time to the next one, at most this
 NIGHT_SOLAR_W = 50.0  # solar under this is night
-CLOUDY = 0.05  # hourly solar variability over this is a cloudy hour
+# Hourly solar variability over this is a cloudy hour. Chosen once: it split clear and broken cloud hours on the
+# development logs. It moves rows between the clear and cloudy columns only; the "all" totals do not depend on it.
+CLOUDY = 0.05
 VAR_FLOOR_W = 300.0  # variability is relative to the hour's mean solar, at least this
 JUMP_W = 500.0  # demand move between consecutive samples that is a spike or a step
 BACK = 0.3  # a spike comes back within this share of the jump

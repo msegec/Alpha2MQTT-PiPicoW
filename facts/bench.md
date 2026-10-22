@@ -137,6 +137,10 @@ Over rows from `samples` (live) or `replay` (simulated). `e = grid_w - target`. 
 | `commands_per_min` | rows with a command chosen in that step, per minute. Live counts `step.sent`, which misses tick commands. |
 | `turn_rounds` | non-zero commands whose sign differs from the last non-zero one; 0 W keeps the sign |
 
+Weights. `IMPORT_WEIGHT` 4 is the ratio in the regulator's `ki_import_x` comment, import costing about four
+times what export earns; no tariff figure is in the repo. It weighs the error from target, not the grid flow, and
+only changes the ranking of variants that trade import for export. Read `import_w` and `export_w` beside it.
+
 Loss budget: each row gets one cause, first match wins.
 
 | Cause | Rule |
@@ -158,7 +162,8 @@ a step.
 Regimes: night when solar < 50 W. A day row takes its local clock hour's class: from 1-minute means `m` of day
 solar in that hour, variability = mean `|m[i] - (m[i-1] + m[i+1]) / 2|` / max(hour mean, 300 W). Over 0.05
 is cloudy, else clear; under 3 day minutes is clear. The threshold separated clear and broken cloud hours on the
-development logs.
+development logs, a one off choice. It only moves rows between the clear and cloudy columns; `all` does not
+depend on it.
 
 `compare.py` scores the live rows and each variant per window, plus "all windows" when there are several.
 Overlapping windows count twice there. One plant serves all variants: `--plant`, else the fit on all windows.
