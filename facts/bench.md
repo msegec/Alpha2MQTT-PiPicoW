@@ -3,9 +3,8 @@
 Tools in `tools/bench/` that score live step logs and replay their demand through any regulator version against
 a fitted inverter model, so versions and settings can be compared on the same weeks.
 
-Last verified: working tree on a362446, 2026-10-22. `python3 -m pytest tools/bench -q`: 28 passed. Every tool
-ran with `python3 -I` on private step logs (two daily `.gz` files and the live file), and
-`replay.py` replayed through every committed `regulator.py` revision without error.
+Last verified: branch fix/bench on d80bfb1, 2026-10-22. `python3 -m pytest tools/bench/tests -q`: 57
+passed; `python3 -m pytest "Home Assistant/tests" -q`: 306 passed. Not rerun on private logs since a362446.
 
 Plain Python 3.12+, stdlib only. Each script puts its own directory on `sys.path`, so `python3 -I` works. The
 log record contract is in `steplog-and-response.md`; the regulator in `regulator.md`.
@@ -143,6 +142,11 @@ the new logs too: a growing error is drift.
   `trim_load` or `trim` record at or before the window, as `controller._load_trim` does at start. Either goes
   through `load_trim`; a table that does not fit the regulator warns and starts from zero. It loads once; after
   that the variant learns only if its `trim_learn` is on.
+- `fresh`: every replayed `update_grid` is `fresh=True`. That matches the log: `step` records come only from
+  `controller._take`, which passes `fresh=True`. The `fresh=False` updates when only the correction changes
+  write no record, so they cannot be replayed.
+- Still not as live: the `_on_entity` steps on policy and correction changes (not logged as steps), the
+  policy caps and floor (see Known model limits), and a correction that misses the match wait.
 - At a `brk` the model restarts from the logged battery, keeping its last aim; the regulator runs on and goes
   stale on its own after `stale_after_s`.
 - SOC: the logged one, unless the plant has `capacity_wh`; then it starts from the logged one at the first
@@ -221,4 +225,8 @@ Overlapping windows count twice there. One plant serves all variants: `--plant`,
 ## Open questions
 
 - Whether a noise model taken from `model_error` residuals would bring replay costs near live: unknown.
-- The policy limits in force per sample: not logged, unknown.
+- The policy caps and floor in force per sample: not logged, unknown.
+- How the correction source gates its fixed 10 W loss at a near idle battery: unknown; the bench takes it as
+  any non-zero reading.
+- What starts the inverter's slow ramp, and its refusal SOC: unknown, so `ramp_w_s` starts only from idle
+  and `refuse_soc` is set by hand.
