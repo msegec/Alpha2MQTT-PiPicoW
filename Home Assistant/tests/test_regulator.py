@@ -1464,6 +1464,33 @@ def test_nothing_is_learned_at_a_cap_or_under_a_policy_offset():
     assert not any(reg.trim)
 
 
+def _flat_trim(reg, trim_w):
+    """Load a table at trim_w from 250 W of discharge up, half that at 100 W, within TRIM_SLOPE."""
+    pts = reg.trim_points()
+    for p in pts:
+        p[1] = trim_w if p[0] >= 250 else trim_w / 2 if p[0] == 100 else 0.0
+    assert reg.load_trim(pts)
+    return reg
+
+
+@pytest.mark.parametrize("trim_w, short_w", [(-100, 400), (100, -400)])
+def test_the_integral_and_the_trim_together_push_no_more_than_the_integral_limit(trim_w, short_w):
+    # The command moves by the integral minus the trim at the setpoint, so that is what the limit bounds.
+    reg = _flat_trim(make(ki=0.2, deadband_w=0, target_w=0, min_interval_s=0, write_threshold_w=10, lag_w=1000,
+                          integral_band_w=1000), trim_w)
+    _settle(reg, short_w=short_w, battery=1000, n=300)
+    push = reg.integral_w - R._interp(R.TRIM_NODES, reg.trim, reg.sent.signed_w)
+    assert abs(push) == pytest.approx(reg.settings.integral_limit_w, abs=1)
+
+
+@pytest.mark.parametrize("limit", [0, 50])
+def test_a_trim_past_the_integral_limit_does_not_force_an_integral(limit):
+    # The table alone already lands the battery: the integral has nothing to do and must stay at 0.
+    reg = _flat_trim(make(integral_limit_w=limit, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0), -100)
+    _settle(reg, short_w=100, battery=1000)
+    assert reg.integral_w == 0
+
+
 def test_forgetting_the_table_zeroes_it():
     reg = _settle(make(trim_learn=True, trim_rate=0.05, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0,
                        write_threshold_w=10), short_w=40)

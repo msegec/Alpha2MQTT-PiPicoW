@@ -103,8 +103,8 @@ class Settings:
     # the command does not move. Off: nothing is learned, what was learned is still used. Learning needs the command
     # unchanged trim_settle_s, the raw grid error within trim_band_w, a setpoint of at least trim_min_w, SOC under
     # trim_max_soc and over the floor hold, no cap, hold, slew or policy offset. Each node stays within
-    # trim_limit_w, and the integral plus the trim at the running setpoint stay within integral_limit_w. A rate of 0
-    # learns nothing.
+    # trim_limit_w, and the integral minus the trim at the running setpoint stays within integral_limit_w. A rate
+    # of 0 learns nothing.
     trim_learn: bool = False
     trim_rate: float = 0.0
     trim_limit_w: float = 100.0
@@ -420,9 +420,12 @@ class Regulator:
             dt = min(t - self._t_measure, s.max_integrate_s)
             self.integral_w += self._teach(c, -s.trim_rate * dt * self.integral_w)
         if c:
-            # Trim and integral together have no more authority than the integral alone.
-            tr = _interp(TRIM_NODES, self.trim, c)
-            self.integral_w = _clip(self.integral_w, -s.integral_limit_w - tr, s.integral_limit_w - tr)
+            # Trim and integral together have no more authority than the integral alone. The command moves by the
+            # integral minus the trim at c (learning keeps that difference), so that is what the limit bounds. A trim
+            # past the limit on its own is the table's, bounded by trim_limit_w: the integral may only take it back
+            # towards the limit, never be forced off 0.
+            tr, lim = _interp(TRIM_NODES, self.trim, c), s.integral_limit_w
+            self.integral_w = _clip(self.integral_w, min(0.0, tr - lim), max(0.0, tr + lim))
         self.grid_w, self.battery_w, self._t_measure = grid_w, battery_w, t
         if fresh:
             self._t_fresh = t
