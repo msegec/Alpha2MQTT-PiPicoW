@@ -208,6 +208,16 @@ so the next charge or discharge writes the full block.
 - a01e05d: `state/device` with VSYS and USB power; two diagnostic sensors.
 - 518f8e5: fast state sensors added, without `state_class`, with a recorder exclude hint.
 - 70fe0e2: PV meter sensors hold the last value through a left out lone 0; controller holds through short gaps.
+- 41f2cbc, c2e334d: energy totals hold through bad reads, inverter power signed, SOH 0 hidden; battery health
+  every minute and battery facts every five minutes.
+- 1e945f6, f06fa7d: the charge and discharge scripts stop when run without values, turn the controller's Enabled
+  switch off first and default to 600 s.
+- d9e61fe: Dispatch Power shows signed watts, + discharge, not the raw 32000 offset register. A template of your
+  own that subtracted 32000 from it must stop doing so.
+- f1cd8e4, 327774c, b010765: an energy total's first value is checked before it is booked; the PV meter hold
+  counts from the start of the gap; Solar Power holds through the lone 0 too.
+- 132f6da: Idle Hold binary sensor from the fast state's `haIdle`.
+- 277af7d: Battery Fault Text and Battery Reserve Warning renamed apart from the numbered sensors; unique ids kept.
 
 ## Gotchas
 
