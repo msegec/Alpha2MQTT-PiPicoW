@@ -36,8 +36,8 @@ python3 -I tools/bench/compare.py 'LOGDIR/alpha2mqtt.jsonl*' --window 'A..B' --w
 ```
 
 Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 0.15) and `--loss-w` (default
-10). Replay and compare also take `--max-charge-w` and `--max-discharge-w` (default 4000), `--discharge-soc`
-(default 10), `--ack-s`, `--fail-every`, `--timeout-every`, `--tick-s`, and `--trim FILE` or `--trim-from-log`.
+10). Replay and compare also take `--max-charge-w` and `--max-discharge-w` (default: the setting `default_max_w`
+in force), `--discharge-soc` (default 10), `--ack-s`, `--fail-every`, `--timeout-every`, `--tick-s`, and `--trim FILE` or `--trim-from-log`.
 
 ## Loading (`logs.py`)
 
@@ -191,8 +191,10 @@ Overlapping windows count twice there. One plant serves all variants: `--plant`,
 - The model has no reading noise or quantisation, so a replay scores better than live for the same code.
   On the development logs the same regulator at live settings replayed at about two thirds of the live cost.
   Compare variants with each other; use the live row only for the trend.
-- Policy limits are not in the log. A replay uses the CLI limits, so a live day capped by a policy charge
-  limit replays without that cap. Exclude such spans, or set the limits.
+- Policy caps and floor are not in the log. A replay uses the CLI caps, else `default_max_w` (what the
+  controller uses for a cap it cannot read), and the CLI floor. A step's `limit` says when a cap held but not
+  its value: `output_w` is after the slew. So a live day capped by a policy limit replays without that cap.
+  Exclude such spans, or set the caps. A `refused` record's `floor` is the policy floor at that moment only.
 - The slow ramp starts only from an idle battery. Logs show it lasting across later commands; whether it
   can start from a running discharge, and when the inverter enters that mode, is unknown.
 - A balance hold or full battery delivers less than asked; the model does not. Exclude holds with `--exclude`.

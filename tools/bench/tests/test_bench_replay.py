@@ -90,7 +90,7 @@ def test_a_trivial_regulator_settles_the_grid_on_target(tmp_path):
     out, _ = replay.replay(mod, rows(), FAST, {"target_w": "0"}, loss=logs.Loss(0, 0))
     assert out[-1]["battery"] == pytest.approx(500 + 30, abs=1)
     steps = [c for c in mod.CALLS if c[0] == "step"]
-    assert steps[0][2] == -30.0 and steps[0][3] == 4000.0
+    assert steps[0][2] == -30.0 and steps[0][3] == 4000.0  # the stand in has no default_max_w
 
 
 def test_each_command_is_acked_a_tenth_of_a_second_later(tmp_path):
@@ -140,6 +140,17 @@ def test_the_tick_steps_between_samples_but_not_across_a_break(tmp_path):
     mod.CALLS.clear()
     replay.replay(mod, rows(3), FAST, tick_s=0)
     assert [c[1] for c in mod.CALLS if c[0] == "step"] == [0.0, 1.0, 2.0]
+
+
+def test_caps_default_to_the_default_max_w_in_force(tmp_path):
+    src = NEW.replace("    duration_s: int = 120", "    duration_s: int = 120\n    default_max_w: float = 3000.0")
+    mod = module(tmp_path, src)
+    cfgs = logs.CfgTimeline([{"k": "cfg", "t": 1.5, "default_max_w": 2500.0}])
+    replay.replay(mod, rows(3), FAST, cfgs=cfgs, tick_s=0)
+    assert [c[3] for c in mod.CALLS if c[0] == "step"] == [3000.0, 3000.0, 2500.0]
+    mod.CALLS.clear()
+    replay.replay(mod, rows(2), FAST, max_charge_w=1200.0, tick_s=0)
+    assert [c[3] for c in mod.CALLS if c[0] == "step"] == [1200.0, 1200.0]
 
 
 def test_outcomes_count_commands_from_one():

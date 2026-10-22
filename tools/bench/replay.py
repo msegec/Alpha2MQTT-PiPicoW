@@ -2,13 +2,15 @@
 
     python3 -I tools/bench/replay.py LOGS... [--from A --to B --exclude A..B]
         [--regulator PATH | --ref GITREF] [--set key=value ...] [--settings-from-log]
-        [--plant plant.json] [--max-charge-w 4000] [--max-discharge-w 4000] [--json]
+        [--plant plant.json] [--max-charge-w W] [--max-discharge-w W] [--trim FILE | --trim-from-log] [--json]
 
 Each regulating sample of the log gives the house demand (grid_w + battery less the battery loss, logs.Loss), the
 target (grid_w - error_w) and the SOC. The simulated grid is demand + loss(simulated battery) - simulated
-battery. The policy is REGULATE with the CLI limits and the logged target offset. Each command is acked 0.1 s
-later as written the way it asked (power only or block), unless --fail-every or --timeout-every say otherwise. A regulator whose update_grid takes solar_w (or soc) gets the
-sample's solar (or SOC); one with update_load gets the logged load_w when there is one. See facts/bench.md.
+battery. The policy is REGULATE with the CLI caps (default_max_w without them) and the logged target offset. Each
+command is acked 0.1 s later as written the way it asked (power only or block), unless --fail-every or
+--timeout-every say otherwise; the controller's 1 s tick runs between samples. A regulator whose update_grid takes
+solar_w (or soc) gets the sample's solar (or SOC); one with update_load gets the logged load_w when there is one.
+See facts/bench.md.
 """
 
 from __future__ import annotations
@@ -95,11 +97,14 @@ def every(fail_every: int = 0, timeout_every: int = 0):
 
 
 def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None = None,
-           cfgs: logs.CfgTimeline | None = None, max_charge_w: float = 4000.0, max_discharge_w: float = 4000.0,
+           cfgs: logs.CfgTimeline | None = None, max_charge_w: float | None = None,
+           max_discharge_w: float | None = None,
            discharge_soc: int = 10, charge_soc: int = 100, loss: logs.Loss = logs.Loss(), ack_s: float = ACK_S,
            outcome=None, tick_s: float = TICK_S, trim: list | None = None) -> tuple[list[dict], list[str]]:
     """Simulated rows in the shape score.score reads, and warnings. overrides apply over the cfg in force
-    (cfgs, when given) or the module's defaults. loss must be the one the rows' demand was taken with.
+    (cfgs, when given) or the module's defaults. loss must be the one the rows' demand was taken with. A cap of
+    None is the setting default_max_w in force, what the controller uses for a cap it cannot read (4000 W for a
+    regulator without the setting).
     outcome(n) says what happens to the n-th command published (OK by default), as the controller sees it: OK is
     written and acked ack_s later; FAIL is not written and its response calls fail(); TIMEOUT is not written, has
     no response, and calls fail() once ack_timeout_s has passed. Only the newest command's response counts.
@@ -207,7 +212,9 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
             reg.update_load(t, r["load_w"])
         logged_target = r["cfg_target"] if r["cfg_target"] is not None else s.target_w
         offset = r["target"] - logged_target
-        pk = {"max_charge_w": max_charge_w, "max_discharge_w": max_discharge_w, "charge_soc": charge_soc,
+        default_cap = getattr(s, "default_max_w", 4000.0)
+        pk = {"max_charge_w": default_cap if max_charge_w is None else max_charge_w,
+              "max_discharge_w": default_cap if max_discharge_w is None else max_discharge_w, "charge_soc": charge_soc,
               "discharge_soc": discharge_soc, "target_offset_w": offset}
         policy = mod.Policy(mod.REGULATE, **{k: v for k, v in pk.items() if k in pol_fields})
         cmd = reg.step(t, policy)
@@ -224,8 +231,8 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
 def add_variant_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--plant", help="saved plant JSON; default: fit on the loaded window")
     p.add_argument("--settings-from-log", action="store_true", help="start from the cfg in force at each sample")
-    p.add_argument("--max-charge-w", type=float, default=4000.0)
-    p.add_argument("--max-discharge-w", type=float, default=4000.0)
+    p.add_argument("--max-charge-w", type=float, help="policy charge cap (default: the setting default_max_w)")
+    p.add_argument("--max-discharge-w", type=float, help="policy discharge cap (default: default_max_w)")
     p.add_argument("--discharge-soc", type=int, default=10)
     p.add_argument("--ack-s", type=float, default=ACK_S, help="seconds from a command to its response")
     p.add_argument("--tick-s", type=float, default=TICK_S, help="controller tick between samples, 0 off")
@@ -243,7 +250,8 @@ def variant_kwargs(a, recs: list[dict] | None = None, t: float | None = None) ->
     trim = logs.read_trim(a.trim) if a.trim else logs.trim_at(recs or [], t) if a.trim_from_log else None
     if a.trim_from_log and trim is None:
         print("no learned table in the log before the window, starting from zero", file=sys.stderr)
-    return {"trim": trim, "max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w, "discharge_soc": a.discharge_soc,
+    return {"trim": trim, "max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w,
+            "discharge_soc": a.discharge_soc,
             "loss": logs.loss_from_args(a), "ack_s": a.ack_s, "outcome": every(a.fail_every, a.timeout_every),
             "tick_s": a.tick_s}
 
