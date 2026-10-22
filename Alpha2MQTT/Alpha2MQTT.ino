@@ -224,14 +224,6 @@ static const uint16_t _mqttOneHourStatusRegisters[] =
 	REG_SYSTEM_OP_R_SYSTEM_FAULT_1
 };
 
-/*
-Add any number of handled registers in this list and they will be
-read and returned every day.
-*/
-static const uint16_t _mqttOneDayStatusRegisters[] =
-{
-};
-
 
 /*
 Every handled register
@@ -455,7 +447,6 @@ static const uint16_t _mqttAllHandledRegisters[] =
 #define STATUS_INTERVAL_ONE_MINUTE 60000
 #define STATUS_INTERVAL_FIVE_MINUTE 300000
 #define STATUS_INTERVAL_ONE_HOUR 3600000
-#define STATUS_INTERVAL_ONE_DAY 86400000
 
 // Reconnects. setupWifi reissues WiFi.begin if still not connected after WIFI_RETRY_INTERVAL, and mqttReconnect
 // waits MQTT_RETRY_INTERVAL after a failed attempt. One attempt at the broker gives up on the TCP connect or a write
@@ -1010,7 +1001,6 @@ void sendData()
 	static unsigned long lastRunOneMinute = 0;
 	static unsigned long lastRunFiveMinutes = 0;
 	static unsigned long lastRunOneHour = 0;
-	static unsigned long lastRunOneDay = 0;
 	int numberOfRegisters;
 	// Update all parameters and send to MQTT.
 	if (checkTimer(&lastRunTenSeconds, STATUS_INTERVAL_TEN_SECONDS))
@@ -1039,13 +1029,6 @@ void sendData()
 	{
 		numberOfRegisters = sizeof(_mqttOneHourStatusRegisters) / sizeof(_mqttOneHourStatusRegisters[0]);
 		sendDataFromAppropriateArray(_mqttOneHourStatusRegisters, numberOfRegisters, DEVICE_NAME MQTT_MES_STATE_HOUR_ONE);
-	}
-
-	// Update all parameters and send to MQTT.
-	if (checkTimer(&lastRunOneDay, STATUS_INTERVAL_ONE_DAY))
-	{
-		numberOfRegisters = sizeof(_mqttOneDayStatusRegisters) / sizeof(_mqttOneDayStatusRegisters[0]);
-		sendDataFromAppropriateArray(_mqttOneDayStatusRegisters, numberOfRegisters, DEVICE_NAME MQTT_MES_STATE_DAY_ONE);
 	}
 }
 

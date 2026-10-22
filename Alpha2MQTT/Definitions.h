@@ -832,7 +832,6 @@ enum mqttSubscriptions
 #define MQTT_MES_STATE_MINUTE_ONE "/state/minute/one"
 #define MQTT_MES_STATE_MINUTE_FIVE "/state/minute/five"
 #define MQTT_MES_STATE_HOUR_ONE "/state/hour/one"
-#define MQTT_MES_STATE_DAY_ONE "/state/day/one"
 #define MQTT_MES_STATE_DEVICE "/state/device"
 
 

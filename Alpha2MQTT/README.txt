@@ -55,7 +55,6 @@ Alpha2MQTT/state/second/ten
 Alpha2MQTT/state/minute/one
 Alpha2MQTT/state/minute/five
 Alpha2MQTT/state/hour/one
-Alpha2MQTT/state/day/one
 
 Each of the schedules can be customised to report a number* / any combination of register values.  Alpha2MQTT has been developed this way to give flexibility.  For example, there is probably no need to report grid voltage every ten seconds, instead once every five minutes and in doing so we are limiting network traffic over MQTT and onward processing in software such as Home Assistant.
 

@@ -2,7 +2,7 @@
 
 One single threaded Arduino loop on the Pico W. It polls the inverter on fixed schedules, publishes JSON state over MQTT and runs commands inline, between bus reads.
 
-Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
+Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
 
 ## Boot sequence (`setup`)
 
@@ -39,7 +39,7 @@ Boot takes at least about 4.1 s plus the WiFi join. During setup only WiFi and O
 
 - `timerDue(lastRun, now, interval)` uses the unsigned elapsed time, so it stays correct across the 49.7 day `millis()` wrap (73d2899).
 - A late run keeps the phase: `lastRun = now - elapsed % interval`. It allows at most one catch up run, and missed whole intervals are dropped (9452d4a). After a stall, the next fast sample can come less than 1 s after the late one.
-- Every `lastRun` starts at 0, so each schedule is phased to multiples of its interval from boot. The first hour publish comes 1 h after boot. The first day publish would come 24 h after boot, but that schedule is empty.
+- Every `lastRun` starts at 0, so each schedule is phased to multiples of its interval from boot. The first hour publish comes 1 h after boot. There is no daily schedule: it was empty and never published, and was removed on 2026-10-22.
 - At t = 60 s, the 10 s and 1 min schedules fall due in the same pass and run back to back.
 - `retryDue(tried, lastTry, now, interval)` spaces the reconnects and idle hold retries. The first try is due at once.
 - `test_timer.cpp` covers: not due early, due at interval, phase kept after 300 ms late, one catch up after several intervals, wrap, `lastRun + interval` overflow, zero interval, retry spacing across the wrap.
@@ -56,7 +56,6 @@ All go through `sendMqtt`, which calls `_mqtt.publish(topic, payload)`: not reta
 | `/state/device` | `MQTT_MES_STATE_DEVICE` | every 60000 ms, right after the minute schedule | 0 (ADC) |
 | `/state/minute/five` | `MQTT_MES_STATE_MINUTE_FIVE` | every 300000 ms | 24 |
 | `/state/hour/one` | `MQTT_MES_STATE_HOUR_ONE` | every 3600000 ms | 4 |
-| `/state/day/one` | `MQTT_MES_STATE_DAY_ONE` | every 86400000 ms; list empty, so never published | 0 |
 | `/response/...` | see `mqttCallback` facts | once per request | per request |
 
 ### `/state/fast` (`sendFastState`, list `_mqttFastStatusRegisters`)
@@ -150,7 +149,7 @@ There are 8 under `DEVICE_NAME` (`MQTT_SUB_REQUEST_*`: read handled, read raw, s
 
 - The code builds for the Pico W only. There is no board select define.
 - `Definitions.h`: `DEVICE_NAME`, `ALPHA_SLAVE_ID`, `MAX_MQTT_PAYLOAD_SIZE`, `MIN_MQTT_PAYLOAD_SIZE`, `MQTT_HEADER_SIZE`, `RS485_TRIES`, `REQUIRE_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL`, `REQUIRED_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL`, `FORCE_RESTART`, `FORCE_RESTART_HOURS`, `WATCHDOG_TIMEOUT`, `MQTT_SUB_HA_STATUS` (`#ifndef`, so it can be overridden), `DEBUG` (on), `DEBUG_LEVEL2`, `DEBUG_OUTPUT_TX_RX` (prints each frame a byte at a time), `DEBUG_OUTPUT_SIZE` (the `_debugOutput` line, 100; every write is `snprintf` bounded by it), the `*_MULTIPLIER` scale factors, and the `MQTT_MES_*` and `MQTT_SUB_*` topic suffixes. Without `ARDUINO` (the host tests) it skips `Secrets.h` and `feedWatchdog` does nothing.
-- `Alpha2MQTT.ino` (local `#define`s): `RUNSTATE_INTERVAL`, `STATUS_INTERVAL_FAST`, `STATUS_INTERVAL_TEN_SECONDS`, `STATUS_INTERVAL_ONE_MINUTE`, `STATUS_INTERVAL_FIVE_MINUTE`, `STATUS_INTERVAL_ONE_HOUR`, `STATUS_INTERVAL_ONE_DAY`, `WIFI_JOIN_TIMEOUT`, `WIFI_RETRY_INTERVAL`, `MQTT_RETRY_INTERVAL`, `MQTT_CLIENT_TIMEOUT`, `MQTT_REPLY_TIMEOUT`. The schedule lists are the `_mqtt*StatusRegisters` arrays.
+- `Alpha2MQTT.ino` (local `#define`s): `RUNSTATE_INTERVAL`, `STATUS_INTERVAL_FAST`, `STATUS_INTERVAL_TEN_SECONDS`, `STATUS_INTERVAL_ONE_MINUTE`, `STATUS_INTERVAL_FIVE_MINUTE`, `STATUS_INTERVAL_ONE_HOUR`, `WIFI_JOIN_TIMEOUT`, `WIFI_RETRY_INTERVAL`, `MQTT_RETRY_INTERVAL`, `MQTT_CLIENT_TIMEOUT`, `MQTT_REPLY_TIMEOUT`. The schedule lists are the `_mqtt*StatusRegisters` arrays.
 - Other headers: `RS485_QUIET_MS`, `RS485_DRAIN_MAX_MS` and `RS485_RESYNC_MAX_BYTES` (`RS485Handler.h`); `HA_GONE_AFTER_MS`, `IDLE_HOLD_DURATION_S`, `IDLE_HOLD_REWRITE_MS`, `IDLE_HOLD_RETRY_MS` (`IdleHold.h`); `MQTT_REQUEST_PAYLOAD_MAX`, `DISPATCH_DURATION_MAX_S` (`Dispatch.h`); `REQUEST_FIELD_SIZE` (`Request.h`); `PV_METER_ZERO_CONFIRM_FROM_W` (`PvMeter.h`).
 - `Secrets.example.h` names: `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_SERVER`, `MQTT_PORT`, `MQTT_USERNAME` (empty means no credentials), `MQTT_PASSWORD`, `OTA_PASSWORD`. A missing or empty `OTA_PASSWORD` fails the build.
 
