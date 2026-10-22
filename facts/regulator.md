@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d80bfb1 plus the regulator fixes up to the ready floor command, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 327 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the regulator fixes and this drift pass, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 327 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -77,7 +77,7 @@ Every non-regulating branch calls `_restart`: integral to 0, refusal clock and `
 | Timed hold | `_t_refused` set, SOC more than `refused_near_soc` above `discharge_soc` | Discharge cap 0 W (`limit = "refused"`) for `refused_hold_s`, then retry. |
 | Latched near floor | `refused_soc` set | Discharge cap 0 W until SOC >= `refused_soc + rearm_soc` or `policy.discharge_soc` changes. Then rearm. |
 
-On refusal the integral is set to 0. `_refused` is not evaluated while the SOC floor hold is on (it is an `elif`).
+On refusal the integral is set to 0. `_refused` is not evaluated while the SOC floor hold or the unknown SOC hold is on (the same `elif` chain).
 
 ## Constants
 
@@ -180,7 +180,7 @@ Learning (long term trim) runs next, on `c`, the running command's `signed_w` (0
 9. Turn round check (above).
 10. Ready floor: `ready_w = warm_w` if `REGULATE` and `0 < warm_w <= hi`. If `-warm_band_w < u < ready_w` and (direction >= 0 or the dwell has passed): `u = ready_w`, `limit = "warm"`, saturation recomputed, direction forced to +1.
 11. Slew: `output_w = clip(u, _sent_w +/- slew_w_per_s * (t - t_sent))`. No limit before the first send. Under `REGULATE` the output is then clipped back into `[lo, hi]`, so a cut to a cap goes out whole; HOLD and FIXED keep the slew.
-12. If the ready floor applies and `u >= ready_w` and output > -50 W: `output_w = max(output_w, ready_w)`.
+12. If the ready floor applies and `u >= ready_w` and output > `-warm_band_w`: `output_w = max(output_w, ready_w)`.
 13. Offset correction: under `REGULATE` with `offset_comp` above 0 or any learned trim, `offset_w = _setpoint(output_w) - output_w`, else 0. `_setpoint` solves `x + table(x) = w` on the merged nodes of `TRIM_NODES` and `INVERTER_OFFSET`, slope 1 past the ends. Then `_learn_ok` is set for the next sample. The table is indexed by setpoint, so it is solved for the command, not read at the output. Everything before this is battery watts: caps, turn round, ready floor and slew all mean what the battery gives. Only the command is moved.
 14. `_command` on `ask = output_w + offset_w`: watts rounded to 10 W. Under `REGULATE`, an output at or over `warm_w` is lifted to `_ready_cmd()`: the ceiling of `_setpoint(warm_w)` under the offset correction, else `ceil(warm_w)`. `warm_w` is battery watts, so the floor's command is the one that lands the battery on it. `HOLD` is `charge 0 W SOC 100`. 0 W keeps the last kind and SOC, or `charge 0 W SOC 100` if there is none. Positive is discharge with `discharge_soc`, else charge with `charge_soc`.
 15. `_maybe_send`, in order (it compares commands, so its thresholds are command watts):
@@ -258,7 +258,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 
 - `HOLD` always sends `charge 0 W SOC 100`, even when the running block is a discharge. A 0 W regulate output keeps the last kind instead.
 - Python `round` is half to even: 25 W rounds to 20 W. Hence the ceiling in `_ready_cmd`.
-- The command moves `1 / (1 + k * table slope)` W per W of output. Under 100 W of discharge the table falls 0.25 W per W, so at `offset_comp` 1 the command moves 1.33 times the output (1.6 times at 1.5); between 1500 and 2750 W it moves 0.85 times, so the write threshold and trim gate need about 59 W of output there. The command stays monotonic in the output for `offset_comp` under 4.
+- The command moves `1 / (1 + k * table slope)` W per W of output. Under 100 W of discharge the table falls 0.25 W per W, so at `offset_comp` 1 the command moves 1.33 times the output (1.6 times at 1.5); between 1500 and 2750 W it moves 0.85 times, so the write threshold and trim gate need about 59 W of output there. The command stays monotonic in the output while the table falls under 1 W per W: the static table falls 0.25 W per W times `offset_comp` and a learned trim up to `TRIM_SLOPE` 0.5, so `offset_comp` under 2 (under 4 with no trim). Only the `number.py` entity bounds it, at 1.5; `Settings` takes any value.
 - Caps are battery watts, so a command may exceed a small cap by the correction: a 1000 W discharge cap asks for 1020 W, a 100 W cap for 130 W, at `offset_comp` 1.
 - Rounding to 10 W eats a correction under 5 W, under about 15 W of discharge, and moves the battery up to 5.9 W off the output (5 W times the table's steepest rise, 1.18). At the ready floor the command rounds up instead, so the battery lands at or over `warm_w`. Before, the lift compared battery watts with command watts: at `offset_comp` 1 and a 100 W floor the command was 120 W and the battery 95 W; with a +40 % trim it was 100 W and the battery 140 W.
 - At default `write_threshold_w = 50 = small_trim_w` the trim gate changes nothing. It only bites with a lower threshold, as in `LIVE`.
