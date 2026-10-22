@@ -107,11 +107,20 @@ mqtt:
       state_topic: "Alpha2MQTT/state/second/ten"
       # The firmware leaves out a lone 0 until a second read confirms it. Keep the last value through
       # that gap: an unavailable PV meter takes the net demand, and with it the battery controller, down.
+      # held_since marks the first message of a gap, so the hold ends 60 s into it however long the
+      # value was steady before. HA may run the two templates in either order; both give the same result.
       value_template: >-
         {%- set k = 'REG_PV_METER_R_TOTAL_ACTIVE_POWER_1' -%}
+        {%- set since = this.attributes.held_since | default(None) -%}
         {%- if value_json is mapping and k in value_json -%}{{ value_json[k] }}
-        {%- elif this.state not in ('unknown', 'unavailable') and now() - this.last_changed < timedelta(seconds=60) -%}{{ this.state }}
+        {%- elif this.state not in ('unknown', 'unavailable') and (since is none or now() - as_datetime(since) < timedelta(seconds=60)) -%}{{ this.state }}
         {%- else -%}None{%- endif -%}
+      json_attributes_topic: "Alpha2MQTT/state/second/ten"
+      json_attributes_template: >-
+        {%- set k = 'REG_PV_METER_R_TOTAL_ACTIVE_POWER_1' -%}
+        {%- if value_json is mapping and k in value_json -%}{{ {'held_since': none} | tojson }}
+        {%- else -%}{{ {'held_since': this.attributes.held_since | default(none) or now().isoformat()} | tojson }}
+        {%- endif -%}
       unit_of_measurement: "W"
       device_class: power
       state_class: measurement
@@ -1082,11 +1091,20 @@ mqtt:
       state_topic: "Alpha2MQTT/state/fast"
       # The firmware leaves out a lone 0 until a second read confirms it. Keep the last value through
       # that gap: an unavailable PV meter takes the net demand, and with it the battery controller, down.
+      # held_since marks the first message of a gap, so the hold ends 10 s into it however long the
+      # value was steady before. HA may run the two templates in either order; both give the same result.
       value_template: >-
         {%- set k = 'REG_PV_METER_R_TOTAL_ACTIVE_POWER_1' -%}
+        {%- set since = this.attributes.held_since | default(None) -%}
         {%- if value_json is mapping and k in value_json -%}{{ value_json[k] }}
-        {%- elif this.state not in ('unknown', 'unavailable') and now() - this.last_changed < timedelta(seconds=10) -%}{{ this.state }}
+        {%- elif this.state not in ('unknown', 'unavailable') and (since is none or now() - as_datetime(since) < timedelta(seconds=10)) -%}{{ this.state }}
         {%- else -%}None{%- endif -%}
+      json_attributes_topic: "Alpha2MQTT/state/fast"
+      json_attributes_template: >-
+        {%- set k = 'REG_PV_METER_R_TOTAL_ACTIVE_POWER_1' -%}
+        {%- if value_json is mapping and k in value_json -%}{{ {'held_since': none} | tojson }}
+        {%- else -%}{{ {'held_since': this.attributes.held_since | default(none) or now().isoformat()} | tojson }}
+        {%- endif -%}
       unit_of_measurement: "W"
       device_class: power
       expire_after: 10

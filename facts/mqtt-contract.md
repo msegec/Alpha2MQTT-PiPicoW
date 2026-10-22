@@ -114,7 +114,12 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 - Battery SOH reads 0 on the SMILE-B3 always, so 0 becomes unknown.
 - PV Meter Power and PV Meter Power Fast keep `this.state` when the key is missing,
   for at most 60 s and 10 s. Reason in the comment and in 70fe0e2: an unavailable PV meter takes the net demand,
-  and with it the controller, down.
+  and with it the controller, down. The window counts from the gap's first message, kept in the `held_since`
+  attribute by a `json_attributes_template` on the same topic; a message with the key sets it to null. Until
+  2026-10-22 it counted from `this.last_changed`, so a value steady for longer than the window got no hold.
+  `this.last_reported` was not used: if HA writes each held state it moves on every held message and the
+  hold never ends, and if HA skips unchanged writes it equals `last_changed` (which applies: unknown).
+  Either order of the two templates gives the same result (simulated offline with jinja2; not run on HA).
 - Dispatch Power shows `REG_DISPATCH_RW_ACTIVE_POWER_1 - 32000` in W, + discharge, - charge, like Battery Power.
   Its long term statistics before this change hold the raw offset value, about 32000.
 - Pico VSYS: `vsys_mv / 1000`, rounded to 2 places, in V. Pico USB Power: `ON` when `usb_power` is true.
