@@ -449,14 +449,14 @@ static const uint16_t _mqttAllHandledRegisters[] =
 
 // Reconnects. setupWifi reissues WiFi.begin if still not connected after WIFI_RETRY_INTERVAL, and mqttReconnect
 // waits MQTT_RETRY_INTERVAL after a failed attempt. One attempt at the broker gives up on the TCP connect or a write
-// after MQTT_CLIENT_TIMEOUT ms, and on the broker's answer after MQTT_REPLY_TIMEOUT seconds.
+// after MQTT_CLIENT_TIMEOUT ms, and on the broker's answer after MQTT_REPLY_TIMEOUT_S seconds.
 // On the Pico W, WiFi.begin blocks while the driver joins the access point, up to WIFI_JOIN_TIMEOUT ms, and nothing
 // in the core feeds the watchdog meanwhile. The core's default is 15 s, longer than WATCHDOG_TIMEOUT.
 #define WIFI_JOIN_TIMEOUT 3000
 #define WIFI_RETRY_INTERVAL 10000
 #define MQTT_RETRY_INTERVAL 5000
 #define MQTT_CLIENT_TIMEOUT 2500
-#define MQTT_REPLY_TIMEOUT 2
+#define MQTT_REPLY_TIMEOUT_S 2
 
 
 /*
@@ -507,10 +507,10 @@ void setup()
 	// Configure MQTT to the address and port specified above
 	_mqtt.setServer(MQTT_SERVER, MQTT_PORT);
 	// One broker attempt runs on a fresh watchdog and can spend MQTT_CLIENT_TIMEOUT on the TCP connect plus
-	// MQTT_REPLY_TIMEOUT on the CONNACK, 4.5 s. A hostname in MQTT_SERVER adds a DNS lookup under the same client
+	// MQTT_REPLY_TIMEOUT_S on the CONNACK, 4.5 s. A hostname in MQTT_SERVER adds a DNS lookup under the same client
 	// timeout, 7 s against WATCHDOG_TIMEOUT, so prefer a dotted address.
 	_wifi.setTimeout(MQTT_CLIENT_TIMEOUT);
-	_mqtt.setSocketTimeout(MQTT_REPLY_TIMEOUT);
+	_mqtt.setSocketTimeout(MQTT_REPLY_TIMEOUT_S);
 #ifdef DEBUG
 	snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "About to request buffer");
 	Serial.println(_debugOutput);
@@ -885,7 +885,7 @@ void mqttReconnect()
 
 	delay(100);
 
-	// One attempt takes up to MQTT_CLIENT_TIMEOUT plus MQTT_REPLY_TIMEOUT, so start it with a fresh watchdog
+	// One attempt takes up to MQTT_CLIENT_TIMEOUT plus MQTT_REPLY_TIMEOUT_S, so start it with a fresh watchdog
 	feedWatchdog();
 
 	// Attempt to connect
@@ -1433,22 +1433,22 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	else if (strcmp(topic, DEVICE_NAME MQTT_SUB_REQUEST_READ_HANDLED_REGISTER_ALL) == 0)
 	{
 		subScription = mqttSubscriptions::readHandledRegisterAll;
-		strcpy(topicResponse, DEVICE_NAME MQTT_SUB_RESPONSE_READ_HANDLED_REGISTER_ALL);
+		strcpy(topicResponse, DEVICE_NAME MQTT_MES_RESPONSE_READ_HANDLED_REGISTER_ALL);
 	}
 	else if (strcmp(topic, DEVICE_NAME MQTT_SUB_REQUEST_SET_CHARGE) == 0)
 	{
 		subScription = mqttSubscriptions::setCharge;
-		strcpy(topicResponse, DEVICE_NAME MQTT_SUB_RESPONSE_SET_CHARGE);
+		strcpy(topicResponse, DEVICE_NAME MQTT_MES_RESPONSE_SET_CHARGE);
 	}
 	else if (strcmp(topic, DEVICE_NAME MQTT_SUB_REQUEST_SET_DISCHARGE) == 0)
 	{
 		subScription = mqttSubscriptions::setDischarge;
-		strcpy(topicResponse, DEVICE_NAME MQTT_SUB_RESPONSE_SET_DISCHARGE);
+		strcpy(topicResponse, DEVICE_NAME MQTT_MES_RESPONSE_SET_DISCHARGE);
 	}
 	else if (strcmp(topic, DEVICE_NAME MQTT_SUB_REQUEST_SET_NORMAL) == 0)
 	{
 		subScription = mqttSubscriptions::setNormal;
-		strcpy(topicResponse, DEVICE_NAME MQTT_SUB_RESPONSE_SET_NORMAL);
+		strcpy(topicResponse, DEVICE_NAME MQTT_MES_RESPONSE_SET_NORMAL);
 	}
 	else
 	{

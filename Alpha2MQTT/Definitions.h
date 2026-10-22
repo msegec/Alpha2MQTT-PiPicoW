@@ -32,7 +32,7 @@ Customise these options as per README.txt.  Please read README.txt before contin
 // Documentation declares 0.1D - Mine returns 2720, so assuming actually multiplied by 0.01 to bring to something realistic
 #define INVERTER_TEMP_MULTIPLIER 0.01
 // Documentation declares 0.1kWh - My value was 308695, and according to web interface my total PV is 3086kWh, so multiplier seems wrong
-#define TOTAL_ENERGY_MUTLIPLIER 0.01
+#define TOTAL_ENERGY_MULTIPLIER 0.01
 
 
 // After some liaison with a user of Alpha2MQTT on a 115200 baud rate, this fixed inconsistent retrieval
@@ -820,10 +820,10 @@ enum mqttSubscriptions
 #define MQTT_MES_RESPONSE_READ_RAW_REGISTER "/response/read/register/raw"
 #define MQTT_MES_RESPONSE_WRITE_RAW_SINGLE_REGISTER "/response/write/register/raw/single"
 #define MQTT_MES_RESPONSE_WRITE_RAW_DATA_REGISTER "/response/write/register/raw/data"
-#define MQTT_SUB_RESPONSE_SET_CHARGE "/response/set/charge"
-#define MQTT_SUB_RESPONSE_SET_DISCHARGE "/response/set/discharge"
-#define MQTT_SUB_RESPONSE_SET_NORMAL "/response/set/normal"
-#define MQTT_SUB_RESPONSE_READ_HANDLED_REGISTER_ALL "/response/read/register/handled/all"
+#define MQTT_MES_RESPONSE_SET_CHARGE "/response/set/charge"
+#define MQTT_MES_RESPONSE_SET_DISCHARGE "/response/set/discharge"
+#define MQTT_MES_RESPONSE_SET_NORMAL "/response/set/normal"
+#define MQTT_MES_RESPONSE_READ_HANDLED_REGISTER_ALL "/response/read/register/handled/all"
 
 
 #define MQTT_MES_STATE_FAST "/state/fast"

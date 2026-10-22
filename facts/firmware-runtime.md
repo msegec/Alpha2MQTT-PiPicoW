@@ -2,7 +2,7 @@
 
 One single threaded Arduino loop on the Pico W. It polls the inverter on fixed schedules, publishes JSON state over MQTT and runs commands inline, between bus reads.
 
-Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed, buffer floor tried, fallback gap named. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
+Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed, buffer floor tried, fallback gap named, constants renamed. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
 
 ## Boot sequence (`setup`)
 
@@ -10,7 +10,7 @@ Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug 
 2. `Serial.begin(9600)` (debug only), LED pin, `delay(100)`.
 3. `WiFi.setTimeout(WIFI_JOIN_TIMEOUT)` (3000 ms), then `setupWifi`. `WiFi.begin` blocks for up to about 3 s.
 4. OTA: `ArduinoOTA` with hostname `DEVICE_NAME` and password `OTA_PASSWORD`. `onProgress` feeds the watchdog. It starts before any inverter work, so a bad build can always be replaced.
-5. MQTT client setup: `setServer`, `_wifi.setTimeout(MQTT_CLIENT_TIMEOUT)` (2500 ms), `setSocketTimeout(MQTT_REPLY_TIMEOUT)` (2 s).
+5. MQTT client setup: `setServer`, `_wifi.setTimeout(MQTT_CLIENT_TIMEOUT)` (2500 ms), `setSocketTimeout(MQTT_REPLY_TIMEOUT_S)` (2 s).
 6. Buffer allocation. It tries `MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE` and steps down 1024 bytes at a time with `nextBufferSize` (`JsonMembers.h`, host tested), ending on the floor `MIN_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE` (1024): 4608, 3584, 2560, 1536, 1024. Before 2026-10-22 the floor was never tried and 1536 was the last. Then it allocates three payload buffers of `_maxPayloadSize`: `_mqttPayload`, `_commandPayload` and `_fastPayload`. If every size fails, setup stops there and only services OTA, WiFi and the watchdog (`waitServicingOta`) instead of running the loop on a null payload.
 7. `setCallback(mqttCallback)`. Creates `RS485Handler` and `RegisterHandler`.
 8. Baud scan: it reads `REG_SAFETY_TEST_RW_GRID_REGULATION` at 9600, 115200, 19200, 57600, 38400, 14400 and 4800, cycling until one answers. It waits `waitServicingOta(1000)` after each failure. This loop never gives up.
@@ -149,12 +149,13 @@ There are 8 under `DEVICE_NAME` (`MQTT_SUB_REQUEST_*`: read handled, read raw, s
 
 - The code builds for the Pico W only. There is no board select define.
 - `Definitions.h`: `DEVICE_NAME`, `ALPHA_SLAVE_ID`, `MAX_MQTT_PAYLOAD_SIZE`, `MIN_MQTT_PAYLOAD_SIZE`, `MQTT_HEADER_SIZE`, `RS485_TRIES`, `REQUIRE_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL`, `REQUIRED_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL`, `FORCE_RESTART`, `FORCE_RESTART_HOURS`, `WATCHDOG_TIMEOUT`, `MQTT_SUB_HA_STATUS` (`#ifndef`, so it can be overridden), `DEBUG` (on), `DEBUG_LEVEL2`, `DEBUG_OUTPUT_TX_RX` (prints each frame a byte at a time), `DEBUG_OUTPUT_SIZE` (the `_debugOutput` line, 100; every write is `snprintf` bounded by it), the `*_MULTIPLIER` scale factors, and the `MQTT_MES_*` and `MQTT_SUB_*` topic suffixes. Without `ARDUINO` (the host tests) it skips `Secrets.h` and `feedWatchdog` does nothing.
-- `Alpha2MQTT.ino` (local `#define`s): `RUNSTATE_INTERVAL`, `STATUS_INTERVAL_FAST`, `STATUS_INTERVAL_TEN_SECONDS`, `STATUS_INTERVAL_ONE_MINUTE`, `STATUS_INTERVAL_FIVE_MINUTE`, `STATUS_INTERVAL_ONE_HOUR`, `WIFI_JOIN_TIMEOUT`, `WIFI_RETRY_INTERVAL`, `MQTT_RETRY_INTERVAL`, `MQTT_CLIENT_TIMEOUT`, `MQTT_REPLY_TIMEOUT`. The schedule lists are the `_mqtt*StatusRegisters` arrays.
+- `Alpha2MQTT.ino` (local `#define`s): `RUNSTATE_INTERVAL`, `STATUS_INTERVAL_FAST`, `STATUS_INTERVAL_TEN_SECONDS`, `STATUS_INTERVAL_ONE_MINUTE`, `STATUS_INTERVAL_FIVE_MINUTE`, `STATUS_INTERVAL_ONE_HOUR`, `WIFI_JOIN_TIMEOUT`, `WIFI_RETRY_INTERVAL`, `MQTT_RETRY_INTERVAL`, `MQTT_CLIENT_TIMEOUT`, `MQTT_REPLY_TIMEOUT_S`. The schedule lists are the `_mqtt*StatusRegisters` arrays.
 - Other headers: `RS485_QUIET_MS`, `RS485_DRAIN_MAX_MS` and `RS485_RESYNC_MAX_BYTES` (`RS485Handler.h`); `HA_GONE_AFTER_MS`, `IDLE_HOLD_DURATION_S`, `IDLE_HOLD_REWRITE_MS`, `IDLE_HOLD_RETRY_MS` (`IdleHold.h`); `MQTT_REQUEST_PAYLOAD_MAX`, `DISPATCH_DURATION_MAX_S`, `DISPATCH_FALLBACK_GAP_MS` (`Dispatch.h`); `REQUEST_FIELD_SIZE` (`Request.h`); `PV_METER_ZERO_CONFIRM_FROM_W` (`PvMeter.h`).
 - `Secrets.example.h` names: `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_SERVER`, `MQTT_PORT`, `MQTT_USERNAME` (empty means no credentials), `MQTT_PASSWORD`, `OTA_PASSWORD`. A missing or empty `OTA_PASSWORD` fails the build.
 
 ## Gotchas
 
+- Renamed on 2026-10-22: `MQTT_REPLY_TIMEOUT` to `MQTT_REPLY_TIMEOUT_S` (it is seconds among millisecond defines), `TOTAL_ENERGY_MUTLIPLIER` to `TOTAL_ENERGY_MULTIPLIER`, and the published `MQTT_SUB_RESPONSE_*` topics to `MQTT_MES_RESPONSE_*`. The topic strings are unchanged.
 - `addStateInfo` sizes its member buffer from `MAX_MQTT_NAME_LENGTH` and `MAX_FORMATTED_DATA_VALUE_LENGTH`, 224 bytes; a quoted 80 character name with a 128 character value needs 222. It was 128 before 2026-10-22. Every `stateAddition` write is `snprintf`.
 - Fixed in the cleanup: a failed last read no longer leaves invalid JSON. `addStateInfo` puts `jsonMemberSeparator` before each member and the object ends with `jsonObjectEnd` (`JsonMembers.h`, `test_json_members.cpp`).
 - The 10 s list comment says PV1 to PV6 were dropped to save six reads. `REG_CUSTOM_LOAD` and `REG_CUSTOM_TOTAL_SOLAR_POWER` still read all six strings through `readTotalSolarPower`, which stops at the first failure.

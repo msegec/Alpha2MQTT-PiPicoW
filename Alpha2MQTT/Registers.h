@@ -636,7 +636,7 @@ inline double registerScale(registerFormat format)
 	case registerFormat::inverterTemp:
 		return INVERTER_TEMP_MULTIPLIER;
 	case registerFormat::totalEnergy:
-		return TOTAL_ENERGY_MUTLIPLIER;
+		return TOTAL_ENERGY_MULTIPLIER;
 	default:
 		return 0;
 	}
