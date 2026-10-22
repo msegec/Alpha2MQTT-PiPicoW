@@ -939,7 +939,8 @@ A register that fails to read is left out. anyMember says whether one is in yet,
 */
 modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool& anyMember, modbusRequestAndResponseStatusValues& resultAddedToPayload)
 {
-	char stateAddition[128] = ""; // 128 should cover individual additions to the payload
+	// Room for the longest member: separator, name, quotes and formatted value
+	char stateAddition[sizeof(",\r\n    \"\": \"\"") + MAX_MQTT_NAME_LENGTH + MAX_FORMATTED_DATA_VALUE_LENGTH] = "";
 	char addQuote = false;
 	modbusRequestAndResponse response;
 	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
@@ -959,7 +960,7 @@ modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool
 		// Add a quote if the return data type is character or has been converted from lookup to description.
 		addQuote = (response.returnDataType == modbusReturnDataType::character || response.hasLookup);
 
-		sprintf(stateAddition, "%s    \"%s\": %s%s%s", jsonMemberSeparator(anyMember), response.mqttName, addQuote ? "\"" : "", response.dataValueFormatted, addQuote ? "\"" : "");
+		snprintf(stateAddition, sizeof(stateAddition), "%s    \"%s\": %s%s%s", jsonMemberSeparator(anyMember), response.mqttName, addQuote ? "\"" : "", response.dataValueFormatted, addQuote ? "\"" : "");
 
 		// Let the onward process also know if the buffer failed.
 		resultAddedToPayload = addToPayload(stateAddition);
@@ -1077,7 +1078,7 @@ void sendDeviceState()
 	usbPower = cyw43_arch_gpio_get(CYW43_WL_GPIO_VBUS_PIN);
 
 	emptyPayload();
-	sprintf(stateAddition, "{\r\n    \"vsys_mv\": %lu,\r\n    \"usb_power\": %s\r\n}", (unsigned long)vsysMillivolts, usbPower ? "true" : "false");
+	snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"vsys_mv\": %lu,\r\n    \"usb_power\": %s\r\n}", (unsigned long)vsysMillivolts, usbPower ? "true" : "false");
 	addToPayload(stateAddition);
 	sendMqtt(DEVICE_NAME MQTT_MES_STATE_DEVICE);
 }
@@ -1630,7 +1631,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					resultDispatch = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, chargeDischargeWattsConverted, &responseDispatch);
 					if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 					{
-						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_ACTIVE_POWER_1\"", responseDispatch.statusMqttMessage);
+						snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_ACTIVE_POWER_1\"", responseDispatch.statusMqttMessage);
 					}
 					else
 					{
@@ -1644,7 +1645,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 					resultDispatch = writeFullDispatchBlock(charge, chargeDischargeWattsConverted, batterySocPercentConverted, durationSecondsConverted, writeStartedMs, &responseDispatch, &failedRegister, &blockFrames);
 					if (failedRegister != NULL)
 					{
-						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"%s\"", responseDispatch.statusMqttMessage, failedRegister);
+						snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"%s\"", responseDispatch.statusMqttMessage, failedRegister);
 					}
 				}
 
@@ -1652,12 +1653,12 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				{
 					if (charge)
 					{
-						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_CHARGE_SUCCESS_MQTT_DESC);
+						snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_CHARGE_SUCCESS_MQTT_DESC);
 						result = modbusRequestAndResponseStatusValues::setChargeSuccess;
 					}
 					else
 					{
-						sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_DISCHARGE_SUCCESS_MQTT_DESC);
+						snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_DISCHARGE_SUCCESS_MQTT_DESC);
 						result = modbusRequestAndResponseStatusValues::setDischargeSuccess;
 					}
 				}
@@ -1667,7 +1668,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				}
 				else
 				{
-					sprintf(stateAddition + strlen(stateAddition), ",\r\n    \"write\": \"block\",\r\n    \"frames\": %d", blockFrames);
+					snprintf(stateAddition + strlen(stateAddition), sizeof(stateAddition) - strlen(stateAddition), ",\r\n    \"write\": \"block\",\r\n    \"frames\": %d", blockFrames);
 				}
 			}
 			resultAddToPayload = addToPayload(stateAddition);
@@ -1688,11 +1689,11 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 			resultDispatch = writeDispatchStop(&responseDispatch);
 			if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
 			{
-				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"", responseDispatch.statusMqttMessage);
+				snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"REG_DISPATCH_RW_DISPATCH_START\"", responseDispatch.statusMqttMessage);
 			}
 			else
 			{
-				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_NORMAL_SUCCESS_MQTT_DESC);
+				snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"\"", MODBUS_REQUEST_AND_RESPONSE_SET_NORMAL_SUCCESS_MQTT_DESC);
 				result = modbusRequestAndResponseStatusValues::setNormalSuccess;
 			}
 			resultAddToPayload = addToPayload(stateAddition);
@@ -1714,7 +1715,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		resultAddToPayload = addToPayload("{\r\n");
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 		{
-			sprintf(stateAddition, "    \"responseStatus\": \"%s\",\r\n", response.statusMqttMessage);
+			snprintf(stateAddition, sizeof(stateAddition), "    \"responseStatus\": \"%s\",\r\n", response.statusMqttMessage);
 			resultAddToPayload = addToPayload(stateAddition);
 		}
 
@@ -1728,18 +1729,18 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		// If some kind of result came back from the Alpha (even a slave error) we can give the function code
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload && (result == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess || result == modbusRequestAndResponseStatusValues::slaveError || result == modbusRequestAndResponseStatusValues::writeSingleRegisterSuccess || result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess))
 		{
-			sprintf(stateAddition, "    \"functionCode\": %d,\r\n", response.functionCode);
+			snprintf(stateAddition, sizeof(stateAddition), "    \"functionCode\": %d,\r\n", response.functionCode);
 			resultAddToPayload = addToPayload(stateAddition);
 		}
 
 		// Content returned by a Read Handled request
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload && (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess && subScription == mqttSubscriptions::readHandledRegister))
 		{
-			sprintf(stateAddition, "    \"registerName\": \"%s\",\r\n", response.mqttName);
+			snprintf(stateAddition, sizeof(stateAddition), "    \"registerName\": \"%s\",\r\n", response.mqttName);
 			resultAddToPayload = addToPayload(stateAddition);
 			if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 			{
-				sprintf(stateAddition, "    \"dataType\": \"%s\",\r\n", response.returnDataTypeDesc);
+				snprintf(stateAddition, sizeof(stateAddition), "    \"dataType\": \"%s\",\r\n", response.returnDataTypeDesc);
 				resultAddToPayload = addToPayload(stateAddition);
 			}
 			if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
@@ -1748,37 +1749,37 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				{
 				case modbusReturnDataType::character:
 				{
-					sprintf(stateAddition, "    \"dataValue\": \"%s\",\r\n", response.characterValue);
+					snprintf(stateAddition, sizeof(stateAddition), "    \"dataValue\": \"%s\",\r\n", response.characterValue);
 					resultAddToPayload = addToPayload(stateAddition);
 					break;
 				}
 				case modbusReturnDataType::signedInt:
 				{
-					sprintf(stateAddition, "    \"dataValue\": %d,\r\n", response.signedIntValue);
+					snprintf(stateAddition, sizeof(stateAddition), "    \"dataValue\": %d,\r\n", response.signedIntValue);
 					resultAddToPayload = addToPayload(stateAddition);
 					break;
 				}
 				case modbusReturnDataType::unsignedInt:
 				{
-					sprintf(stateAddition, "    \"dataValue\": %u,\r\n", response.unsignedIntValue);
+					snprintf(stateAddition, sizeof(stateAddition), "    \"dataValue\": %u,\r\n", response.unsignedIntValue);
 					resultAddToPayload = addToPayload(stateAddition);
 					break;
 				}
 				case modbusReturnDataType::signedShort:
 				{
-					sprintf(stateAddition, "    \"dataValue\": %d,\r\n", response.signedShortValue);
+					snprintf(stateAddition, sizeof(stateAddition), "    \"dataValue\": %d,\r\n", response.signedShortValue);
 					resultAddToPayload = addToPayload(stateAddition);
 					break;
 				}
 				case modbusReturnDataType::unsignedShort:
 				{
-					sprintf(stateAddition, "    \"dataValue\": %u,\r\n", response.unsignedShortValue);
+					snprintf(stateAddition, sizeof(stateAddition), "    \"dataValue\": %u,\r\n", response.unsignedShortValue);
 					resultAddToPayload = addToPayload(stateAddition);
 					break;
 				}
 				default:
 				{
-					sprintf(stateAddition, "    \"dataValue\": \"\",\r\n");
+					snprintf(stateAddition, sizeof(stateAddition), "    \"dataValue\": \"\",\r\n");
 					resultAddToPayload = addToPayload(stateAddition);
 					break;
 				}
@@ -1787,7 +1788,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 			if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 			{
 				bool addQuote = (response.returnDataType == modbusReturnDataType::character || response.hasLookup);
-				sprintf(stateAddition, "    \"formattedDataValue\": %s%s%s,\r\n", addQuote ? "\"" : "", response.dataValueFormatted, addQuote ? "\"" : "");
+				snprintf(stateAddition, sizeof(stateAddition), "    \"formattedDataValue\": %s%s%s,\r\n", addQuote ? "\"" : "", response.dataValueFormatted, addQuote ? "\"" : "");
 				resultAddToPayload = addToPayload(stateAddition);
 			}
 
@@ -1797,14 +1798,14 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		// Slave error can provide the code back
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload && (result == modbusRequestAndResponseStatusValues::slaveError))
 		{
-			sprintf(stateAddition, "    \"slaveErrorCode\": %d,\r\n", response.data[0]);
+			snprintf(stateAddition, sizeof(stateAddition), "    \"slaveErrorCode\": %d,\r\n", response.data[0]);
 			resultAddToPayload = addToPayload(stateAddition);
 		}
 
 		// Again, if some kind of result came back we can expose the raw data bytes for the user to process if they want
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload && (result == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess || result == modbusRequestAndResponseStatusValues::slaveError || result == modbusRequestAndResponseStatusValues::writeSingleRegisterSuccess || result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess))
 		{
-			sprintf(stateAddition, "    \"rawDataSize\": %u,\r\n", response.dataSize);
+			snprintf(stateAddition, sizeof(stateAddition), "    \"rawDataSize\": %u,\r\n", response.dataSize);
 			resultAddToPayload = addToPayload(stateAddition);
 		}
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload && (result == modbusRequestAndResponseStatusValues::writeDataRegisterSuccess || result == modbusRequestAndResponseStatusValues::slaveError || result == modbusRequestAndResponseStatusValues::writeSingleRegisterSuccess || result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess))
@@ -1817,7 +1818,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		// Not after an overflow: the payload is then the complete mqttError object.
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 		{
-			sprintf(stateAddition, "    \"end\": \"true\"\r\n}");
+			snprintf(stateAddition, sizeof(stateAddition), "    \"end\": \"true\"\r\n}");
 			resultAddToPayload = addToPayload(stateAddition);
 		}
 

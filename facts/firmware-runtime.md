@@ -2,7 +2,7 @@
 
 One single threaded Arduino loop on the Pico W. It polls the inverter on fixed schedules, publishes JSON state over MQTT and runs commands inline, between bus reads.
 
-Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
+Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
 
 ## Boot sequence (`setup`)
 
@@ -156,6 +156,7 @@ There are 8 under `DEVICE_NAME` (`MQTT_SUB_REQUEST_*`: read handled, read raw, s
 
 ## Gotchas
 
+- `addStateInfo` sizes its member buffer from `MAX_MQTT_NAME_LENGTH` and `MAX_FORMATTED_DATA_VALUE_LENGTH`, 224 bytes; a quoted 80 character name with a 128 character value needs 222. It was 128 before 2026-10-22. Every `stateAddition` write is `snprintf`.
 - Fixed in the cleanup: a failed last read no longer leaves invalid JSON. `addStateInfo` puts `jsonMemberSeparator` before each member and the object ends with `jsonObjectEnd` (`JsonMembers.h`, `test_json_members.cpp`).
 - The 10 s list comment says PV1 to PV6 were dropped to save six reads. `REG_CUSTOM_LOAD` and `REG_CUSTOM_TOTAL_SOLAR_POWER` still read all six strings through `readTotalSolarPower`, which stops at the first failure.
 - With `MQTT_SERVER` as a hostname, a broker attempt can take 7 s against an 8 s watchdog. Use a dotted address (65f3526).
