@@ -116,7 +116,8 @@ static const uint16_t _mqttTenSecondStatusRegisters[] =
 	REG_DISPATCH_RW_DISPATCH_TIME_1,
 
 	// PV1 to PV6 power (REG_INVERTER_HOME_R_PV1_POWER_1 onwards) exist on hybrid inverters only.
-	// The Smile B3 is AC coupled, so they are left out to save six bus reads per cycle.
+	// The Smile B3 is AC coupled, so they are not published here. REG_CUSTOM_LOAD and REG_CUSTOM_TOTAL_SOLAR_POWER
+	// still read all six after the PV meter, through readTotalSolarPower, which stops at the first failed read.
 
 	REG_CUSTOM_TOTAL_SOLAR_POWER
 

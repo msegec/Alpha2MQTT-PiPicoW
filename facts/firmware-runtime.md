@@ -159,7 +159,7 @@ There are 8 under `DEVICE_NAME` (`MQTT_SUB_REQUEST_*`: read handled, read raw, s
 - Renamed on 2026-10-22: `MQTT_REPLY_TIMEOUT` to `MQTT_REPLY_TIMEOUT_S` (it is seconds among millisecond defines), `TOTAL_ENERGY_MUTLIPLIER` to `TOTAL_ENERGY_MULTIPLIER`, and the published `MQTT_SUB_RESPONSE_*` topics to `MQTT_MES_RESPONSE_*`. The topic strings are unchanged.
 - `addStateInfo` sizes its member buffer from `MAX_MQTT_NAME_LENGTH` and `MAX_FORMATTED_DATA_VALUE_LENGTH`, 224 bytes; a quoted 80 character name with a 128 character value needs 222. It was 128 before 2026-10-22. Every `stateAddition` write is `snprintf`.
 - Fixed in the cleanup: a failed last read no longer leaves invalid JSON. `addStateInfo` puts `jsonMemberSeparator` before each member and the object ends with `jsonObjectEnd` (`JsonMembers.h`, `test_json_members.cpp`).
-- The 10 s list comment says PV1 to PV6 were dropped to save six reads. `REG_CUSTOM_LOAD` and `REG_CUSTOM_TOTAL_SOLAR_POWER` still read all six strings through `readTotalSolarPower`, which stops at the first failure.
+- PV1 to PV6 are not published on the 10 s list, but the reads are not saved: until 2026-10-22 its comment said they were. `REG_CUSTOM_LOAD` and `REG_CUSTOM_TOTAL_SOLAR_POWER` still read all six strings through `readTotalSolarPower`, which stops at the first failure.
 - With `MQTT_SERVER` as a hostname, a broker attempt can take 7 s against an 8 s watchdog. Use a dotted address (65f3526).
 - Nothing is retained, and there is no LWT. A new subscriber waits up to one period for state. A dead Pico shows only as the fast state stopping and `seq` gaps.
 - `DEBUG` is on, and `checkForData` prints a timeout line on every RS485 timeout whatever the setting.
