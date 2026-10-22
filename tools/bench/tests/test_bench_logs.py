@@ -47,14 +47,21 @@ def test_sample_fields_target_demand_and_window():
     assert logs.samples(recs, exclude=[(0.5, 2.5)])[0]["t"] == 3.0
 
 
-def test_solar_falls_back_to_west_meter_plus_east_entity():
-    recs = [{"k": "e", "t": 0.5, "e": "sensor.x_solar_east_meter_fast", "s": "400", "a": {}},
+def test_solar_falls_back_to_west_meter_plus_a_named_second_meter():
+    recs = [{"k": "e", "t": 0.5, "e": "sensor.east_meter", "s": "400", "a": {}},
             step(1.0, 1, pv=-30), step(2.0, 2, pv=-5),
-            {"k": "e", "t": 2.5, "e": "sensor.x_solar_east_meter_fast", "s": "unavailable", "a": {}},
+            {"k": "e", "t": 2.5, "e": "sensor.east_meter", "s": "unavailable", "a": {}},
             step(3.0, 3, pv=-20), step(4.0, 4, solar_w=1234.0)]
-    assert [r["solar"] for r in logs.samples(recs)] == [700.0, 400.0, 200.0, 1234.0]
-    other = [{"k": "e", "t": 0.5, "e": "sensor.roof_meter", "s": "900", "a": {}}, step(1.0, 1)]
-    assert logs.samples(other, solar_suffix="roof_meter")[0]["solar"] == 900.0
+    assert [r["solar"] for r in logs.samples(recs, solar_suffix="east_meter")] == [700.0, 400.0, 200.0, 1234.0]
+    # no second meter by default: west only
+    assert [r["solar"] for r in logs.samples(recs)] == [300.0, 0.0, 200.0, 1234.0]
+
+
+def test_entity_records_load_only_for_a_named_solar_meter(tmp_path):
+    write_jsonl(tmp_path / "a.jsonl", [{"k": "e", "t": 0.5, "e": "sensor.east_meter", "s": "400", "a": {}},
+                                       step(1.0, 1)])
+    assert [r["k"] for r in logs.load([str(tmp_path / "a.jsonl")])[0]] == ["step"]
+    assert [r["k"] for r in logs.load([str(tmp_path / "a.jsonl")], solar_suffix="east_meter")[0]] == ["e", "step"]
 
 
 def test_reads_and_raw_writes_are_not_commands():

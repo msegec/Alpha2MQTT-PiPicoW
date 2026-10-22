@@ -23,7 +23,7 @@ from dataclasses import dataclass
 LOSS_SHARE = 0.15
 LOSS_W = 10.0
 GAP_S = 5.0  # consecutive samples are at most this far apart, and their seq differs by 1
-EAST_SUFFIX = "solar_east_meter_fast"
+EAST_SUFFIX = None  # entity id suffix of a second solar meter for older logs; installation specific, so none by default
 WEST_MIN_W = 95.0  # older logs: pv * -10 under this is meter noise, not sun
 SETTLE_S = 8.0  # a command unchanged this long has settled
 CAPPED_W = 30.0  # request this far from output: a limit holds the output
@@ -53,9 +53,9 @@ def expand(patterns: list[str]) -> list[str]:
 
 
 def load(patterns: list[str], t0: float = -math.inf, t1: float = math.inf,
-         solar_suffix: str = EAST_SUFFIX) -> tuple[list[dict], int]:
+         solar_suffix: str | None = EAST_SUFFIX) -> tuple[list[dict], int]:
     """Records sorted by t, and the number of bad lines skipped. Entity records are kept only for the
-    solar meter. start and cfg records are kept from before t0, so the cfg in force is known."""
+    solar meter, none without a solar_suffix. start and cfg records are kept from before t0, so the cfg in force is known."""
     recs: list[dict] = []
     bad = 0
     for f in expand(patterns):
@@ -68,7 +68,7 @@ def load(patterns: list[str], t0: float = -math.inf, t1: float = math.inf,
         with fh:
             try:
                 for line in fh:
-                    if '"k":"e"' in line and solar_suffix not in line:
+                    if '"k":"e"' in line and (not solar_suffix or solar_suffix not in line):
                         continue
                     try:
                         r = json.loads(line)
@@ -120,7 +120,8 @@ def add_window_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--from", dest="t0", type=parse_time, default=-math.inf, help="local 'YYYY-MM-DD HH:MM'")
     p.add_argument("--to", dest="t1", type=parse_time, default=math.inf)
     p.add_argument("--exclude", type=parse_span, action="append", default=[], help="'A..B', repeatable")
-    p.add_argument("--solar-entity", default=EAST_SUFFIX, help="entity id suffix of the east solar meter")
+    p.add_argument("--solar-entity", default=EAST_SUFFIX,
+                   help="older logs without solar_w: entity id suffix of a second solar meter (default none)")
     add_loss_args(p)
 
 
@@ -211,19 +212,19 @@ def _num(x) -> float | None:
 
 
 def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
-            exclude: list[tuple[float, float]] = (), solar_suffix: str = EAST_SUFFIX, loss: Loss = Loss()) -> list[dict]:
+            exclude: list[tuple[float, float]] = (), solar_suffix: str | None = EAST_SUFFIX, loss: Loss = Loss()) -> list[dict]:
     """Regulating step records in [t0, t1) outside the excluded spans, as flat rows:
     t, seq, grid_w, battery, soc, error_w, target, request_w, output_w, sent (signed W or None),
     power_only, solar, demand (grid_w + battery - loss(battery)), limit (None if unlogged), cfg_target,
     and brk: True when the row does not follow the previous one (seq not +1, over GAP_S, or the first row).
-    Solar: the step's solar_w when logged, else west = pv * -10 when >= 95 W plus the last east meter state."""
+    Solar: the step's solar_w when logged, else west = pv * -10 when >= 95 W plus the last state of the solar_suffix entity (0 without one)."""
     cfgs = CfgTimeline(recs)
     east = 0.0
     out: list[dict] = []
     for r in recs:
         k = r["k"]
         if k == "e":
-            if str(r.get("e", "")).endswith(solar_suffix):
+            if solar_suffix and str(r.get("e", "")).endswith(solar_suffix):
                 east = _num(r.get("s")) or 0.0
             continue
         if k != "step":

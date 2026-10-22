@@ -35,7 +35,7 @@ python3 -I tools/bench/compare.py 'LOGDIR/alpha2mqtt.jsonl*' --window 'A..B' --w
     --variant 'now:ref=HEAD' --variant 'ki3:ref=HEAD,ki=0.03' --variant 'wip:path=/some/regulator.py'
 ```
 
-Shared options: `--solar-entity SUFFIX` (default `solar_east_meter_fast`), `--loss-share` (default 0.15) and
+Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 0.15) and
 `--loss-w` (default 10), `--max-charge-w` and `--max-discharge-w` (default 4000), `--discharge-soc` (default 10).
 
 ## Loading (`logs.py`)
@@ -45,7 +45,8 @@ Shared options: `--solar-entity SUFFIX` (default `solar_east_meter_fast`), `--lo
 - A bad JSON line, or one without `k` or a numeric `t`, is counted and skipped. A truncated gzip keeps what was
   read.
 - Kept: `start`, `cfg` and `e` records whatever the window (so the cfg in force and the last east solar reading
-  are known), others within 60 s of the window. Only `e` records of the solar entity are parsed.
+  are known), others within 60 s of the window. Only `e` records of the `--solar-entity` are parsed; none
+  without one.
 - `samples` keeps `step` records with `status == "regulating"` and finite `grid_w`, `battery`, `error_w`,
   `request_w`, `output_w`. A row has `brk` True when its `seq` is not the last row's + 1 or more than 5 s
   passed. `seq` restarts at a firmware reboot, so nothing keys on `seq` across rows that are not consecutive.
@@ -57,7 +58,8 @@ Shared options: `--solar-entity SUFFIX` (default `solar_east_meter_fast`), `--lo
   defaults are 0.15 and 10 W. A correction without a loss term wants `--loss-share 0 --loss-w 0`. That the
   10 W stops at a battery of exactly 0 is the bench's assumption; how the template gates it is not in this repo.
 - Solar: the step's `solar_w` when logged. Older logs: west `pv * -10` when at least 95 W, else 0, plus the
-  last numeric state of the entity ending in the solar suffix (a non-numeric state counts 0).
+  last numeric state of the entity ending in `--solar-entity` (a non-numeric state counts 0). That entity is
+  installation specific, so there is no default: without one, older logs see west solar only.
 - `commands`: `cmd` records on `.../request/set/{charge,discharge,normal}` only. `read/register/raw`, raw
   writes and responses are not commands.
 - `iterations`: a new span at a `start` unless it carries the same `code` as the running span (a start

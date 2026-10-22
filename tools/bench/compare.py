@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("logs", nargs="+")
     p.add_argument("--window", type=logs.parse_span, action="append", default=[], help="'A..B', repeatable")
     p.add_argument("--exclude", type=logs.parse_span, action="append", default=[])
-    p.add_argument("--solar-entity", default=logs.EAST_SUFFIX)
+    p.add_argument("--solar-entity", default=logs.EAST_SUFFIX, help="as in logs.py")
     logs.add_loss_args(p)
     p.add_argument("--set", action="append", default=[], help="Settings for every variant, key=value")
     p.add_argument("--variant", action="append", default=[], help="'NAME:ref=GITREF,key=value,...'")
