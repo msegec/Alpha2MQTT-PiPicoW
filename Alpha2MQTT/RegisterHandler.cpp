@@ -104,7 +104,6 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 	int16_t batteryPower = 0;
 	int32_t pvPower = 0;
 	int32_t gridPower = 0;
-	uint16_t gridVoltage = 0;
 
 	// Determine number of registers/data type/mqtt name based on register passed in
 	const registerDescriptor* reg = findRegister(registerAddress);
@@ -199,9 +198,8 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 				result = _modBus->sendModbus(frame, sizeof(frame), rs);
 				if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 				{
-					gridVoltage = ((uint16_t)(rs->data[0] << 8 | rs->data[1])) * GRID_VOLTAGE_MULTIPLIER;
-
-					rs->signedShortValue = (gridVoltage == 0 ? 0 : gridPower / gridVoltage);
+					// In tenths of an amp. Whole volts and whole amps used to cut 4.9 A to 4 A.
+					rs->signedShortValue = gridCurrentTenths(gridPower, (uint16_t)(rs->data[0] << 8 | rs->data[1]));
 
 					rs->dataSize = 2;
 					rs->data[0] = rs->signedShortValue >> 8;

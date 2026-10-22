@@ -548,7 +548,7 @@ static const registerDescriptor handledRegisters[] =
 	// Not inverter registers: RegisterHandler reads and works these out itself
 	HANDLED_REGISTER(REG_CUSTOM_SYSTEM_DATE_TIME, character, 3, dateTime),
 	HANDLED_REGISTER(REG_CUSTOM_LOAD, signedInt, 2, value),
-	HANDLED_REGISTER(REG_CUSTOM_GRID_CURRENT_A_PHASE, signedShort, 1, value),
+	HANDLED_REGISTER(REG_CUSTOM_GRID_CURRENT_A_PHASE, signedShort, 1, tenths),
 	HANDLED_REGISTER(REG_CUSTOM_TOTAL_SOLAR_POWER, signedInt, 2, value),
 };
 
@@ -640,6 +640,19 @@ inline double registerScale(registerFormat format)
 	default:
 		return 0;
 	}
+}
+
+// Phase A current in tenths of an amp from its power in W and its voltage register in 0.1 V, rounded half away
+// from zero and held to a short. No voltage gives 0.
+inline int16_t gridCurrentTenths(int32_t powerW, uint16_t voltageTenths)
+{
+	if (voltageTenths == 0)
+	{
+		return 0;
+	}
+	int64_t scaled = (int64_t)powerW * 100;
+	int64_t tenths = (scaled + (scaled < 0 ? -(int64_t)voltageTenths : (int64_t)voltageTenths) / 2) / voltageTenths;
+	return (int16_t)(tenths > INT16_MAX ? INT16_MAX : tenths < INT16_MIN ? INT16_MIN : tenths);
 }
 
 inline const char* registerLookupDesc(const registerLookup* lookup, uint32_t value)

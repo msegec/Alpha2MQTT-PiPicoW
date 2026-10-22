@@ -1,6 +1,6 @@
 Modbus RTU transport, frame checks and the AlphaESS register map as the firmware reads and writes them.
 
-Last verified: 2026-10-22 on fix/firmware, date format in `Registers.h`, slave id resync capped, every fault bit named, AL bits 13 to 16 mapped. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. `tests/firmware/run` passed all eight suites (`test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer` each print `OK`, exit 0).
+Last verified: 2026-10-22 on fix/firmware, date format in `Registers.h`, slave id resync capped, every fault bit named, AL bits 13 to 16 mapped, grid current in 0.1 A. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. `tests/firmware/run` passed all eight suites (`test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer` each print `OK`, exit 0).
 
 ## Files
 
@@ -112,7 +112,7 @@ A descriptor is `{address, name, returnDataType, registerCount, format, lookup}`
 | Define | Addr | Built from |
 |---|---|---|
 | `REG_CUSTOM_TOTAL_SOLAR_POWER` | 0xFFFC | `readTotalSolarPower`: PV meter + PV1 to PV6 string power, 7 reads, stops at first failure |
-| `REG_CUSTOM_GRID_CURRENT_A_PHASE` | 0xFFFD | Phase A grid power / (phase A voltage x 0.1); 0 if voltage is 0 |
+| `REG_CUSTOM_GRID_CURRENT_A_PHASE` | 0xFFFD | `gridCurrentTenths`: phase A grid power / (phase A voltage x 0.1), held as tenths of an amp and published with the `tenths` format, as `4.20`; 0 if voltage is 0. Before 2026-10-22 the voltage was cut to whole volts and the result to whole amps |
 | `REG_CUSTOM_LOAD` | 0xFFFE | Solar total, then grid total, then battery power: `pv - export + import - charge + discharge`. 9 reads |
 | `REG_CUSTOM_SYSTEM_DATE_TIME` | 0xFFFF | 3 registers from 0x0740, formatted `dd/MMM/yyyy HH:mm:ss` |
 

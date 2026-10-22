@@ -107,6 +107,17 @@ int main()
 	expect(strcmp(handled(0x08D4, alSeventeen, "AL").dataValueFormatted, "Bit 17") == 0, "AL system fault bit 17 shows its number");
 	expect(strcmp(handled(0x08D4, aeHigh, "XX").dataValueFormatted, "Unknown") == 0, "a system fault with no known serial prefix is Unknown");
 
+	// Grid current: phase A power over phase A voltage, in tenths of an amp
+	expect(gridCurrentTenths(1000, 2400) == 42, "1000 W at 240.0 V is 4.2 A");
+	expect(gridCurrentTenths(-1000, 2400) == -42, "an export of 1000 W at 240.0 V is -4.2 A");
+	expect(gridCurrentTenths(1000, 2405) == 42, "the voltage keeps its tenth");
+	expect(gridCurrentTenths(50, 2400) == 2, "50 W is 0.2 A, not 0");
+	expect(gridCurrentTenths(1000, 0) == 0, "no voltage gives 0, not a division by zero");
+	expect(gridCurrentTenths(2000000, 10) == 32767, "an implausible current stops at the largest short");
+	expect(gridCurrentTenths(-2000000, 10) == -32768, "and at the smallest");
+	const uint8_t gridAmps[] = { 0x00, 0x2A };
+	expect(formats(REG_CUSTOM_GRID_CURRENT_A_PHASE, gridAmps, "4.20"), "grid current reads in amps with its tenth");
+
 	// System date and time: 0xYYMM, 0xDDHH, 0xmmss read as one custom register
 	const uint8_t when[] = { 0x11, 0x09, 0x11, 0x09, 0x05, 0x3B };
 	modbusRequestAndResponse dated = handled(REG_CUSTOM_SYSTEM_DATE_TIME, when);
