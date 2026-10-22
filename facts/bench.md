@@ -73,6 +73,11 @@ Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 
   else `tau_charge_s`. `normal` is modelled as 0 W.
 - `offset` is a list of `[setpoint W, battery minus setpoint W]`, linear between points, held flat outside them,
   0 at a 0 W command.
+- `offset` is the same quantity as the regulator's `INVERTER_OFFSET` (battery minus setpoint, by signed
+  setpoint, linear between points, flat outside). A `Plant` built from that table is the inverter the regulator
+  believes in: at `offset_comp` 1 a replay lands the battery on the output. The `1.046 u - 42` inverter in
+  `test_regulator.py` is a stress plant, over 100 W from the table at some setpoints, not a third measurement.
+  `tests/test_bench_offsets.py` holds all three to this.
 - `ramp_w_s` above 0: a discharge that takes effect while `|battery| <= 15 W` rises no faster than this
   until it reaches its aim. 0 is off.
 - `Sim` steps 0.1 s at most.

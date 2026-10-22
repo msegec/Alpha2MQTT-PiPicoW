@@ -5,6 +5,7 @@ import pytest
 import logs
 import plant as P
 import replay
+from synth import rows
 
 TRIVIAL = '''
 from dataclasses import dataclass
@@ -66,13 +67,6 @@ OLD = TRIVIAL.format(solar_arg="", solar_val="", load_method='''
 ''')
 NEW = TRIVIAL.format(solar_arg=", solar_w=None", solar_val=", solar_w", load_method="")
 FAST = P.Plant(dead_s=0.0, tau_discharge_s=0.01, tau_charge_s=0.01)
-
-
-def rows(n=30, demand=500.0, target=-50.0, cfg_target=-20.0, load_w=None):
-    return [{"t": float(i), "seq": i + 1, "brk": i == 0, "grid_w": demand + target, "battery": 0.0, "soc": 60.0,
-             "error_w": demand, "target": target, "request_w": 0.0, "output_w": 0.0, "sent": None,
-             "sent_normal": False, "power_only": False, "solar": 321.0, "demand": demand, "limit": None,
-             "load_w": load_w, "cfg_target": cfg_target} for i in range(n)]
 
 
 def module(tmp_path, src, name="regulator.py"):
