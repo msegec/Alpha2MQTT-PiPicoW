@@ -172,39 +172,20 @@ Outputs a transmitted or received frame (regardless of population) to assist wit
 */
 void RS485Handler::outputFrameToSerial(bool transmit, uint8_t frame[], byte actualFrameSize)
 {
-	//char debugOutput[200];
-	char debugByte[5];
+	// Printed a byte at a time: a full frame takes three characters a byte, more than _debugOutput holds
+	char debugByte[4];
 
-
-	_debugOutput[0] = '\0';
-	if (transmit)
-	{
-		strncat(_debugOutput, "Tx: ", 4);
-	}
-	else
-	{
-		strncat(_debugOutput, "Rx: ", 4);
-	}
-
+	Serial.print(transmit ? "Tx: " : "Rx: ");
 	if (actualFrameSize == 0)
 	{
-		strncat(_debugOutput, "Nothing", 7);
+		Serial.print("Nothing");
 	}
-	else
+	for (int counter = 0; counter < actualFrameSize; counter++)
 	{
-		for (int counter = 0; counter < actualFrameSize; counter++)
-		{
-			sprintf(debugByte, "%02X", frame[counter]);
-			strncat(_debugOutput, debugByte, 2);
-			if (counter < actualFrameSize - 1)
-			{
-				strncat(_debugOutput, " ", 1);
-			}
-		}
+		snprintf(debugByte, sizeof(debugByte), counter < actualFrameSize - 1 ? "%02X " : "%02X", frame[counter]);
+		Serial.print(debugByte);
 	}
-	//sprintf(_debugOutput, "%s", debugOutput);
-	Serial.println(_debugOutput);
-
+	Serial.println();
 }
 
 
@@ -248,7 +229,7 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 		inFrame[inByteNumZeroIndexed] = _RS485Serial->read();
 
 #ifdef DEBUG_LEVEL2
-		sprintf(_debugOutput, "Byte number zero indexed: %d", inByteNumZeroIndexed);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Byte number zero indexed: %d", inByteNumZeroIndexed);
 		Serial.println(_debugOutput);
 #endif
 
@@ -259,7 +240,7 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 		{
 			gotSlaveID = true;
 #ifdef DEBUG_LEVEL2
-			sprintf(_debugOutput, "Slave ID: %d", inFrame[FRAME_POSITION_SLAVE_ID]);
+			snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Slave ID: %d", inFrame[FRAME_POSITION_SLAVE_ID]);
 			Serial.println(_debugOutput);
 #endif
 			// First byte is Slave ID.  If not a match (unlikely) try again on the next byte.
@@ -278,7 +259,7 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 			resp->functionCode = inFrame[FRAME_POSITION_FUNCTION_CODE];
 			
 #ifdef DEBUG_LEVEL2
-			sprintf(_debugOutput, "Function Code: %d", inFrame[FRAME_POSITION_FUNCTION_CODE]);
+			snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Function Code: %d", inFrame[FRAME_POSITION_FUNCTION_CODE]);
 			Serial.println(_debugOutput);
 #endif
 
@@ -383,17 +364,17 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 	if (timedOut)
 	{
 #ifdef DEBUG
-		sprintf(_debugOutput, "Timed Out (inByteNumZeroIndexed): %d", inByteNumZeroIndexed);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Timed Out (inByteNumZeroIndexed): %d", inByteNumZeroIndexed);
 		Serial.println(_debugOutput);
-		sprintf(_debugOutput, "Timed Out (gotSlaveID): %d", gotSlaveID);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Timed Out (gotSlaveID): %d", gotSlaveID);
 		Serial.println(_debugOutput);
-		sprintf(_debugOutput, "Timed Out (gotFunctionCode): %d", gotFunctionCode);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Timed Out (gotFunctionCode): %d", gotFunctionCode);
 		Serial.println(_debugOutput);
-		sprintf(_debugOutput, "Timed Out (resp->functionCode): %d", resp->functionCode);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Timed Out (resp->functionCode): %d", resp->functionCode);
 		Serial.println(_debugOutput);
-		sprintf(_debugOutput, "Timed Out (gotData): %d", gotData);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Timed Out (gotData): %d", gotData);
 		Serial.println(_debugOutput);
-		sprintf(_debugOutput, "Timed Out (resp->dataSize): %d", resp->dataSize);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Timed Out (resp->dataSize): %d", resp->dataSize);
 		Serial.println(_debugOutput);
 #endif
 	}
@@ -500,7 +481,7 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess && result != modbusRequestAndResponseStatusValues::writeSingleRegisterSuccess && result != modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 	{
 #ifdef DEBUG_LEVEL2
-		sprintf(_debugOutput, "Coming out of listenResponse with an issue - Function code (%d) and %s: %d", resp->functionCode, resp->statusMqttMessage);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Coming out of listenResponse with an issue - Function code (%d) and %s: %d", resp->functionCode, resp->statusMqttMessage, (int)result);
 		Serial.println(_debugOutput);
 #endif
 	}

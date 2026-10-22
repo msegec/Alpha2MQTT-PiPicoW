@@ -71,7 +71,7 @@ RS485Handler* _modBus;
 RegisterHandler* _registerHandler;
 
 // Fixed char array for messages to the serial port
-char _debugOutput[100];
+char _debugOutput[DEBUG_OUTPUT_SIZE];
 
 
 
@@ -522,13 +522,13 @@ void setup()
 	_wifi.setTimeout(MQTT_CLIENT_TIMEOUT);
 	_mqtt.setSocketTimeout(MQTT_REPLY_TIMEOUT);
 #ifdef DEBUG
-	sprintf(_debugOutput, "About to request buffer");
+	snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "About to request buffer");
 	Serial.println(_debugOutput);
 #endif
 	for (_bufferSize = (MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE); _bufferSize >= MIN_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE; _bufferSize = _bufferSize - 1024)
 	{
 #ifdef DEBUG
-		sprintf(_debugOutput, "Requesting a buffer of : %d bytes", _bufferSize);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Requesting a buffer of : %d bytes", _bufferSize);
 		Serial.println(_debugOutput);
 #endif
 
@@ -537,7 +537,7 @@ void setup()
 			
 			_maxPayloadSize = _bufferSize - MQTT_HEADER_SIZE;
 #ifdef DEBUG
-			sprintf(_debugOutput, "_bufferSize: %d,\r\n\r\n_maxPayload (Including null terminator): %d", _bufferSize, _maxPayloadSize);
+			snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "_bufferSize: %d,\r\n\r\n_maxPayload (Including null terminator): %d", _bufferSize, _maxPayloadSize);
 			Serial.println(_debugOutput);
 #endif
 			
@@ -552,7 +552,7 @@ void setup()
 		else
 		{
 #ifdef DEBUG
-			sprintf(_debugOutput, "Coudln't allocate buffer of %d bytes", _bufferSize);
+			snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Coudln't allocate buffer of %d bytes", _bufferSize);
 			Serial.println(_debugOutput);
 #endif
 		}
@@ -585,7 +585,7 @@ void setup()
 		}
 
 #ifdef DEBUG
-		sprintf(_debugOutput, "About To Try: %u", knownBaudRates[baudRateIterator]);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "About To Try: %u", knownBaudRates[baudRateIterator]);
 		Serial.println(_debugOutput);
 #endif
 		// Set the rate
@@ -596,7 +596,7 @@ void setup()
 		if (result != modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 		{
 #ifdef DEBUG
-			sprintf(_debugOutput, "Baud Rate Checker Problem: %s", response.statusMqttMessage);
+			snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Baud Rate Checker Problem: %s", response.statusMqttMessage);
 			Serial.println(_debugOutput);
 #endif
 
@@ -733,7 +733,7 @@ void setupWifi()
 	lastBegin = millis();
 
 #ifdef DEBUG
-	sprintf(_debugOutput, "Connecting to %s", WIFI_SSID);
+	snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Connecting to %s", WIFI_SSID);
 	Serial.println(_debugOutput);
 #endif
 
@@ -816,7 +816,7 @@ modbusRequestAndResponseStatusValues getSerialNumber()
 	if (result == modbusRequestAndResponseStatusValues::readDataRegisterSuccess)
 	{
 #ifdef DEBUG
-		sprintf(_debugOutput, "Alpha Serial Number: %s", response.dataValueFormatted);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Alpha Serial Number: %s", response.dataValueFormatted);
 		Serial.println(_debugOutput);
 #endif
 
@@ -917,7 +917,7 @@ void mqttReconnect()
 	}
 
 #ifdef DEBUG
-	sprintf(_debugOutput, "MQTT Failed: RC is %d\r\nTrying again in five seconds...", _mqtt.state());
+	snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "MQTT Failed: RC is %d\r\nTrying again in five seconds...", _mqtt.state());
 	Serial.println(_debugOutput);
 #endif
 
@@ -967,7 +967,7 @@ modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool
 	else
 	{
 #ifdef DEBUG
-		sprintf(_debugOutput, "Failed to addStateInfo for: %u, Result was: %d", registerAddress, result);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Failed to addStateInfo for: %u, Result was: %d", registerAddress, result);
 		Serial.println(_debugOutput);
 #endif
 	}
@@ -1332,7 +1332,7 @@ void holdIdleWhileHaGone()
 	idleHoldWritten(_idleHold, write, ok, now);
 
 #ifdef DEBUG
-	sprintf(_debugOutput, "Idle %s write %s, %d frames", write == IdleHoldWrite::hold ? "hold" : "release", ok ? "acknowledged" : "failed", frames);
+	snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Idle %s write %s, %d frames", write == IdleHoldWrite::hold ? "hold" : "release", ok ? "acknowledged" : "failed", frames);
 	Serial.println(_debugOutput);
 #endif
 }
@@ -1399,7 +1399,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 
 
 #ifdef DEBUG
-	sprintf(_debugOutput, "Topic: %s", topic);
+	snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Topic: %s", topic);
 	Serial.println(_debugOutput);
 #endif
 
@@ -1843,7 +1843,7 @@ void sendMqtt(char *topic)
 	if (!_mqtt.publish(topic, _mqttPayload))
 	{
 #ifdef DEBUG
-		sprintf(_debugOutput, "MQTT publish failed to %s", topic);
+		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "MQTT publish failed to %s", topic);
 		Serial.println(_debugOutput);
 		Serial.println(_mqttPayload);
 #endif

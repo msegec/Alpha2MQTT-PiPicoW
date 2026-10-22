@@ -928,6 +928,8 @@ enum modbusRequestAndResponseStatusValues
 #define MAX_FORMATTED_DATA_VALUE_LENGTH 129
 #define MAX_DATA_TYPE_DESC_LENGTH 20
 #define MAX_FORMATTED_DATE_LENGTH 21
+// The shared serial debug line, _debugOutput; every write to it is bounded by this
+#define DEBUG_OUTPUT_SIZE 100
 
 
 // This is the request and return object for the sendModbus() function.
