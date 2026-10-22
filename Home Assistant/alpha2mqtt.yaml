@@ -943,9 +943,9 @@ mqtt:
         model: "Alpha2MQTT"
     - name: "System Fault"
       unique_id: alpha2mqtt_system_op_r_system_fault_1
-      state_topic: "Alpha2MQTT/state/hour/one"
+      state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_SYSTEM_OP_R_SYSTEM_FAULT_1 | default(None) }}"
-      expire_after: 10800
+      expire_after: 300
       device:
         identifiers: ["alpha2mqtt"]
         name: "Alpha2MQTT"
