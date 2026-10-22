@@ -20,6 +20,7 @@ First, go and customise options at the top of Definitions.h!
 #include "Timer.h"
 #include "IdleHold.h"
 #include "JsonMembers.h"
+#include "Request.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <hardware/adc.h>
@@ -1189,11 +1190,11 @@ closeSetResponse
 Ends a set/charge, set/discharge or set/normal response with the request's seq, 0 if it sent none,
 and the millis() when the writes finished, so the sender can match the response and time the round trip.
 */
-modbusRequestAndResponseStatusValues closeSetResponse(char* seq)
+modbusRequestAndResponseStatusValues closeSetResponse(uint32_t seq)
 {
 	char stateAddition[64];
 
-	sprintf(stateAddition, ",\r\n    \"seq\": %lu,\r\n    \"ms\": %lu\r\n}", strtoul(seq, NULL, 10), millis());
+	snprintf(stateAddition, sizeof(stateAddition), ",\r\n    \"seq\": %lu,\r\n    \"ms\": %lu\r\n}", (unsigned long)seq, millis());
 	return addToPayload(stateAddition);
 }
 
@@ -1368,41 +1369,20 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 	char topicResponse[100] = ""; // 100 should cover a topic name
 
 
-	// Variables for new JSON parser
-	int iSegNameCounter;
-	int iSegValueCounter;
-	int iPairNameCounter;
-	int iPairValueCounter;
-	int iCleanCounter;
-	int iCounter;
+	// The value text of each key the request sent, see Request.h
+	RequestFields fields = {};
 
-	// All are emptied on creation as new arrays will just tend to have garbage in which would be recognised as actual content.
-	char pairNameRaw[32] = "";
-	char pairNameClean[32] = "";
-	char pairValueRaw[32] = "";
-	char pairValueClean[32] = "";
-	char registerAddress[32] = "";
-	char dataBytes[32] = "";
-	char value[32] = "";
-	char watts[32] = "";
-	char duration[32] = "";
-	char socPercent[32] = "";
-	char startPos[32] = "";
-	char endPos[32] = "";
-	char seq[32] = "";		// Optional on set commands, echoed back so the sender can match the response
-	char powerOnly[32] = "";	// Optional on set/charge and set/discharge, 1 lets a power change skip the rest of the block
-
-	// Convert incoming values into native data types for sending
+	// Incoming values as the types they are sent as
 	uint16_t registerAddressConverted;
-	uint16_t singleRegisterValueConverted;
-	uint32_t dataRegisterValueConverted;
+	uint32_t dataBytesConverted;
+	uint32_t valueConverted;
 	uint32_t chargeDischargeWattsConverted;
 	uint32_t durationSecondsConverted;
-	uint16_t batterySocPercentConverted;
-	uint16_t startPosConverted;
-	uint16_t endPosConverted;
+	uint32_t batterySocPercentConverted;
+	uint32_t startPosConverted;
+	uint32_t endPosConverted;
+	uint32_t seqConverted = 0;
 
-	uint8_t registerCount;
 
 	// A reply's data bytes as base ten, up to 58 of them as "255," each
 	char rawDataForPayload[(MAX_FRAME_SIZE_ZERO_INDEXED - MODBUS_READ_REPLY_OVERHEAD) * 4] = "";
@@ -1493,184 +1473,10 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 
 	if (result == modbusRequestAndResponseStatusValues::preProcessing)
 	{
-		// Rudimentary JSON parser here, saves on using a library
-		// Go through character by character
-		for (iCounter = 0; iCounter < length; iCounter++)
+		if (!parseRequestFields(mqttIncomingPayload, length, fields))
 		{
-			// Find a colon
-			if (mqttIncomingPayload[iCounter] == ':')
-			{
-				// Everything to left is name until reached the start, a comma or a left brace.
-				for (iSegNameCounter = iCounter - 1; iSegNameCounter >= 0; iSegNameCounter--)
-				{
-					if (mqttIncomingPayload[iSegNameCounter] == ',' || mqttIncomingPayload[iSegNameCounter] == '{')
-					{
-						iSegNameCounter++;
-						break;
-					}
-				}
-				if (iSegNameCounter < 0)
-				{
-					// If went beyond the start, correct
-					iSegNameCounter = 0;
-				}
-
-				// Everything to right is value until reached the end, a comma or a right brace.
-				for (iSegValueCounter = iCounter + 1; iSegValueCounter < length; iSegValueCounter++)
-				{
-					if (mqttIncomingPayload[iSegValueCounter] == ',' || mqttIncomingPayload[iSegValueCounter] == '}')
-					{
-						iSegValueCounter--;
-						break;
-					}
-				}
-				// Correct if went beyond the end
-				if (iSegValueCounter >= length)
-				{
-					// If went beyond end, correct
-					iSegValueCounter = length - 1;
-				}
-
-				// A name or value too long for its buffer is rejected, not cut, so it never parses as something else
-				if (iCounter - iSegNameCounter > (int)sizeof(pairNameRaw) - 1 || iSegValueCounter - iCounter > (int)sizeof(pairValueRaw) - 1)
-				{
-					result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
-					strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
-					break;
-				}
-
-				// Segment name is now from the following character until before the colon
-				iPairNameCounter = 0;
-				for (int x = iSegNameCounter; x < iCounter; x++)
-				{
-					pairNameRaw[iPairNameCounter] = mqttIncomingPayload[x];
-					iPairNameCounter++;
-				}
-				pairNameRaw[iPairNameCounter] = '\0';
-
-				// Segment value is now from the after the colon until the found character
-				iPairValueCounter = 0;
-				for (int x = iCounter + 1; x <= iSegValueCounter; x++)
-				{
-					pairValueRaw[iPairValueCounter] = mqttIncomingPayload[x];
-					iPairValueCounter++;
-				}
-				pairValueRaw[iPairValueCounter] = '\0';
-
-
-				// Transfer to a cleansed copy, without unwanted chars
-
-				iPairNameCounter = 0;
-				iCleanCounter = 0;
-				while (pairNameRaw[iCleanCounter] != 0)
-				{
-					// Allow alpha numeric, upper case and lower case
-					if ((pairNameRaw[iCleanCounter] >= 'a' && pairNameRaw[iCleanCounter] <= 'z') || (pairNameRaw[iCleanCounter] >= 'A' && pairNameRaw[iCleanCounter] <= 'Z') || (pairNameRaw[iCleanCounter] >= '0' && pairNameRaw[iCleanCounter] <= '9'))
-					{
-						// Transfer Over
-						pairNameClean[iPairNameCounter] = pairNameRaw[iCleanCounter];
-						iPairNameCounter++;
-					}
-					iCleanCounter++;
-				}
-				pairNameClean[iPairNameCounter] = '\0';
-
-
-
-				iPairValueCounter = 0;
-				iCleanCounter = 0;
-				while (pairValueRaw[iCleanCounter] != 0)
-				{
-					// Allow a minus, x (for hex), and 0-9, and a-f A-F for hex
-					if ((pairValueRaw[iCleanCounter] == '-' || pairValueRaw[iCleanCounter] == 'x' || (pairValueRaw[iCleanCounter] >= '0' && pairValueRaw[iCleanCounter] <= '9') || (pairValueRaw[iCleanCounter] >= 'A' && pairValueRaw[iCleanCounter] <= 'F')) || (pairValueRaw[iCleanCounter] >= 'a' && pairValueRaw[iCleanCounter] <= 'f'))
-					{
-						// Transfer Over
-						pairValueClean[iPairValueCounter] = pairValueRaw[iCleanCounter];
-						iPairValueCounter++;
-					}
-					iCleanCounter++;
-				}
-				pairValueClean[iPairValueCounter] = '\0';
-
-
-#ifdef DEBUG
-				sprintf(_debugOutput, "Got a cleaned JSON parameter of '%s', value '%s'", pairNameClean, pairValueClean);
-				Serial.println(_debugOutput);
-#endif
-
-				if (strcmp(pairNameClean, "registerAddress") == 0)
-				{
-#ifdef DEBUG
-					sprintf(_debugOutput, "This was handled as registerAddress");
-					Serial.println(_debugOutput);
-#endif
-					strcpy(registerAddress, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "dataBytes") == 0)
-				{
-#ifdef DEBUG
-					sprintf(_debugOutput, "This was handled as dataBytes");
-					Serial.println(_debugOutput);
-#endif
-					strcpy(dataBytes, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "value") == 0)
-				{
-#ifdef DEBUG
-					sprintf(_debugOutput, "This was handled as value");
-					Serial.println(_debugOutput);
-#endif
-					strcpy(value, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "watts") == 0)
-				{
-#ifdef DEBUG
-					sprintf(_debugOutput, "This was handled as watts");
-					Serial.println(_debugOutput);
-#endif
-					strcpy(watts, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "duration") == 0)
-				{
-#ifdef DEBUG
-					sprintf(_debugOutput, "This was handled as duration");
-					Serial.println(_debugOutput);
-#endif
-					strcpy(duration, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "socPercent") == 0)
-				{
-#ifdef DEBUG
-					sprintf(_debugOutput, "This was handled as socPercent");
-					Serial.println(_debugOutput);
-#endif
-					strcpy(socPercent, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "start") == 0)
-				{
-#ifdef DEBUG
-					sprintf(_debugOutput, "This was handled as start");
-					Serial.println(_debugOutput);
-#endif
-					strcpy(startPos, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "end") == 0)
-				{
-#ifdef DEBUG
-					sprintf(_debugOutput, "This was handled as end");
-					Serial.println(_debugOutput);
-#endif
-					strcpy(endPos, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "seq") == 0)
-				{
-					strcpy(seq, pairValueClean);
-				}
-				else if (strcmp(pairNameClean, "powerOnly") == 0)
-				{
-					strcpy(powerOnly, pairValueClean);
-				}
-			}
+			result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
+			strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 		}
 	}
 
@@ -1687,126 +1493,83 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		idleHoldCommand(_idleHold);
 	}
 
-	// Carry on?
+	// Carry on? A value that is missing, not a number of the right kind or out of range writes nothing.
 	if (result == modbusRequestAndResponseStatusValues::preProcessing)
 	{
 		if (subScription == mqttSubscriptions::readHandledRegister)
 		{
-			// Check if registerAddress found
-			if (!*registerAddress)
+			if (!parseHex16(fields.registerAddress, registerAddressConverted))
 			{
-#ifdef DEBUG
-				sprintf(_debugOutput, "Trying to readHandledRegister without a registerAddress!");
-				Serial.println(_debugOutput);
-#endif
 				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
 				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
 			else
 			{
-				// Convert string to a number using base 16.
-				registerAddressConverted = strtoul(registerAddress, NULL, 16);
-
 				result = _registerHandler->readHandledRegister(registerAddressConverted, &response);
 			}
 		}
 		else if (subScription == mqttSubscriptions::readRawRegister)
 		{
-			if (!*registerAddress || !*dataBytes)
+			// The reply must fit the receive buffer
+			if (!parseHex16(fields.registerAddress, registerAddressConverted) || !parseWhole(fields.dataBytes, dataBytesConverted)
+				|| !readRequestFits(dataBytesConverted / 2, MAX_FRAME_SIZE_ZERO_INDEXED))
 			{
-#ifdef DEBUG
-				sprintf(_debugOutput, "Trying to readRawRegister without a registerAddress or dataBytes!");
-				Serial.println(_debugOutput);
-#endif
-				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
-				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
-			}
-			else if (!readRequestFits(strtoul(dataBytes, NULL, 10) / 2, MAX_FRAME_SIZE_ZERO_INDEXED))
-			{
-				// The reply would not fit the receive buffer
 				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
 				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
 			else
 			{
-				registerAddressConverted = strtoul(registerAddress, NULL, 16);
-
-				// Convert string to number using base ten
-				registerCount = strtoul(dataBytes, NULL, 10);
-				registerCount = registerCount / 2;
-				response.registerCount = registerCount;
-
+				response.registerCount = dataBytesConverted / 2;
 				result = _registerHandler->readRawRegister(registerAddressConverted, &response);
 			}
 		}
 		else if (subScription == mqttSubscriptions::writeRawSingleRegister)
 		{
-			if (!*registerAddress || !*value)
+			if (!parseHex16(fields.registerAddress, registerAddressConverted) || !parseWhole(fields.value, valueConverted) || valueConverted > 0xFFFF)
 			{
-#ifdef DEBUG
-				sprintf(_debugOutput, "Trying to writeRawSingleRegister without a registerAddress or value!");
-				Serial.println(_debugOutput);
-#endif
 				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
 				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
 			else
 			{
-				registerAddressConverted = strtoul(registerAddress, NULL, 16);
-				singleRegisterValueConverted = strtoul(value, NULL, 10);
-
-				result = _registerHandler->writeRawSingleRegister(registerAddressConverted, singleRegisterValueConverted, &response);
+				result = _registerHandler->writeRawSingleRegister(registerAddressConverted, valueConverted, &response);
 			}
 		}
 		else if (subScription == mqttSubscriptions::writeRawDataRegister)
 		{
-			if (!*registerAddress || !*dataBytes || !*value)
+			// One or two registers, the only sizes writeRawDataRegister builds a frame for
+			if (!parseHex16(fields.registerAddress, registerAddressConverted) || !parseWhole(fields.value, valueConverted)
+				|| !parseWhole(fields.dataBytes, dataBytesConverted) || (dataBytesConverted != 2 && dataBytesConverted != 4)
+				|| (dataBytesConverted == 2 && valueConverted > 0xFFFF))
 			{
-#ifdef DEBUG
-				sprintf(_debugOutput, "Trying to writeRawDataRegister without a registerAddress, dataBytes or value!");
-				Serial.println(_debugOutput);
-#endif
 				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
 				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
 			else
 			{
-				registerAddressConverted = strtoul(registerAddress, NULL, 16);
-				dataRegisterValueConverted = strtoul(value, NULL, 10);
-				registerCount = strtoul(dataBytes, NULL, 10);
-				registerCount = registerCount / 2;
-				response.registerCount = registerCount;
-
-				result = _registerHandler->writeRawDataRegister(registerAddressConverted, dataRegisterValueConverted, &response);
+				response.registerCount = dataBytesConverted / 2;
+				result = _registerHandler->writeRawDataRegister(registerAddressConverted, valueConverted, &response);
 			}
 		}
 		else if (subScription == mqttSubscriptions::readHandledRegisterAll)
 		{
-			if(!*startPos || !*endPos)
+			if (!parseWhole(fields.start, startPosConverted) || !parseWhole(fields.end, endPosConverted))
 			{
-#ifdef DEBUG
-				sprintf(_debugOutput, "Trying to readHandledRegisterAll without a start or end!");
-				Serial.println(_debugOutput);
-#endif
 				result = modbusRequestAndResponseStatusValues::invalidMQTTPayload;
 				strcpy(response.statusMqttMessage, MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
 			else
 			{
-				startPosConverted = strtoul(startPos, NULL, 10);
-				endPosConverted = strtoul(endPos, NULL, 10);
-
 				// Despite a start and end provided, ensure not above the array size
-				int numberOfRegisters = sizeof(_mqttAllHandledRegisters) / sizeof(_mqttAllHandledRegisters[0]);
-				uint16_t minPosition = startPosConverted;
-				uint16_t maxPosition = endPosConverted > numberOfRegisters - 1 ? numberOfRegisters - 1 : endPosConverted;
+				uint32_t numberOfRegisters = sizeof(_mqttAllHandledRegisters) / sizeof(_mqttAllHandledRegisters[0]);
+				uint32_t maxPosition = endPosConverted > numberOfRegisters - 1 ? numberOfRegisters - 1 : endPosConverted;
 
 				bool anyMember = false;
 
 				resultAddToPayload = addToPayload("{\r\n");
 				if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 				{
-					for (int l = minPosition; l <= maxPosition; l++)
+					for (uint32_t l = startPosConverted; l <= maxPosition; l++)
 					{
 						result = addStateInfo(_mqttAllHandledRegisters[l], anyMember, resultAddToPayload);
 						if (resultAddToPayload == modbusRequestAndResponseStatusValues::payloadExceededCapacity)
@@ -1825,68 +1588,39 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		}
 		else if ((subScription == mqttSubscriptions::setCharge) || (subScription == mqttSubscriptions::setDischarge))
 		{
-			// Handles dispatch mode for charge and discharge
-			// Code is fundamentally the same, just a different charge power.
-			int multiplier = 1;
+			// Charge and discharge differ only in the sign of the power
+			int multiplier = subScription == mqttSubscriptions::setCharge ? -1 : 1;
+			bool powerOnlyAllowed = false;
 			bool powerOnlyWrite = false;
 
-			//if (strcmp(topic, DEVICE_NAME MQTT_SUB_REQUEST_SET_CHARGE) == 0)
-			if (subScription == mqttSubscriptions::setCharge)
+			if (!*fields.watts || !*fields.socPercent || !*fields.duration)
 			{
-#ifdef DEBUG
-				sprintf(_debugOutput, "Multiplier for setCharge will be -1");
-				Serial.println(_debugOutput);
-#endif
-				multiplier = -1;
-			}
-			else
-			{
-#ifdef DEBUG
-				sprintf(_debugOutput, "Multiplier for setDischarge will be 1");
-				Serial.println(_debugOutput);
-#endif
-				multiplier = 1;
-			}
-
-			if (!*watts || !*socPercent || !*duration)
-			{
-#ifdef DEBUG
-				sprintf(_debugOutput, "Trying to setCharge or setDischarge without a watts, socPercent or duration!");
-				Serial.println(_debugOutput);
-#endif
 				// Nothing is written. The refusal carries the seq like any set response, so the sender fails the command at once.
-				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"missing\"", MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
+				snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"missing\"", MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
-			else if (!dispatchRequestValid(strtoul(watts, NULL, 10), strtoul(socPercent, NULL, 10)))
+			else if (!parseWhole(fields.watts, chargeDischargeWattsConverted) || !parseWhole(fields.socPercent, batterySocPercentConverted)
+				|| !parseWhole(fields.duration, durationSecondsConverted) || (*fields.seq && !parseWhole(fields.seq, seqConverted))
+				|| (*fields.powerOnly && !parseFlag(fields.powerOnly, powerOnlyAllowed)))
 			{
-				// Out of range, so nothing is written. A negative number reads as a huge one and is refused too.
-				sprintf(stateAddition, "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"range\"", MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
+				// 150.5, -1, 1e3 or "yes": refused, never read as some other number
+				snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"value\"", MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
+			}
+			else if (!dispatchRequestValid(chargeDischargeWattsConverted, batterySocPercentConverted, durationSecondsConverted))
+			{
+				// Out of range, so nothing is written
+				snprintf(stateAddition, sizeof(stateAddition), "{\r\n    \"responseStatus\": \"%s\",\r\n    \"failureDetail\": \"range\"", MODBUS_REQUEST_AND_RESPONSE_INVALID_MQTT_PAYLOAD_MQTT_DESC);
 			}
 			else
 			{
-				chargeDischargeWattsConverted = strtoul(watts, NULL, 10);
-				batterySocPercentConverted = strtoul(socPercent, NULL, 10);
-				durationSecondsConverted = strtoul(duration, NULL, 10);
-
-#ifdef DEBUG
-				sprintf(_debugOutput, "Base 10 type-cast values for watts, socPercent and duration are %d, %d and %d respectively", chargeDischargeWattsConverted, batterySocPercentConverted, durationSecondsConverted);
-				Serial.println(_debugOutput);
-#endif
-				// Adjust
 				// Charge < 32000, discharge > 32000
 				chargeDischargeWattsConverted = 32000 + (chargeDischargeWattsConverted * multiplier);
 				batterySocPercentConverted = dispatchSocFromPercent(batterySocPercentConverted);
-
-#ifdef DEBUG
-				sprintf(_debugOutput, "And adjusted values for watts and socPercent are %d and %d respectively", chargeDischargeWattsConverted, batterySocPercentConverted);
-				Serial.println(_debugOutput);
-#endif
 
 				bool charge = subScription == mqttSubscriptions::setCharge;
 				int blockFrames = 1;
 				uint32_t writeStartedMs = millis();
 				DispatchBlock running = _activeDispatch;
-				powerOnlyWrite = dispatchPowerOnly(strcmp(powerOnly, "1") == 0, running, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs);
+				powerOnlyWrite = dispatchPowerOnly(powerOnlyAllowed, running, charge, batterySocPercentConverted, durationSecondsConverted, writeStartedMs);
 
 				// Cleared until this write is acknowledged, so after any failure the next command writes the whole block
 				_activeDispatch.valid = false;
@@ -1939,11 +1673,16 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				}
 			}
 			resultAddToPayload = addToPayload(stateAddition);
-			resultAddToPayload = closeSetResponse(seq);
+			resultAddToPayload = closeSetResponse(seqConverted);
 		}
 
 		else if (subScription == mqttSubscriptions::setNormal)
 		{
+			// Ending dispatch is always safe, so a seq that is not a number only echoes as 0
+			if (!parseWhole(fields.seq, seqConverted))
+			{
+				seqConverted = 0;
+			}
 			// Turns off dispatch mode for normal
 			resultDispatch = writeDispatchStop(&responseDispatch);
 			if (resultDispatch != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
@@ -1956,7 +1695,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				result = modbusRequestAndResponseStatusValues::setNormalSuccess;
 			}
 			resultAddToPayload = addToPayload(stateAddition);
-			resultAddToPayload = closeSetResponse(seq);
+			resultAddToPayload = closeSetResponse(seqConverted);
 		}
 
 	}
@@ -1978,7 +1717,7 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		// Providing we had a payload and it was valid, we can at least send the registerAdress back to give the user some context
 		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload && (result != modbusRequestAndResponseStatusValues::noMQTTPayload && result != modbusRequestAndResponseStatusValues::invalidMQTTPayload))
 		{
-			sprintf(stateAddition, "    \"registerAddress\": \"%s\",\r\n", registerAddress);
+			snprintf(stateAddition, sizeof(stateAddition), "    \"registerAddress\": \"%s\",\r\n", fields.registerAddress);
 			resultAddToPayload = addToPayload(stateAddition);
 		}
 

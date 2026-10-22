@@ -20,14 +20,19 @@ int main()
 	expect(!requestPayloadFits(128), "128 bytes are rejected");
 	expect(!requestPayloadFits(4096), "a full MQTT buffer is rejected");
 
-	expect(dispatchRequestValid(0, 0), "0 W to 0 %");
-	expect(dispatchRequestValid(32000, 100), "32000 W to 100 % is the edge");
-	expect(!dispatchRequestValid(32001, 50), "a charge over 32000 W would wrap the register below 0");
-	expect(dispatchRequestValid(50, 105), "105 is the last step past full");
-	expect(!dispatchRequestValid(50, 106), "a SOC past 105");
-	expect(!dispatchRequestValid(65636, 50), "a watts that a 16 bit cast would shrink");
-	expect(!dispatchRequestValid(50, 65636), "a SOC that a 16 bit cast would shrink to 100");
-	expect(!dispatchRequestValid(0xFFFFFFFBul, 50), "a negative watts parsed as unsigned");
+	expect(dispatchRequestValid(0, 0, 120), "0 W to 0 %");
+	expect(dispatchRequestValid(32000, 100, 120), "32000 W to 100 % is the edge");
+	expect(!dispatchRequestValid(32001, 50, 120), "a charge over 32000 W would wrap the register below 0");
+	expect(dispatchRequestValid(50, 105, 120), "105 is the last step past full");
+	expect(!dispatchRequestValid(50, 106, 120), "a SOC past 105");
+	expect(!dispatchRequestValid(65636, 50, 120), "a watts that a 16 bit cast would shrink");
+	expect(!dispatchRequestValid(50, 65636, 120), "a SOC that a 16 bit cast would shrink to 100");
+	expect(!dispatchRequestValid(0xFFFFFFFBul, 50, 120), "a negative watts parsed as unsigned");
+	expect(dispatchRequestValid(50, 50, 1), "a 1 s lease");
+	expect(dispatchRequestValid(50, 50, 86400), "a one day lease, the longest the package scripts send");
+	expect(!dispatchRequestValid(50, 50, 0), "no lease");
+	expect(!dispatchRequestValid(50, 50, 86401), "past a day");
+	expect(!dispatchRequestValid(50, 50, 4294967295ul), "-1 read as unsigned");
 
 	expect(dispatchSocFromPercent(0) == 0, "0 % sends 0");
 	expect(dispatchSocFromPercent(10) == 25, "10 % sends 25");

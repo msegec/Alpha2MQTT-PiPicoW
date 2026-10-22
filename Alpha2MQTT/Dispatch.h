@@ -12,12 +12,16 @@ inline bool requestPayloadFits(unsigned int length)
 	return length <= MQTT_REQUEST_PAYLOAD_MAX;
 }
 
+// The longest dispatch lease a request may ask for. The package scripts offer up to a day; the controller sends
+// 60 to 600 s. What the inverter does with 0 or a longer lease is unknown, so neither is written.
+#define DISPATCH_DURATION_MAX_S 86400
+
 // The active power register is 32000 plus the discharge watts or minus the charge watts, so a charge over
-// 32000 W would wrap below zero. A SOC above 105, the last step past full, is no target. Checked before either
+// 32000 W would wrap below zero. A SOC above 105, the last step past full, is no target. Checked before any
 // is narrowed.
-inline bool dispatchRequestValid(unsigned long watts, unsigned long socPercent)
+inline bool dispatchRequestValid(unsigned long watts, unsigned long socPercent, unsigned long durationS)
 {
-	return watts <= 32000ul && socPercent <= 105ul;
+	return watts <= 32000ul && socPercent <= 105ul && durationS >= 1ul && durationS <= DISPATCH_DURATION_MAX_S;
 }
 
 // The dispatch SOC register counts 0.4 % per bit. Round up, so a charge reaches at least the target

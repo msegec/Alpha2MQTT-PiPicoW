@@ -1,6 +1,6 @@
 # Firmware command path: MQTT requests, dispatch writes, idle hold, PV meter zero filter
 
-Last verified: 2026-10-21, past-full SOC 101 added; the Pico W build compiles. `tests/firmware/run` passed: test_dispatch, test_idle_hold, test_json_members, test_modbus_frame, test_pv_meter, test_registers, test_timer all print OK, exit 0.
+Last verified: 2026-10-22, request parser moved to `Request.h`; the Pico W build compiles. `tests/firmware/run` passed: test_dispatch, test_idle_hold, test_json_members, test_modbus_frame, test_pv_meter, test_registers, test_request, test_timer all print OK, exit 0.
 
 ## Files and symbols
 
@@ -13,7 +13,8 @@ Last verified: 2026-10-21, past-full SOC 101 added; the Pico W build compiles. `
 | `closeSetResponse` | same | Appends `seq` and `ms` to every set response |
 | `addStateInfo` | same | Clears `_activeDispatch` when a read of 0x0880 is not 1 |
 | `_activeDispatch`, `_blockFrameRefused`, `_idleHold` | same | Globals, RAM only, reset by reboot |
-| `requestPayloadFits`, `dispatchRequestValid`, `dispatchSocFromPercent`, `dispatchPowerOnly`, `dispatchBlockFrame` | `Alpha2MQTT/Dispatch.h` | Pure helpers, host tested |
+| `requestPayloadFits`, `dispatchRequestValid`, `DISPATCH_DURATION_MAX_S`, `dispatchSocFromPercent`, `dispatchPowerOnly`, `dispatchBlockFrame` | `Alpha2MQTT/Dispatch.h` | Pure helpers, host tested |
+| `RequestFields`, `parseRequestFields`, `parseWhole`, `parseHex16`, `parseFlag` | `Alpha2MQTT/Request.h` | Pure request parser, host tested in `test_request.cpp` |
 | `IdleHold`, `idleHoldStatus`, `idleHoldCommand`, `idleHoldDue`, `idleHoldWritten`, `haGone`, `haStatusFromPayload` | `Alpha2MQTT/IdleHold.h` | Pure state machine, host tested |
 | `pvMeterZeroUnconfirmed` | `Alpha2MQTT/PvMeter.h` | Pure filter, used by `RegisterHandler::readPvMeterPower` |
 | `RegisterHandler::writeDispatchBlock`, `writeRawDataRegister` | `Alpha2MQTT/RegisterHandler.cpp` | Build frames, call `sendModbus` |
@@ -24,13 +25,13 @@ Last verified: 2026-10-21, past-full SOC 101 added; the Pico W build compiles. `
 
 | Request suffix | Keys used | Response suffix |
 |---|---|---|
-| `/request/set/charge` | `watts`, `socPercent`, `duration` required; `seq`, `powerOnly` optional | `/response/set/charge` |
+| `/request/set/charge` | `watts`, `socPercent`, `duration` required, whole decimal numbers; `seq` (whole number), `powerOnly` (`1`, `true`, `0`, `false`) optional | `/response/set/charge` |
 | `/request/set/discharge` | same | `/response/set/discharge` |
-| `/request/set/normal` | `seq` optional; payload must be non-empty | `/response/set/normal` |
-| `/request/read/register/handled` | `registerAddress` (hex) | `/response/read/register/handled` |
+| `/request/set/normal` | `seq` optional, echoed as 0 when not a whole number; payload must be non-empty | `/response/set/normal` |
+| `/request/read/register/handled` | `registerAddress` (hex, `0x` optional, 16 bit) | `/response/read/register/handled` |
 | `/request/read/register/raw` | `registerAddress` (hex), `dataBytes` (decimal, registers = dataBytes/2) | `/response/read/register/raw` |
-| `/request/write/register/raw/single` | `registerAddress` (hex), `value` (decimal, 16 bit) | `/response/write/register/raw/single` |
-| `/request/write/register/raw/data` | `registerAddress` (hex), `dataBytes` (2 or 4), `value` (decimal) | `/response/write/register/raw/data` |
+| `/request/write/register/raw/single` | `registerAddress` (hex), `value` (decimal, at most 65535) | `/response/write/register/raw/single` |
+| `/request/write/register/raw/data` | `registerAddress` (hex), `dataBytes` (2 or 4, else refused), `value` (decimal, at most 65535 for 2 bytes) | `/response/write/register/raw/data` |
 | `/request/read/register/handled/all` | `start`, `end` (decimal indexes into `_mqttAllHandledRegisters`, end clamped) | `/response/read/register/handled/all` |
 | `homeassistant/status` | raw `online` or `offline`, exact bytes | none |
 
@@ -41,8 +42,8 @@ Order of checks:
 2. Status topic: `idleHoldStatus(haStatusFromPayload(...))`, return. No write here.
 3. Unknown topic: `notValidIncomingTopic`, no response published.
 4. Empty payload: `noMQTTPayload`, generic response, nothing written.
-5. Hand rolled JSON parser: splits on `:`, `,`, `{`, `}`. A key or value over 31 chars fails the whole request as `invalidMQTTPayload` (1ff3b82).
-6. Key cleaning keeps only `[A-Za-z0-9]`. Value cleaning keeps only `-`, `x`, `0-9`, `a-f`, `A-F`. Then `strtoul`.
+5. `parseRequestFields` (`Request.h`): splits on `:`, `,`, `{`, `}`. A raw key or value over 31 chars, spaces and quotes included, fails the whole request as `invalidMQTTPayload` (1ff3b82). Flat objects only; unknown keys are ignored; a repeated key keeps its last value.
+6. A key keeps only `[A-Za-z0-9]`. A value keeps its text less surrounding white space and one pair of double quotes. Each branch then parses it as its type: `parseWhole` (digits only, at most 4294967295), `parseHex16` (`0x` optional, at most 0xFFFF) or `parseFlag`. Anything else is refused, so `150.5`, `-1`, `1e3`, `0x10` as a decimal and `true` as a number never read as another number. Before 2026-10-22 a value cleaner stripped other characters and `strtoul` read what was left: `150.5` became 1505, `true` became `e`.
 7. Side effects before any branch runs, whatever the result so far:
    - raw single, raw data or `set/normal` topic: `_activeDispatch.valid = false`.
    - `set/charge`, `set/discharge`, `set/normal` topic: `idleHoldCommand(_idleHold)`.
@@ -52,9 +53,10 @@ Charge and discharge checks, in order. Both refusals write nothing:
 | Condition | Response `responseStatus` | `failureDetail` |
 |---|---|---|
 | `watts`, `socPercent` or `duration` missing | `invalidMQTTPayload` | `missing` |
-| `!dispatchRequestValid(watts, socPercent)`: watts > 32000 or SOC > 105, checked as unsigned long before narrowing | `invalidMQTTPayload` | `range` |
+| `watts`, `socPercent`, `duration` or a sent `seq` not a whole decimal number, or a sent `powerOnly` not `1`, `true`, `0` or `false` | `invalidMQTTPayload` | `value` |
+| `!dispatchRequestValid(watts, socPercent, duration)`: watts > 32000, SOC > 105, or duration 0 or over `DISPATCH_DURATION_MAX_S` 86400 | `invalidMQTTPayload` | `range` |
 
-`duration` has no range check. It is a `uint32_t` from `strtoul`.
+The raw and read topics answer a missing or malformed value with the generic `invalidMQTTPayload` response and send nothing.
 
 ## Encoding of the dispatch block
 
@@ -91,7 +93,7 @@ Dispatch mode lookup (`Note7` in `Definitions.h`). Only mode 2 is ever written. 
 ## Write paths for set/charge and set/discharge
 
 `dispatchPowerOnly(allowed, last, charge, socReg, durationS, nowMs)` decides first. True only when all hold:
-- payload `powerOnly` cleans to exactly `1`;
+- payload `powerOnly` is `1` or `true`;
 - `_activeDispatch.valid`;
 - same kind (charge vs discharge), same SOC register value, same duration;
 - `(now - writtenMs) / 1000 < durationS / 2`, wrap safe. A duration under 2 s never qualifies.
@@ -123,13 +125,13 @@ Set responses are built by hand and end with `closeSetResponse`:
 |---|---|---|---|
 | charge ok | `setChargeSuccess` | `""` | yes |
 | discharge ok | `setDishargeSuccess` (sic, missing c) | `""` | yes |
-| missing / range | `invalidMQTTPayload` | `missing` / `range` | no |
+| missing / value / range | `invalidMQTTPayload` | `missing` / `value` / `range` | no |
 | power only write failed | Modbus status of that write | `REG_DISPATCH_RW_ACTIVE_POWER_1` | yes |
 | block failed | Modbus status of the last write tried | `REG_DISPATCH_RW_<name>` of the failing single write | yes |
 | normal ok | `setNormalSuccess` | `""` | no |
 | normal failed | Modbus status | `REG_DISPATCH_RW_DISPATCH_START` | no |
 
-- `seq` is `strtoul(seq, 10)`, 0 when absent (c86f28c). `ms` is `millis()` after the writes.
+- `seq` is the request's whole number, 0 when absent (c86f28c). `ms` is `millis()` after the writes.
 - Refusals carry `seq` so the sender fails the command at once (5f0aff3).
 - A key or value too long, or an empty payload, on a set topic gets the generic response instead, with no `seq`.
 - Generic response (raw and read topics, and the two failures above): `responseStatus`, then when present `registerAddress`, `functionCode`, `registerName`, `dataType`, `dataValue`, `formattedDataValue`, `slaveErrorCode`, `rawDataSize`, `rawData`, and always `"end": "true"`.
@@ -187,7 +189,8 @@ Gone rules (`haGone` = `offlineGone || mqttGone`):
 ## Invariants pinned by tests
 
 - 127 bytes fit, 128 rejected (`test_dispatch.cpp`).
-- 32000 W and 105 accepted; 32001 W, 106, 65636 and a negative watts parsed as unsigned refused.
+- 32000 W and 105 accepted; 32001 W, 106, 65636 and a negative watts parsed as unsigned refused. Duration 1 and 86400 accepted, 0, 86401 and 4294967295 refused.
+- Parser (`test_request.cpp`): the controller's and the scripts' payloads parse; `150.5`, `true` and `-1` are kept as text and refused by `parseWhole`; 31 raw characters fit, 32 do not; `parseWhole` refuses one past 4294967295, signs, points, exponents and hex; `parseHex16` takes `0x0880`, `0880`, `FFFF`, refuses `0x10000`; `parseFlag` takes `1`, `true`, `0`, `false` only.
 - SOC register is never below the requested percent and less than one step above it, for 0 to 100.
 - Power only: true at 59.999 s of a 120 s lease, false at 60 s; false on kind, SOC or duration change, cleared block, `allowed` false; wrap safe.
 - Exact 27 byte frame layout for discharge 150 W, SOC 25, 120 s.
@@ -197,19 +200,17 @@ Gone rules (`haGone` = `offlineGone || mqttGone`):
 
 ## Gotchas
 
-- Decimal points are stripped by the value cleaner: `"watts": 150.5` becomes 1505.
-- `"powerOnly": true` cleans to `e`, so it does not enable power only. Send `1`.
-- `"watts": "0x10"` parses as 0 (base 10 `strtoul` stops at `x`).
+- A value in quotes parses the same as without: `"watts": "150"` is 150. A whole number with a point, `150.0`, is refused.
 - Discharge success string is `setDishargeSuccess`. Do not fix it without updating every consumer.
 - `set/normal` with an empty payload writes nothing and still clears `_activeDispatch` and counts as an HA command. Send `{}` or `{"seq": N}`.
 - Any raw write, to any register, clears `_activeDispatch`.
-- `writeRawDataRegister` builds a frame only for `dataBytes` 2 or 4. Other values send nothing; the reported status then is unknown.
+- `writeRawDataRegister` builds a frame only for `dataBytes` 2 or 4. The callback refuses any other `dataBytes` as `invalidMQTTPayload`; it still clears `_activeDispatch`.
 - `README.md` example responses omit `frames`; the code always adds it on the block path.
 - A power only write does not renew the lease timestamp; the controller must send a full block before half the duration passes.
 
 ## Open questions
 
 - Does the inverter apply a power only write mid dispatch, and does it restart its timer? Unknown.
-- Inverter behaviour for `duration` 0 or very large values: unknown. No firmware check.
+- Inverter behaviour for `duration` 0 or over a day: unknown, and the firmware refuses both.
 - Does mode 2 end dispatch when the SOC target is reached, or hold? The vendor dispatch guide says the charge stops at the target and the battery idles for the rest of the duration. Live on the B3: register 250 stopped at 99.2 %, with battery power at 0 W within one sample while the BMS still allowed full charge current; 251 stopped at 99.6 %, cells 3.42 V; 252 is full; 255 charges on until the BMS ends it. So the 0.4 % scale is wrong at the top, and 100 % sent as 250 left the battery short of full for days. The controller sends a charge to 100 % as its Full charge register setting (252, socPercent 102). 105 (255) is the balance target.
 - Effect of the fallback leaving reactive power 0x0883 unwritten: unknown.
