@@ -501,7 +501,7 @@ class Regulator:
             self.status = policy.mode
             self._restart()
             self.ff_w = 0.0
-            self.error_w = 0.0 if self.grid_w is None else self.grid_w - s.target_w
+            self.error_w = 0.0 if self.grid_w is None else self.grid_w - s.target_w - policy.target_offset_w
             self.p_w = 0.0
             request = lo = hi = policy.fixed_w if policy.mode == FIXED else 0.0  # HOLD sends 0 W, see _command
             held = False

@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d80bfb1 plus the regulator fixes up to HOLD at 0 W, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 321 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the regulator fixes up to `error_w` with the offset, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 324 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -34,7 +34,7 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | `Regulator.load_trim(points)` | pairs | Restores a saved table. False and no change for a malformed table, other nodes, a non-finite value, a non-zero 0 W node, or neighbours (after the clip) further apart than `TRIM_SLOPE` times their spacing plus `TRIM_ROUND_W`. A value past `trim_limit_w` loads clipped to it. Rejected, not repaired: `_teach` never builds a steeper table, so it is not a learned one, and any repair would invent a table nobody measured. |
 | `Regulator.reset_trim()` | | Zeroes the learned table. |
 
-Readable fields for status: `trim` (learned W per `TRIM_NODES` node), `trim_moves` (count of learning moves, for the controller to notice a change), `status`, `limit`, `error_w` (raw, before the deadband), `request_w`, `output_w`, `integral_w`, `ff_w`, `sent`, `refused_soc`, `soc`, `grid_w`, `battery_w`, `solar_w` (the last sample's solar, None when unknown), `offset_w` (the offset correction this step: the command asks for `output_w + offset_w`; 0 outside `REGULATE` and after a hand back).
+Readable fields for status: `trim` (learned W per `TRIM_NODES` node), `trim_moves` (count of learning moves, for the controller to notice a change), `status`, `limit`, `error_w` (raw, before the deadband: `grid_w - target_w - target_offset_w` in every mode, 0 under HOLD/FIXED before any reading), `request_w`, `output_w`, `integral_w`, `ff_w`, `sent`, `refused_soc`, `soc`, `grid_w`, `battery_w`, `solar_w` (the last sample's solar, None when unknown), `offset_w` (the offset correction this step: the command asks for `output_w + offset_w`; 0 outside `REGULATE` and after a hand back).
 
 Diagnosis only, never read back by `step`: `p_w` (`kp * e`, 0 outside regulating), `lo_w` and `hi_w` (caps after floor, refusal and full; `fixed_w` under FIXED, 0 under HOLD), `u_w` (output after caps, turn round and ready floor, before the slew), `slewed` (the slew clip changed it). A hand back sets `lo_w`, `hi_w`, `u_w` to None, `p_w` to 0, `slewed` to False. Properties: `direction`, `direction_since` (`_t_direction`, None while it is still `-inf`), `refusal_since` (`_t_low`), `fresh_at` (`_t_fresh`). Adding them left `GOLDEN_FLOOR_OFF` unchanged.
 
@@ -226,7 +226,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_bumpless_start_*`, `test_load_step_is_corrected_*`, `test_load_step_goes_out_in_one_command` | Start from measured battery; a load step goes out whole in one command. |
 | `test_output_clamped_*`, `test_slew_*`, `test_min_interval_*`, `test_small_changes_wait_for_keepalive` | Caps, slew from last sent, min interval, write threshold vs keepalive. |
 | `test_no_flapping_*`, `test_default_dwell_*`, `test_flip_needs_margin_*` | Turn round margin and dwell. |
-| `test_hold_shows_and_turns_on_the_0_w_*`, `test_stale_*`, `test_correction_updates_*`, `test_release_*`, `test_lease_expiry_*`, `test_a_release_at_start_*` | Hand back rules and lease logic. |
+| `test_hold_shows_and_turns_on_the_0_w_*`, `test_the_error_counts_the_policy_offset_*`, `test_stale_*`, `test_correction_updates_*`, `test_release_*`, `test_lease_expiry_*`, `test_a_release_at_start_*` | Hand back rules and lease logic. |
 | `test_a_failed_*`, `test_min_interval_holds_across_a_release` | Retry and anti-hammer. |
 | `test_acked_*`, `test_early_send_*`, `test_an_ack_counts_*`, `test_power_*`, `test_a_power_change_*`, `test_keepalive_kind_and_soc_*`, `test_after_an_acked_power_write_*`, `test_early_follow_up_*` | Early send and power-only write rules. |
 | `test_integral_*`, `test_a_gap_in_samples_*`, `test_closed_loop_settles_*`, `test_small_trims_do_not_hold_*`, `test_a_big_move_still_waits_*` | Integral bounds, freeze, arrival gate. |
@@ -266,7 +266,6 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 - `_saturation` is set before the turn round check, so a turn round hold does not freeze the integral. The ready floor recomputes it.
 - `_restart` clears `refused_soc` and `_t_low` but not `_t_refused`. A timed refusal hold survives a short HOLD, FIXED or stale spell. Any HOLD/FIXED step ends a latched near-floor refusal.
 - A mode string other than the four constants takes the regulating branch with `_regulating` False: no integral, bumpless start every step. The controller maps unknown states to `RELEASE` first.
-- `error_w` in HOLD/FIXED is `grid_w - target_w`, without the offset.
 - `fresh=False` samples still update `grid_w`, `battery_w`, `_t_measure` and the integral, but not the solar step or the spike flag.
 - Bumpless start does not reset `_t_direction`, so on a new regulator the dwell has already passed.
 

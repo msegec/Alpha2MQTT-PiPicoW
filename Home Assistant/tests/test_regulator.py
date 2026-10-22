@@ -260,6 +260,14 @@ def test_hold_shows_and_turns_on_the_0_w_it_sends_whatever_fixed_w_says():
     assert reg.direction == -1  # 0 W turns nothing round
 
 
+@pytest.mark.parametrize("mode", [R.REGULATE, R.HOLD, R.FIXED])
+def test_the_error_counts_the_policy_offset_in_every_mode(mode):
+    reg = make(target_w=20)
+    reg.update_grid(0, 300, 0, soc=50)
+    reg.step(0, replace(BOTH, mode=mode, target_offset_w=100))
+    assert reg.error_w == 180
+
+
 def test_charge_uses_policy_soc():
     reg = make()
     reg.update_grid(0, -1500, 0)
