@@ -134,7 +134,7 @@ Set responses are built by hand and end with `closeSetResponse`:
 - `seq` is the request's whole number, 0 when absent (c86f28c). `ms` is `millis()` after the writes.
 - Refusals carry `seq` so the sender fails the command at once (5f0aff3).
 - A key or value too long, or an empty payload, on a set topic gets the generic response instead, with no `seq`.
-- Generic response (raw and read topics, and the two failures above): `responseStatus`, then when present `registerAddress`, `functionCode`, `registerName`, `dataType`, `dataValue`, `formattedDataValue`, `slaveErrorCode`, `rawDataSize`, `rawData`, and always `"end": "true"`.
+- Generic response (raw and read topics, and the two failures above): `responseStatus`, then when present `registerAddress`, `functionCode`, `registerName`, `dataType`, `dataValue`, `formattedDataValue`, `slaveErrorCode`, `rawDataSize`, `rawData`, and always `"end": "true"`, except after a payload overflow, which publishes only the `mqttError` object.
 - `handled/all` returns an object of register name to value, no `responseStatus`.
 - Responses are built in `_commandPayload`, since a callback can run inside a schedule via `serviceBetweenReads`.
 

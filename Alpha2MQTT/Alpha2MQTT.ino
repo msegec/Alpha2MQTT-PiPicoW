@@ -977,25 +977,23 @@ modbusRequestAndResponseStatusValues addStateInfo(uint16_t registerAddress, bool
 
 
 
+/*
+addToPayload
+
+Appends to the payload being built. One that would overflow replaces the payload with a complete mqttError
+object, so callers add nothing more once this returns payloadExceededCapacity.
+*/
 modbusRequestAndResponseStatusValues addToPayload(const char* addition)
 {
-	int targetRequestedSize = strlen(_mqttPayload) + strlen(addition);
+	size_t targetRequestedSize;
 
-	// If max payload size is 2048 it is stored as (0-2047), however character 2048  (position 2047) is null terminator so 2047 chars usable usable
-	if (targetRequestedSize > _maxPayloadSize - 1)
+	if (!payloadAppend(_mqttPayload, _maxPayloadSize, addition, targetRequestedSize))
 	{
-		// Safely print using snprintf
-		snprintf(_mqttPayload, _maxPayloadSize, "{\r\n    \"mqttError\": \"Length of payload exceeds %d bytes.  Length would be %d bytes.\"\r\n}", _maxPayloadSize - 1, targetRequestedSize);
+		snprintf(_mqttPayload, _maxPayloadSize, "{\r\n    \"mqttError\": \"Length of payload exceeds %d bytes.  Length would be %u bytes.\"\r\n}", _maxPayloadSize - 1, (unsigned)targetRequestedSize);
 
 		return modbusRequestAndResponseStatusValues::payloadExceededCapacity;
 	}
-	else
-	{
-		// Add to the payload by sprintf back on itself with the addition
-		sprintf(_mqttPayload, "%s%s", _mqttPayload, addition);
-
-		return modbusRequestAndResponseStatusValues::addedToPayload;
-	}
+	return modbusRequestAndResponseStatusValues::addedToPayload;
 }
 
 
@@ -1673,7 +1671,10 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				}
 			}
 			resultAddToPayload = addToPayload(stateAddition);
-			resultAddToPayload = closeSetResponse(seqConverted);
+			if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
+			{
+				resultAddToPayload = closeSetResponse(seqConverted);
+			}
 		}
 
 		else if (subScription == mqttSubscriptions::setNormal)
@@ -1695,7 +1696,10 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 				result = modbusRequestAndResponseStatusValues::setNormalSuccess;
 			}
 			resultAddToPayload = addToPayload(stateAddition);
-			resultAddToPayload = closeSetResponse(seqConverted);
+			if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
+			{
+				resultAddToPayload = closeSetResponse(seqConverted);
+			}
 		}
 
 	}
@@ -1810,7 +1814,8 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 			resultAddToPayload = addToPayload(stateAddition);
 		}
 		// Horrible, however it sorts out needing to worry about commas from any of the above statements and is little overhead.
-		if (resultAddToPayload)
+		// Not after an overflow: the payload is then the complete mqttError object.
+		if (resultAddToPayload == modbusRequestAndResponseStatusValues::addedToPayload)
 		{
 			sprintf(stateAddition, "    \"end\": \"true\"\r\n}");
 			resultAddToPayload = addToPayload(stateAddition);

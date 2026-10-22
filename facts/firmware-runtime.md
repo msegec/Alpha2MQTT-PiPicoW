@@ -2,7 +2,7 @@
 
 One single threaded Arduino loop on the Pico W. It polls the inverter on fixed schedules, publishes JSON state over MQTT and runs commands inline, between bus reads.
 
-Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
+Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
 
 ## Boot sequence (`setup`)
 
@@ -102,7 +102,7 @@ Keys: `REG_GRID_METER_R_FREQUENCY`, `REG_PV_METER_R_FREQUENCY`, `REG_INVERTER_HO
 
 ### Overflow
 
-If a payload would exceed `_maxPayloadSize - 1`, `addToPayload` replaces it with `{"mqttError": "Length of payload exceeds N bytes.  Length would be M bytes."}`. That object is still published.
+If a payload would exceed `_maxPayloadSize - 1`, `addToPayload` replaces it with `{"mqttError": "Length of payload exceeds N bytes.  Length would be M bytes."}`. That object is still published. Every caller adds nothing more after `payloadExceededCapacity`, so the object stays valid JSON. Before 2026-10-22 the generic command response appended `"end": "true"` and a set response appended its `seq` after it. `addToPayload` appends with `payloadAppend` (`JsonMembers.h`, tested in `test_json_members.cpp`), which refuses an addition whole; before, it ran `sprintf` with the payload as both source and destination.
 
 ## Subscriptions (made in `mqttReconnect`)
 

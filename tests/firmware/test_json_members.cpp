@@ -1,6 +1,7 @@
 // Host tests for JsonMembers.h. Run with tests/firmware/run.
 #include "JsonMembers.h"
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 static int failures = 0;
@@ -71,6 +72,21 @@ int main()
 	expect(fastState(3, none) == "{\r\n    \"r0\": 0,\r\n    \"r1\": 1,\r\n    \"r2\": 2,\r\n    \"seq\": 1\r\n}", "fast state, every read good, the bytes are unchanged");
 	expect(fastState(3, last) == "{\r\n    \"r0\": 0,\r\n    \"r1\": 1,\r\n    \"seq\": 1\r\n}", "fast state, the last read fails");
 	expect(fastState(3, all) == "{\r\n    \"seq\": 1\r\n}", "fast state, every read fails");
+
+	// payloadAppend: what addToPayload builds every payload with
+	char buffer[8] = "{";
+	size_t length = 0;
+
+	expect(payloadAppend(buffer, sizeof(buffer), "ab", length) && strcmp(buffer, "{ab") == 0 && length == 3, "an addition that fits goes on the end");
+	expect(payloadAppend(buffer, sizeof(buffer), "", length) && strcmp(buffer, "{ab") == 0 && length == 3, "an empty addition changes nothing");
+	expect(payloadAppend(buffer, sizeof(buffer), "cdef", length) && strcmp(buffer, "{abcdef") == 0 && length == 7, "seven characters fill an eight byte buffer with its terminator");
+	expect(!payloadAppend(buffer, sizeof(buffer), "g", length) && strcmp(buffer, "{abcdef") == 0 && length == 8, "one more is refused and the payload is unchanged");
+
+	char small[8] = "{";
+	expect(!payloadAppend(small, sizeof(small), "abcdefghij", length) && strcmp(small, "{") == 0 && length == 11, "a long addition is refused whole, never cut");
+
+	char aliased[8] = "ab";
+	expect(payloadAppend(aliased, sizeof(aliased), aliased + 1, length) && strcmp(aliased, "abb") == 0, "an addition from inside the payload is copied before it is overwritten");
 
 	if (failures == 0)
 	{
