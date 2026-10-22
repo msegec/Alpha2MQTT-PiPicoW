@@ -503,7 +503,7 @@ class Regulator:
             self.ff_w = 0.0
             self.error_w = 0.0 if self.grid_w is None else self.grid_w - s.target_w
             self.p_w = 0.0
-            request = lo = hi = policy.fixed_w
+            request = lo = hi = policy.fixed_w if policy.mode == FIXED else 0.0  # HOLD sends 0 W, see _command
             held = False
         elif not live:
             # Hand the inverter back now. Holding the last watts until the lease ran out could mean

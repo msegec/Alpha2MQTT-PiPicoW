@@ -250,6 +250,16 @@ def test_hold_dispatches_zero():
     assert reg.step(0, R.Policy(R.HOLD)) == R.Command("charge", 0, 100, 120)
 
 
+def test_hold_shows_and_turns_on_the_0_w_it_sends_whatever_fixed_w_says():
+    reg = make()
+    reg.update_grid(0, -1000, 0)
+    reg.step(0, CHARGE)
+    assert reg.direction == -1
+    assert reg.step(5, R.Policy(R.HOLD, fixed_w=500)) == R.Command("charge", 0, 100, 120)
+    assert (reg.request_w, reg.u_w, reg.output_w, reg.lo_w, reg.hi_w) == (0, 0, 0, 0, 0)
+    assert reg.direction == -1  # 0 W turns nothing round
+
+
 def test_charge_uses_policy_soc():
     reg = make()
     reg.update_grid(0, -1500, 0)
