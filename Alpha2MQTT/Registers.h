@@ -23,7 +23,7 @@ enum class registerFormat : uint8_t
 	text,			// characterValue
 	textMoved,		// characterValue, which is then cleared
 	lookup,			// The description the register's lookup gives the value
-	systemFault,	// The description of the lowest fault bit, which differs between AL and AE systems
+	systemFault,	// The set fault bits, whose text differs between AL and AE systems
 	dateTime		// 0xYYMM, 0xDDHH, 0xmmss as dd/MMM/yyyy HH:mm:ss
 };
 
@@ -35,7 +35,7 @@ struct registerLookupEntry
 };
 
 // With no matching entry formatRegisterValue writes unknown, or leaves dataValueFormatted as it was if unknown is NULL.
-// A bit lookup gives the first entry whose bit is set.
+// A bit lookup instead names every set bit, see formatBitLookup.
 struct registerLookup
 {
 	const registerLookupEntry* entries;
@@ -83,8 +83,6 @@ static const registerLookup batteryTypeLookup = REGISTER_LOOKUP(batteryTypeEntri
 
 static const registerLookupEntry batteryFaultEntries[] =
 {
-	{ 0, BATTERY_ERROR_BIT_0 },
-	{ 1, BATTERY_ERROR_BIT_1 },
 	{ 2, BATTERY_ERROR_BIT_2 },
 	{ 3, BATTERY_ERROR_BIT_3 },
 	{ 4, BATTERY_ERROR_BIT_4 },
@@ -113,7 +111,6 @@ static const registerLookupEntry batteryFaultEntries[] =
 	{ 27, BATTERY_ERROR_BIT_27 },
 	{ 28, BATTERY_ERROR_BIT_28 },
 	{ 29, BATTERY_ERROR_BIT_29 },
-	{ 30, BATTERY_ERROR_BIT_30 },
 	{ 31, BATTERY_ERROR_BIT_31 },
 };
 static const registerLookup batteryFaultLookup = REGISTER_LOOKUP(batteryFaultEntries, true, NULL);
@@ -649,12 +646,46 @@ inline const char* registerLookupDesc(const registerLookup* lookup, uint32_t val
 	for (uint8_t i = 0; i < lookup->count; i++)
 	{
 		const registerLookupEntry* entry = &lookup->entries[i];
-		if (lookup->bits ? (value >> entry->value & 1) != 0 : value == entry->value)
+		if (value == entry->value)
 		{
 			return entry->desc;
 		}
 	}
 	return lookup->unknown;
+}
+
+// Names every set bit, lowest first, joined by ", ". A bit with no entry shows as "Bit N". A clear word is "".
+// Text past the end of the field is cut.
+inline void formatBitLookup(const registerLookup* lookup, uint32_t value, char* out, size_t size)
+{
+	size_t used = 0;
+
+	out[0] = '\0';
+	for (uint8_t bit = 0; bit < 32 && used < size - 1; bit++)
+	{
+		if ((value >> bit & 1) == 0)
+		{
+			continue;
+		}
+
+		const char* desc = NULL;
+		for (uint8_t i = 0; i < lookup->count; i++)
+		{
+			if (lookup->entries[i].value == bit)
+			{
+				desc = lookup->entries[i].desc;
+				break;
+			}
+		}
+
+		int written = desc != NULL ? snprintf(out + used, size - used, "%s%s", used ? ", " : "", desc)
+			: snprintf(out + used, size - used, "%sBit %u", used ? ", " : "", bit);
+		if (written < 0)
+		{
+			break;
+		}
+		used += (size_t)written;
+	}
 }
 
 // Writes dataValueFormatted from the value decodeRegisterValue set. serialNumberPrefix picks the system fault descriptions.
@@ -752,7 +783,12 @@ inline void formatRegisterValue(const registerDescriptor* reg, modbusRequestAndR
 	}
 	case registerFormat::lookup:
 	{
-		desc = registerLookupDesc(lookup, lookup->bits ? rs->unsignedIntValue : rs->unsignedShortValue);
+		if (lookup->bits)
+		{
+			formatBitLookup(lookup, rs->unsignedIntValue, rs->dataValueFormatted, sizeof(rs->dataValueFormatted));
+			break;
+		}
+		desc = registerLookupDesc(lookup, rs->unsignedShortValue);
 		if (desc != NULL)
 		{
 			strcpy(rs->dataValueFormatted, desc);

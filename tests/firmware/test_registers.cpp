@@ -79,6 +79,24 @@ int main()
 	const uint8_t discharge[] = { 0x00, 0x00, 0x7E, 0xF4 };
 	expect(formats(0x0881, discharge, "32500"), "dispatch active power keeps the 32000 offset");
 
+	// Fault words: every set bit is named, lowest first, and a bit with no text shows its number
+	const uint8_t noFault[] = { 0x00, 0x00, 0x00, 0x00 };
+	expect(formats(0x011E, noFault, ""), "a clear battery fault word is empty");
+	const uint8_t cellTemp[] = { 0x00, 0x00, 0x00, 0x04 };
+	expect(formats(0x011E, cellTemp, "Cell Temp Difference"), "battery fault bit 2");
+	const uint8_t twoFaults[] = { 0x00, 0x04, 0x00, 0x04 };
+	expect(formats(0x011E, twoFaults, "Cell Temp Difference, Cell Over Temp"), "a higher battery fault bit is not hidden by a lower one");
+	const uint8_t blankBits[] = { 0x40, 0x00, 0x00, 0x03 };
+	expect(formats(0x011E, blankBits, "Bit 0, Bit 1, Bit 30"), "battery fault bits 0, 1 and 30 have no vendor text and show their numbers");
+	const uint8_t everyBit[] = { 0xFF, 0xFF, 0xFF, 0xFF };
+	modbusRequestAndResponse every = handled(0x011E, everyBit);
+	expect(strlen(every.dataValueFormatted) == MAX_FORMATTED_DATA_VALUE_LENGTH - 1, "every battery fault bit fills the field and stops at its end");
+	expect(strncmp(every.dataValueFormatted, "Bit 0, Bit 1, Cell Temp Difference, Balancer Fault", 50) == 0, "every battery fault bit starts with the lowest");
+	const uint8_t aeHigh[] = { 0x10, 0x00, 0x00, 0x01 };
+	expect(strcmp(handled(0x08D4, aeHigh, "AE").dataValueFormatted, "Inverter disconnected, Bit 28") == 0, "an AE system fault bit past the table shows its number");
+	expect(strcmp(handled(0x08D4, noFault, "AE").dataValueFormatted, "") == 0, "a clear system fault word is empty");
+	expect(strcmp(handled(0x08D4, aeHigh, "XX").dataValueFormatted, "Unknown") == 0, "a system fault with no known serial prefix is Unknown");
+
 	// System date and time: 0xYYMM, 0xDDHH, 0xmmss read as one custom register
 	const uint8_t when[] = { 0x11, 0x09, 0x11, 0x09, 0x05, 0x3B };
 	modbusRequestAndResponse dated = handled(REG_CUSTOM_SYSTEM_DATE_TIME, when);

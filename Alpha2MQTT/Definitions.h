@@ -573,8 +573,7 @@ inline void feedWatchdog()
 #define BATTERY_TYPE_SMILE_BAT_13_7P_DESC "Smile-BAT-13.7P"
 
 // Note4 - BATTERY ERROR LOOKUP
-#define BATTERY_ERROR_BIT_0 ""
-#define BATTERY_ERROR_BIT_1 ""
+// Bits 0, 1 and 30 have no text in the vendor table and show as Bit N
 #define BATTERY_ERROR_BIT_2 "Cell Temp Difference"
 #define BATTERY_ERROR_BIT_3 "Balancer Fault"
 #define BATTERY_ERROR_BIT_4 "Charge Over Current"
@@ -603,7 +602,6 @@ inline void feedWatchdog()
 #define BATTERY_ERROR_BIT_27 "LMU ID Repeat"
 #define BATTERY_ERROR_BIT_28 "LMU ID Discontinuous"
 #define BATTERY_ERROR_BIT_29 "Current Sensor Fault"
-#define BATTERY_ERROR_BIT_30 ""
 #define BATTERY_ERROR_BIT_31 "Temp Sensor Fault"
 
 
