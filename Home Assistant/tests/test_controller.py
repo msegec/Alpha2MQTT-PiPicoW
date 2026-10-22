@@ -627,6 +627,14 @@ def test_a_tuning_change_logs_every_setting(monkeypatch):
     assert house.c.regulator.settings.kp == 0.8
 
 
+def test_a_setting_change_updates_the_sensors_at_once():
+    c = C.Controller(MagicMock(), {}, "entry")
+    update = MagicMock()
+    c.add_listener(update)
+    c.set_setting("kp", 0.5)
+    update.assert_called_once_with()
+
+
 def test_the_ready_floor_can_be_set_down_to_10_w():
     _, _, lo, hi, step, unit, _ = next(n for n in N.NUMBERS if n[0] == "warm_w")
     assert lo == 0 and step <= 5 and unit == "W" and (10 - lo) % step == 0

@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 352 passed.
+Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 353 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -257,7 +257,8 @@ The last eight are `Settings` fields the regulator never reads: the controller a
 
 `set_setting` keeps a field whose current value is an int (`duration_s`, `full_register`, `command_step_w`) an int,
 rounding what Home Assistant gives, and a bool a bool: the firmware strips a `.` from a value, so a lease of `120.0`
-would arrive as 1200 s.
+would arrive as 1200 s. A change of `trim_limit_w` reloads the learned table through `load_trim`, which clips it
+to the new limit. Every call logs `cfg` and notifies the sensors, so a change shows at once, not on the next tick up to 1 s later.
 
 Sensors (`ControllerSensor`, push only, all attributes unrecorded via `MATCH_ALL`). Control never reads them.
 
@@ -357,6 +358,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_west_from_the_10_s_fallback_gives_no_solar_step` | `west_fallback` |
 | `test_a_whole_number_setting_stays_a_whole_number` | int settings stay int, duration published without a `.` |
 | `test_the_controller_limits_are_settings_*`, `test_the_default_cap_*`, `test_the_plausible_limit_*`, `test_the_correction_max_age_*`, `test_the_response_timeout_*`, `test_the_correction_match_wait_*` | controller limits as settings |
+| `test_a_setting_change_updates_the_sensors_at_once` | `set_setting` notifies |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute`, `test_every_setting_has_one_entity_whose_range_holds_its_default` | numbers and their group; every `Settings` field has exactly one number or switch, and each default is inside its range |
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |

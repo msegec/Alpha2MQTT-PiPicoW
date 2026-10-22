@@ -313,6 +313,7 @@ class Controller:
         if key == "trim_limit_w":
             self.regulator.load_trim(self.regulator.trim_points())  # clip the learned table to the new limit
         self._log("cfg", **asdict(self.regulator.settings))
+        self._notify()  # a limit or the learned table may show a change before the next step
 
     def _grid_estimate(self) -> float | None:
         """Grid power as the utility meter would see it, from the clamp or from the correction alone."""
