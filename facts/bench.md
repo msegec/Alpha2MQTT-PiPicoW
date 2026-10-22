@@ -19,7 +19,7 @@ log record contract is in `steplog-and-response.md`; the regulator in `regulator
 | `replay.py` | `load_regulator` (path or git ref), `replay`, `coerce` |
 | `score.py` | `score`, `causes`, `regimes`, the scorecard table |
 | `compare.py` | Variants by windows in one table |
-| `tests/` | Synthetic logs only; `synth.py` builds step records |
+| `tests/` | Synthetic logs only; `synth.py` builds step records and sample rows. `test_bench_end_to_end.py` simulates a live run of the shipped `regulator.py` against a known plant, writes it as a step log, and runs fit, replay and compare on it through their `main`; replaying the logged settings scores within 5 % of the logged run |
 
 ## Commands
 
