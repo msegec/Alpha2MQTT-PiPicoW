@@ -14,6 +14,8 @@
 // The hold is a 120 s dispatch block rewritten every 60 s, so one late rewrite does not let it lapse. A failed
 // write tries again after the short gap.
 #define IDLE_HOLD_DURATION_S 120u
+// The hold is a 0 W charge to this SOC, so solar the battery could store is exported rather than stored
+#define IDLE_HOLD_SOC_PERCENT 100u
 #define IDLE_HOLD_REWRITE_MS 60000u
 #define IDLE_HOLD_RETRY_MS 10000u
 

@@ -20,12 +20,15 @@ inline bool requestPayloadFits(unsigned int length)
 // timeout, which coupled the two; the value is unchanged.
 #define DISPATCH_FALLBACK_GAP_MS 400
 
+// The active and reactive power registers read DISPATCH_POWER_ZERO as 0 W.
+#define DISPATCH_POWER_ZERO 32000u
+
 // The active power register is 32000 plus the discharge watts or minus the charge watts, so a charge over
 // 32000 W would wrap below zero. A SOC above 105, the last step past full, is no target. Checked before any
 // is narrowed.
 inline bool dispatchRequestValid(unsigned long watts, unsigned long socPercent, unsigned long durationS)
 {
-	return watts <= 32000ul && socPercent <= 105ul && durationS >= 1ul && durationS <= DISPATCH_DURATION_MAX_S;
+	return watts <= DISPATCH_POWER_ZERO && socPercent <= 105ul && durationS >= 1ul && durationS <= DISPATCH_DURATION_MAX_S;
 }
 
 // The dispatch SOC register counts 0.4 % per bit. Round up, so a charge reaches at least the target
@@ -60,8 +63,14 @@ inline bool dispatchPowerOnly(bool allowed, const DispatchBlock& last, bool char
 		&& (uint32_t)(nowMs - last.writtenMs) / 1000u < durationS / 2u;
 }
 
+// The active power register for a request dispatchRequestValid passed
+inline uint32_t dispatchPowerRegister(bool charge, uint32_t watts)
+{
+	return charge ? DISPATCH_POWER_ZERO - watts : DISPATCH_POWER_ZERO + watts;
+}
+
 // The dispatch block, registers 0x0880 to 0x0888, as one Write Data Register frame: start, active power,
-// reactive power (none, 32000 is zero), mode, SOC and time. One bus transaction of about 50 ms at 9600 baud
+// reactive power (none, DISPATCH_POWER_ZERO), mode, SOC and time. One bus transaction of about 50 ms at 9600 baud
 // instead of five. The last two bytes are left for the CRC.
 #define DISPATCH_BLOCK_FRAME_SIZE 27
 
@@ -70,7 +79,7 @@ inline void dispatchBlockFrame(uint8_t frame[DISPATCH_BLOCK_FRAME_SIZE], uint8_t
 	const uint8_t head[] = { slaveId, 0x10, 0x08, 0x80, 0x00, 0x09, 18,
 		(uint8_t)(start >> 8), (uint8_t)start,
 		(uint8_t)(powerRegister >> 24), (uint8_t)(powerRegister >> 16), (uint8_t)(powerRegister >> 8), (uint8_t)powerRegister,
-		0x00, 0x00, 0x7D, 0x00,
+		0x00, 0x00, (uint8_t)(DISPATCH_POWER_ZERO >> 8), (uint8_t)DISPATCH_POWER_ZERO,
 		(uint8_t)(mode >> 8), (uint8_t)mode,
 		(uint8_t)(socRegister >> 8), (uint8_t)socRegister,
 		(uint8_t)(durationS >> 24), (uint8_t)(durationS >> 16), (uint8_t)(durationS >> 8), (uint8_t)durationS,

@@ -1,6 +1,6 @@
 # Firmware command path: MQTT requests, dispatch writes, idle hold, PV meter zero filter
 
-Last verified: 2026-10-22, request parser moved to `Request.h`; the Pico W build compiles. `tests/firmware/run` passed: test_dispatch, test_idle_hold, test_json_members, test_modbus_frame, test_pv_meter, test_registers, test_request, test_timer all print OK, exit 0.
+Last verified: 2026-10-22, request parser moved to `Request.h`, power offset named; the Pico W build compiles. `tests/firmware/run` passed: test_dispatch, test_idle_hold, test_json_members, test_modbus_frame, test_pv_meter, test_registers, test_request, test_timer all print OK, exit 0.
 
 ## Files and symbols
 
@@ -13,7 +13,7 @@ Last verified: 2026-10-22, request parser moved to `Request.h`; the Pico W build
 | `closeSetResponse` | same | Appends `seq` and `ms` to every set response |
 | `addStateInfo` | same | Clears `_activeDispatch` when a read of 0x0880 is not 1 |
 | `_activeDispatch`, `_blockFrameRefused`, `_idleHold` | same | Globals, RAM only, reset by reboot |
-| `requestPayloadFits`, `dispatchRequestValid`, `DISPATCH_DURATION_MAX_S`, `dispatchSocFromPercent`, `dispatchPowerOnly`, `dispatchBlockFrame` | `Alpha2MQTT/Dispatch.h` | Pure helpers, host tested |
+| `requestPayloadFits`, `dispatchRequestValid`, `DISPATCH_DURATION_MAX_S`, `DISPATCH_POWER_ZERO`, `dispatchPowerRegister`, `dispatchSocFromPercent`, `dispatchPowerOnly`, `dispatchBlockFrame` | `Alpha2MQTT/Dispatch.h` | Pure helpers, host tested |
 | `RequestFields`, `parseRequestFields`, `parseWhole`, `parseHex16`, `parseFlag` | `Alpha2MQTT/Request.h` | Pure request parser, host tested in `test_request.cpp` |
 | `IdleHold`, `idleHoldStatus`, `idleHoldCommand`, `idleHoldDue`, `idleHoldWritten`, `haGone`, `haStatusFromPayload` | `Alpha2MQTT/IdleHold.h` | Pure state machine, host tested |
 | `pvMeterZeroUnconfirmed` | `Alpha2MQTT/PvMeter.h` | Pure filter, used by `RegisterHandler::readPvMeterPower` |
@@ -71,7 +71,7 @@ Registers from `Definitions.h`. Function code 0x10 (`MODBUS_FN_WRITEDATAREGISTER
 | 0x0886 | `REG_DISPATCH_RW_DISPATCH_SOC` | 1 reg | `dispatchSocFromPercent(pct)` = (pct*5+1)/2, 0.4 %/bit, rounded up; above 100 it is 150 + pct, so 101 to 105 send 251 to 255 |
 | 0x0887-0x0888 | `REG_DISPATCH_RW_DISPATCH_TIME_1` | 2 regs | duration in seconds, 1 s/bit |
 
-- Sign: `multiplier` is -1 for charge, +1 for discharge. 0 W in either kind is 32000.
+- Sign: `dispatchPowerRegister(charge, watts)` is `DISPATCH_POWER_ZERO` (32000) less the watts for a charge, plus the watts for a discharge. 0 W in either kind is 32000.
 - SOC examples pinned by tests: 0 to 0, 1 to 3, 10 to 25, 25 to 63, 90 to 225, 100 to 250, 101 to 251, 105 to 255. Never below the target, under one step above (3637105).
 - Charge 2200 W is 29800. 14400 s spans both time registers.
 
@@ -158,7 +158,7 @@ Problem: when Home Assistant stopped, the battery fell back to the inverter's ow
 
 Constants: `HA_GONE_AFTER_MS` 180000, `IDLE_HOLD_DURATION_S` 120, `IDLE_HOLD_REWRITE_MS` 60000, `IDLE_HOLD_RETRY_MS` 10000.
 
-Hold write: `writeFullDispatchBlock(charge=true, power 32000, SOC register 250, 120 s)`, so 0 W charge to 100 %. Solar surplus exports while held. Release write: `writeDispatchStop`, the same as `set/normal`.
+Hold write: `writeFullDispatchBlock(charge=true, power DISPATCH_POWER_ZERO, SOC register dispatchSocFromPercent(IDLE_HOLD_SOC_PERCENT) = 250, 120 s)`, so 0 W charge to 100 %. Solar surplus exports while held. Release write: `writeDispatchStop`, the same as `set/normal`.
 
 Gone rules (`haGone` = `offlineGone || mqttGone`):
 - `offlineGone`: status `offline` and more than 180 s since the first will. A repeat will does not restart the clock. Cleared by `online` or a command.

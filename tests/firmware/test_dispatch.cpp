@@ -22,6 +22,10 @@ int main()
 
 	expect(dispatchRequestValid(0, 0, 120), "0 W to 0 %");
 	expect(dispatchRequestValid(32000, 100, 120), "32000 W to 100 % is the edge");
+	expect(dispatchPowerRegister(true, 2200) == 29800, "a 2200 W charge is 32000 less 2200");
+	expect(dispatchPowerRegister(false, 150) == 32150, "a 150 W discharge is 32000 plus 150");
+	expect(dispatchPowerRegister(true, 0) == DISPATCH_POWER_ZERO && dispatchPowerRegister(false, 0) == DISPATCH_POWER_ZERO, "0 W is 32000 in either kind");
+	expect(dispatchPowerRegister(true, 32000) == 0 && dispatchPowerRegister(false, 32000) == 64000, "the largest charge and discharge");
 	expect(!dispatchRequestValid(32001, 50, 120), "a charge over 32000 W would wrap the register below 0");
 	expect(dispatchRequestValid(50, 105, 120), "105 is the last step past full");
 	expect(!dispatchRequestValid(50, 106, 120), "a SOC past 105");

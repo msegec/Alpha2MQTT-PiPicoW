@@ -1315,7 +1315,7 @@ void holdIdleWhileHaGone()
 	}
 	if (write == IdleHoldWrite::hold)
 	{
-		result = writeFullDispatchBlock(true, 32000, dispatchSocFromPercent(100), IDLE_HOLD_DURATION_S, now, &response, &failedRegister, &frames);
+		result = writeFullDispatchBlock(true, DISPATCH_POWER_ZERO, dispatchSocFromPercent(IDLE_HOLD_SOC_PERCENT), IDLE_HOLD_DURATION_S, now, &response, &failedRegister, &frames);
 	}
 	else
 	{
@@ -1582,8 +1582,6 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 		}
 		else if ((subScription == mqttSubscriptions::setCharge) || (subScription == mqttSubscriptions::setDischarge))
 		{
-			// Charge and discharge differ only in the sign of the power
-			int multiplier = subScription == mqttSubscriptions::setCharge ? -1 : 1;
 			bool powerOnlyAllowed = false;
 			bool powerOnlyWrite = false;
 
@@ -1606,11 +1604,11 @@ void mqttCallback(char* topic, byte* message, unsigned int length)
 			}
 			else
 			{
-				// Charge < 32000, discharge > 32000
-				chargeDischargeWattsConverted = 32000 + (chargeDischargeWattsConverted * multiplier);
+				// Charge and discharge differ only in the sign of the power
+				bool charge = subScription == mqttSubscriptions::setCharge;
+				chargeDischargeWattsConverted = dispatchPowerRegister(charge, chargeDischargeWattsConverted);
 				batterySocPercentConverted = dispatchSocFromPercent(batterySocPercentConverted);
 
-				bool charge = subScription == mqttSubscriptions::setCharge;
 				int blockFrames = 1;
 				uint32_t writeStartedMs = millis();
 				DispatchBlock running = _activeDispatch;
