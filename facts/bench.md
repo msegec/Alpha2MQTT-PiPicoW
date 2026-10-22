@@ -51,7 +51,7 @@ Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 
   `request_w`, `output_w`. A row has `brk` True when its `seq` is not the last row's + 1 or more than 5 s
   passed. `seq` restarts at a firmware reboot, so nothing keys on `seq` across rows that are not consecutive.
 - Row fields: `target = grid_w - error_w` (it holds the policy offset), `cfg_target` (logged `target_w` in
-  force), `demand = grid_w + battery - loss(battery)`, `sent` (signed W, or None), `solar`, `load_w`.
+  force), `deadband_w` (the same, None without one), `demand = grid_w + battery - loss(battery)`, `sent` (signed W, or None), `solar`, `load_w`.
 - Battery loss, `logs.Loss`: `share * |battery| + fixed_w`, and 0 at a battery of exactly 0. The term is not
   the controller's: `estimate_grid` adds none. It comes from the correction source. The development site's
   correction template charges 15 % of |battery| plus 10 W as inverter loss in the demand it reports, so the
@@ -145,8 +145,11 @@ Loss budget: each row gets one cause, first match wins.
 | `spike` | within 6 rows of a demand jump over 500 W between consecutive rows that comes back within 30 % of the jump in the next 3 rows |
 | `step` | within 15 rows of such a jump that stays |
 | `ramp` | demand moved over 30 W/s across the last 3 consecutive rows |
-| `offset` | 8 s or more since the last command and `|e| > 5 W` |
+| `offset` | 8 s or more since the last command and `|e|` over the row's `deadband_w`, at least 5 W |
 | `noise` | the rest |
+
+`deadband_w` is the logged cfg in force for live rows and the variant's setting for replay rows; a row without
+one takes 20 W, the regulator's default. A loop at rest inside its deadband is `noise`, not `offset`.
 
 Demand for causes is the logged `demand` in both live and replay, so variants share the same tags except
 `capped` and `offset`. A jump inside a spike (its way back) starts nothing; the prototype `budget.py` tagged it

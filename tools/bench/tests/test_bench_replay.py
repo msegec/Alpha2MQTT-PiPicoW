@@ -81,6 +81,7 @@ def test_a_trivial_regulator_settles_the_grid_on_target(tmp_path):
     assert warnings == []
     # logged target -50 under a cfg target of -20 is an offset of -30, replayed over the new target_w of 0
     assert {r["target"] for r in out} == {-30.0}
+    assert {r["deadband_w"] for r in out} == {None}  # the stand in has no deadband
     assert abs(out[-1]["error_w"]) < 1.0
     assert out[-1]["battery"] == pytest.approx((500 + 30 + 10) / 0.85, abs=1)  # demand plus 15 % and 10 W loss
     out, _ = replay.replay(mod, rows(), FAST, {"target_w": "0"}, loss=logs.Loss(0, 0))

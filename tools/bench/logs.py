@@ -55,7 +55,8 @@ def expand(patterns: list[str]) -> list[str]:
 def load(patterns: list[str], t0: float = -math.inf, t1: float = math.inf,
          solar_suffix: str | None = EAST_SUFFIX) -> tuple[list[dict], int]:
     """Records sorted by t, and the number of bad lines skipped. Entity records are kept only for the
-    solar meter, none without a solar_suffix. start and cfg records are kept from before t0, so the cfg in force is known."""
+    solar meter, none without a solar_suffix. start and cfg records are kept from before t0, so the cfg in force
+    is known."""
     recs: list[dict] = []
     bad = 0
     for f in expand(patterns):
@@ -212,12 +213,15 @@ def _num(x) -> float | None:
 
 
 def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
-            exclude: list[tuple[float, float]] = (), solar_suffix: str | None = EAST_SUFFIX, loss: Loss = Loss()) -> list[dict]:
+            exclude: list[tuple[float, float]] = (), solar_suffix: str | None = EAST_SUFFIX,
+            loss: Loss = Loss()) -> list[dict]:
     """Regulating step records in [t0, t1) outside the excluded spans, as flat rows:
     t, seq, grid_w, battery, soc, error_w, target, request_w, output_w, sent (signed W or None),
-    power_only, solar, demand (grid_w + battery - loss(battery)), limit (None if unlogged), cfg_target,
+    power_only, solar, demand (grid_w + battery - loss(battery)), limit (None if unlogged), cfg_target and
+    deadband_w (the logged cfg in force, None without one),
     and brk: True when the row does not follow the previous one (seq not +1, over GAP_S, or the first row).
-    Solar: the step's solar_w when logged, else west = pv * -10 when >= 95 W plus the last state of the solar_suffix entity (0 without one)."""
+    Solar: the step's solar_w when logged, else west = pv * -10 when >= 95 W plus the last state of the
+    solar_suffix entity (0 without one)."""
     cfgs = CfgTimeline(recs)
     east = 0.0
     out: list[dict] = []
@@ -256,7 +260,7 @@ def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
                "power_only": bool(isinstance(sent, dict) and sent.get("power_only")), "solar": solar,
                "demand": grid_w + battery - loss(battery), "limit": r.get("limit"),
                "load_w": _num(r.get("load_w")),
-               "cfg_target": _num(cfg.get("target_w")), "brk": brk}
+               "cfg_target": _num(cfg.get("target_w")), "deadband_w": _num(cfg.get("deadband_w")), "brk": brk}
         out.append(row)
     return out
 

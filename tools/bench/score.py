@@ -27,7 +27,10 @@ JUMP_W = 500.0  # demand move between consecutive samples that is a spike or a s
 BACK = 0.3  # a spike comes back within this share of the jump
 SPIKE_ROWS, STEP_ROWS, BACK_ROWS = 6, 15, 3
 RAMP_W_S = 30.0  # demand moving faster than this over 3 samples is a ramp
-OFFSET_ERR_W = 5.0
+# offset needs |error| over the row's deadband_w (the cfg in force, or the replayed setting), at least OFFSET_MIN_W:
+# a loop at rest inside its deadband is noise. A row without one takes DEADBAND_W, the regulator's default.
+DEADBAND_W = 20.0
+OFFSET_MIN_W = 5.0
 CAUSES = ("capped", "spike", "step", "ramp", "offset", "noise")
 REGIMES = ("night", "clear", "cloudy")
 
@@ -61,7 +64,7 @@ def causes(rows: list[dict]) -> list[str]:
     spike:  within 6 samples of a demand jump over 500 W that came back within 30 % in the next 3 samples.
     step:   within 15 samples of a demand jump over 500 W that stayed.
     ramp:   demand moved faster than 30 W/s over the last 3 consecutive samples.
-    offset: no command for 8 s and |error| > 5 W.
+    offset: no command for 8 s and |error| > the row's deadband_w (DEADBAND_W unlogged), at least 5 W.
     noise:  the rest.
     Demand is the logged demand (grid_w + battery less the loss term), the same for live and replay. A jump
     needs consecutive samples; a jump inside a spike (its way back) starts nothing. budget.py tagged that way back
@@ -86,12 +89,17 @@ def causes(rows: list[dict]) -> list[str]:
             c = "capped"
         elif c is None and _ramp(rows, dem, i):
             c = "ramp"
-        elif c is None and r["t"] - last_sent >= logs.SETTLE_S and abs(r["error_w"]) > OFFSET_ERR_W:
+        elif c is None and r["t"] - last_sent >= logs.SETTLE_S and abs(r["error_w"]) > _offset_w(r):
             c = "offset"
         elif c is None:
             c = "noise"
         out.append(c)
     return out
+
+
+def _offset_w(r: dict) -> float:
+    d = r.get("deadband_w")
+    return max(DEADBAND_W if d is None else d, OFFSET_MIN_W)
 
 
 def _ramp(rows: list[dict], dem: list[float], i: int) -> bool:

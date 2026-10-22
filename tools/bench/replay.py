@@ -145,7 +145,7 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
                     "target": s.target_w + offset, "error_w": grid - (s.target_w + offset),
                     "request_w": reg.request_w, "output_w": reg.output_w, "sent": signed,
                     "sent_normal": cmd is not None and cmd.kind == "normal", "solar": r["solar"],
-                    "demand": r["demand"]})
+                    "demand": r["demand"], "deadband_w": s.deadband_w if hasattr(s, "deadband_w") else None})
     return out, warnings
 
 

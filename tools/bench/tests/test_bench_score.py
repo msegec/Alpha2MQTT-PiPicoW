@@ -87,10 +87,18 @@ def test_a_steady_demand_slope_is_a_ramp():
 
 def test_an_error_eight_seconds_after_the_last_command_is_offset():
     sent = [1] + [None] * 12
-    c = labels([0] * 13, sent=sent, error_w=[10] * 12 + [3])
+    c = labels([0] * 13, sent=sent, error_w=[25] * 12 + [15])
     assert c[:8] == ["noise"] * 8
     assert c[8:12] == ["offset"] * 4
-    assert c[12] == "noise"  # inside the deadband
+    assert c[12] == "noise"  # inside the default 20 W deadband
+
+
+def test_offset_follows_the_deadband_of_the_row():
+    sent = [1] + [None] * 12
+    err = [10] * 13
+    assert labels([0] * 13, sent=sent, error_w=err)[8:] == ["noise"] * 5  # at rest in 20 W
+    assert labels([0] * 13, sent=sent, error_w=err, deadband_w=[5.0] * 13)[8:] == ["offset"] * 5
+    assert labels([0] * 13, sent=sent, error_w=[4] * 13, deadband_w=[0.0] * 13)[8:] == ["noise"] * 5  # 5 W floor
 
 
 def test_regimes_night_clear_and_cloudy_hours():
