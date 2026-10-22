@@ -19,7 +19,7 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
 
 ## Lifecycle
 
-- `manifest.json`: domain `alpha2mqtt_controller`, `config_flow: true`, depends on `mqtt`, `iot_class: local_push`, version 0.1.0, no requirements.
+- `manifest.json`: domain `alpha2mqtt_controller`, `config_flow: true`, depends on `mqtt`, `iot_class: local_push`, version 0.2.0 (0.1.0 until fix/controller; bump it with each change of behaviour, the `code` sensor names the exact build), no requirements.
 - `async_setup` (YAML): if `alpha2mqtt_controller:` is in the config, starts an import flow with that dict.
 - `async_setup_entry`:
   1. `mqtt.async_wait_for_mqtt_client`; if false, raises `ConfigEntryNotReady` and HA retries.
