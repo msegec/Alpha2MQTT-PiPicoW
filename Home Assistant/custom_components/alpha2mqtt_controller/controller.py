@@ -131,7 +131,7 @@ class Controller:
         self._unsubs: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
         self._steplog: StepLog | None = None
-        self._failing: str | None = None  # what is failing now, so it is logged once, not every second
+        self._failing: set[str] = set()  # what is failing now, each logged once, not every second
         self._gaps: set[str] = set()  # inputs missing now, logged the same way
         self._unknown_policy_reason = ""  # the policy state the controller does not know, logged once per value
         self._good_policy: tuple[float, Policy] = (float("-inf"), Policy(RELEASE))
@@ -593,13 +593,13 @@ class Controller:
             _LOGGER.info("Battery controller policy state known again")
 
     def _fail(self, what: str, message: str) -> None:
-        if self._failing != what:
-            self._failing = what
+        if what not in self._failing:
+            self._failing.add(what)
             _LOGGER.exception(message)
 
     def _recover(self, what: str) -> None:
-        if self._failing == what:
-            self._failing = None
+        if what in self._failing:
+            self._failing.discard(what)
             _LOGGER.info("Battery controller %s works again", what)
 
     async def _publish(self, cmd: Command) -> None:

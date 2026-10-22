@@ -1097,6 +1097,17 @@ def test_a_step_that_raises_hands_the_inverter_back_and_is_logged_once(monkeypat
     assert house.c.status == "regulating" and "Battery controller step works again" in caplog.text
 
 
+def test_a_step_and_a_publish_failing_together_are_each_logged_once(monkeypatch, caplog):
+    house = House(monkeypatch)
+    house.second()
+    house.mqtt.async_publish = AsyncMock(side_effect=OSError("broker down"))
+    house.c._read_policy = MagicMock(side_effect=ValueError("bad template"))
+    for _ in range(20):
+        house.second()
+    assert house.mqtt.async_publish.call_count > 2
+    assert len(errors(caplog, "step failed")) == 1 and len(errors(caplog, "could not publish")) == 1
+
+
 def enable_switch(c, last_state=None):
     switch = W.EnableSwitch(MagicMock(entry_id="entry", runtime_data=c))
     switch.async_get_last_state = AsyncMock(return_value=None if last_state is None else MagicMock(state=last_state))

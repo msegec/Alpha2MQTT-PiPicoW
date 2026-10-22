@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses and safety path tests, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 325 passed.
+Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests and a failure set, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 326 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -122,6 +122,8 @@ Default entity `sensor.battery_auto_action`. State and attributes:
   - charge/discharge: `{"watts":W,"socPercent":S,"duration":D,"seq":N}`, plus `"powerOnly":1` when `cmd.power_only` (a3a20a7).
   - Comment: the Pico reads at most 127 bytes of payload; these stay under 90.
 - Publish exception: `regulator.fail()` if this is still the sent command, error logged once; regulator resends in full after the minimum gap.
+- `_fail` and `_recover` keep a set `_failing` of what is failing now (`step`, `publish`), so each kind logs one error
+  when it starts and one "works again" when it ends, also while both fail at once.
 - Success: records `last_command`, `last_sent`, `last_seq`; `_sent_mono = {seq: monotonic}` (only the newest);
   appends to the 1 h command counter; `ResponseMonitor.command(t, signed_w or None for normal, battery_w)`.
 
@@ -321,6 +323,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_command_with_no_response_is_sent_again_in_full`, `test_a_command_with_a_response_is_not_timed_out` | 10 s ack timeout only after seq echo, once |
 | `test_a_command_superseded_before_its_publish_is_dropped` | superseded publish dropped |
 | `test_a_failed_publish_is_sent_again_in_full_and_logged_once` | publish exception: nothing recorded as sent, resent after the gap, one error, "works again" on recovery |
+| `test_a_step_and_a_publish_failing_together_are_each_logged_once` | `_failing` holds each kind apart |
 | `test_a_step_that_raises_hands_the_inverter_back_and_is_logged_once` | step exception: release published, status `released`, one error, regulating again after |
 | `test_the_enabled_switch_restores_on_only_from_on`, `test_turning_the_controller_off_hands_the_inverter_back_at_once`, `test_the_controller_turns_off_even_when_the_release_cannot_be_published` | Enabled switch restore, normal published on off, off holds when the publish fails |
 | `test_a_reload_never_reuses_a_seq_of_the_run_before`, `test_a_seq_stays_what_the_firmware_echoes` | seq seeded from the clock, a late pre-reload response does not ack, 1..`SEQ_MAX` wrap, payload under 90 bytes |
