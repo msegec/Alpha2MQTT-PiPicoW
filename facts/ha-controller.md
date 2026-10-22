@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests and a failure set, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 326 passed.
+Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set and policy tests, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 333 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -340,6 +340,9 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_setting_switch_*` | switch restore, default, cfg log, group |
 | `test_a_saved_table_*`, `test_a_bad_saved_table_*`, `test_a_moved_table_*`, `test_a_stop_saves_*`, `test_the_forget_button_*`, `test_the_integral_sensor_carries_*` | learned table load, save, log cadence, forget, chart attribute |
 | `test_a_negative_cap_reads_as_0_w`, `test_an_unreadable_cap_keeps_*` | cap clamp, last readable cap |
+| `test_a_fixed_policy_sends_its_watts_whatever_the_grid`, `test_a_fixed_policy_without_plausible_watts_is_unreadable` | `fixed` sign per direction, SOC passed, bad watts unreadable |
+| `test_a_hold_policy_holds_the_battery_at_0_w` | `hold` sends charge 0 W, status `hold` |
+| `test_a_grid_offset_moves_the_target_while_charging` | `grid_offset` lowers the error by its value; bad or implausible is 0 |
 | `test_a_policy_soc_the_firmware_would_refuse_is_unreadable`, `test_an_other_soc_the_firmware_would_refuse_*` | SOC range |
 | `test_a_correction_with_a_frozen_input_is_a_gap`, `test_a_frozen_correction_is_a_gap_on_the_clamp_too` | `age_s` |
 | `test_a_response_that_is_json_but_not_an_object_is_ignored` | response shape |

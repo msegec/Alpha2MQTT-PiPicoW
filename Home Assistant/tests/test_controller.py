@@ -941,6 +941,49 @@ def test_a_policy_soc_the_firmware_would_refuse_is_unreadable(monkeypatch, state
     assert house.c._read_policy() is None
 
 
+@pytest.mark.parametrize("state, kind", [("discharge", "discharge"), ("charge", "charge")])
+def test_a_fixed_policy_sends_its_watts_whatever_the_grid(monkeypatch, state, kind):
+    house = House(monkeypatch)
+    house.set("sensor.battery_auto_action", state, soc_target=50, fixed="true", watts="700")
+    house.second()
+    assert house.c.status == "fixed"
+    assert (house.sent()[-1]["kind"], house.sent()[-1]["watts"], house.sent()[-1]["socPercent"]) == (kind, 700, 50)
+
+
+@pytest.mark.parametrize("watts", [None, "lots", 25000])
+def test_a_fixed_policy_without_plausible_watts_is_unreadable(monkeypatch, watts):
+    house = House(monkeypatch)
+    house.set("sensor.battery_auto_action", "discharge", soc_target=50, fixed="true",
+              **({} if watts is None else {"watts": watts}))
+    assert house.c._read_policy() is None
+
+
+def test_a_hold_policy_holds_the_battery_at_0_w(monkeypatch):
+    house = House(monkeypatch)
+    house.second()
+    assert house.sent()[-1]["watts"] > 0
+    house.set("sensor.battery_auto_action", "hold")
+    for _ in range(4):
+        house.second()
+    assert house.c.status == "hold" and house.sent()[-1] | {"seq": 0} == {
+        "watts": 0, "socPercent": 102, "duration": 120, "seq": 0, "kind": "charge"}
+
+
+def charge_error(monkeypatch, **attributes):
+    house = House(monkeypatch)
+    house.set("sensor.battery_auto_action", "charge", soc_target=90, **attributes)
+    house.set("sensor.net_demand", "-1000")
+    house.second()
+    return house.c.regulator.error_w
+
+
+def test_a_grid_offset_moves_the_target_while_charging(monkeypatch):
+    plain = charge_error(monkeypatch)
+    assert charge_error(monkeypatch, grid_offset=300) == plain - 300  # + tops up from the grid
+    for bad in ("lots", 25000):
+        assert charge_error(monkeypatch, grid_offset=bad) == plain
+
+
 def test_an_other_soc_the_firmware_would_refuse_closes_the_other_direction(monkeypatch):
     house = House(monkeypatch)
     house.set("sensor.battery_auto_action", "discharge", soc_target=20, both="true", other_soc=110)
