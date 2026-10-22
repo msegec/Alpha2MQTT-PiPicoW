@@ -675,9 +675,10 @@ I don't recommend soldering the anything permenantly to the prototyping board, b
 
 Build with [arduino-pico](https://github.com/earlephilhower/arduino-pico) 6.2.0 and the 1 MB sketch, 1 MB filesystem flash split. OTA updates stage the new image in that filesystem:
 ```
-arduino-cli compile --fqbn rp2040:rp2040:rpipicow:flash=2097152_1048576 --output-dir out Alpha2MQTT
+out=$(mktemp -d)
+arduino-cli compile --fqbn rp2040:rp2040:rpipicow:flash=2097152_1048576 --output-dir "$out" Alpha2MQTT
 ```
-The first time, and whenever the flash split changes, flash over USB: hold BOOTSEL while plugging in the Pico W, then copy `out/Alpha2MQTT.ino.uf2` onto the RPI-RP2 drive.
+The binary carries the WiFi and MQTT credentials from Secrets.h, so it goes to a private temporary directory, not the working tree. The first time, and whenever the flash split changes, flash over USB: hold BOOTSEL while plugging in the Pico W, then copy `"$out"/Alpha2MQTT.ino.uf2` onto the RPI-RP2 drive, and delete the directory with `rm -rf "$out"` when done.
 
 After that, update over WiFi. Set `OTA_PASSWORD` in Secrets.h, then run:
 ```
