@@ -97,7 +97,7 @@ def every(fail_every: int = 0, timeout_every: int = 0):
 def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None = None,
            cfgs: logs.CfgTimeline | None = None, max_charge_w: float = 4000.0, max_discharge_w: float = 4000.0,
            discharge_soc: int = 10, charge_soc: int = 100, loss: logs.Loss = logs.Loss(), ack_s: float = ACK_S,
-           outcome=None, tick_s: float = TICK_S) -> tuple[list[dict], list[str]]:
+           outcome=None, tick_s: float = TICK_S, trim: list | None = None) -> tuple[list[dict], list[str]]:
     """Simulated rows in the shape score.score reads, and warnings. overrides apply over the cfg in force
     (cfgs, when given) or the module's defaults. loss must be the one the rows' demand was taken with.
     outcome(n) says what happens to the n-th command published (OK by default), as the controller sees it: OK is
@@ -105,7 +105,8 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
     no response, and calls fail() once ack_timeout_s has passed. Only the newest command's response counts.
     Every tick_s (0 is off), half a tick out of phase with the first sample, the controller's tick runs: the ack
     timeout check, then step with the last sample's policy. Ticks run only between consecutive samples, never
-    across a brk; with ticks off the timeout check runs at each sample."""
+    across a brk; with ticks off the timeout check runs at each sample. trim is a learned table to start from, as
+    the controller loads its store at start; None starts from zero."""
     outcome = outcome or (lambda n: OK)
     overrides = overrides or {}
     warnings: list[str] = []
@@ -116,6 +117,11 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
     warnings += [f"setting {k} unknown to this regulator, ignored" for k in unknown if k in overrides]
     reg = mod.Regulator(mod.Settings(**vals))
     s = reg.settings
+    if trim is not None:
+        if not hasattr(reg, "load_trim"):
+            warnings.append("this regulator has no learned table, the table given is ignored")
+        elif not reg.load_trim(trim):
+            warnings.append("the learned table given does not fit this regulator, starting from zero")
     params = inspect.signature(reg.update_grid).parameters
     takes_solar = "solar_w" in params
     takes_soc = "soc" in params
@@ -223,14 +229,21 @@ def add_variant_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--discharge-soc", type=int, default=10)
     p.add_argument("--ack-s", type=float, default=ACK_S, help="seconds from a command to its response")
     p.add_argument("--tick-s", type=float, default=TICK_S, help="controller tick between samples, 0 off")
+    t = p.add_mutually_exclusive_group()
+    t.add_argument("--trim", help="start from this learned table: the controller's store file, or {\"points\": ...}")
+    t.add_argument("--trim-from-log", action="store_true", help="start from the learned table the log has in force")
     p.add_argument("--fail-every", type=int, default=0, help="refuse every Nth command (0 never)")
     p.add_argument("--timeout-every", type=int, default=0, help="leave every Nth command unanswered (0 never)")
     p.add_argument("--json", action="store_true")
 
 
-def variant_kwargs(a) -> dict:
-    """replay() keyword arguments from add_variant_args and logs.add_window_args options."""
-    return {"max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w, "discharge_soc": a.discharge_soc,
+def variant_kwargs(a, recs: list[dict] | None = None, t: float | None = None) -> dict:
+    """replay() keyword arguments from add_variant_args and logs.add_window_args options. With --trim-from-log the
+    table is the one in force in recs at t."""
+    trim = logs.read_trim(a.trim) if a.trim else logs.trim_at(recs or [], t) if a.trim_from_log else None
+    if a.trim_from_log and trim is None:
+        print("no learned table in the log before the window, starting from zero", file=sys.stderr)
+    return {"trim": trim, "max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w, "discharge_soc": a.discharge_soc,
             "loss": logs.loss_from_args(a), "ack_s": a.ack_s, "outcome": every(a.fail_every, a.timeout_every),
             "tick_s": a.tick_s}
 
@@ -251,7 +264,7 @@ def main(argv: list[str] | None = None) -> None:
     pl = plantmod.Plant.load(a.plant) if a.plant else plantmod.fit(rows, logs.commands(recs))[0]
     mod = load_regulator(a.regulator, a.ref)
     sim, warnings = replay(mod, rows, pl, parse_sets(a.set), logs.CfgTimeline(recs) if a.settings_from_log else None,
-                           **variant_kwargs(a))
+                           **variant_kwargs(a, recs, rows[0]["t"]))
     for w in warnings:
         print(w, file=sys.stderr)
     sc = score.score(sim)

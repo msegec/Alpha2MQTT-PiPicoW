@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> None:
         allrows = [r for rows in rows_by_window.values() for r in rows]
         pl = plantmod.fit(allrows, logs.commands(recs))[0]
     cfgs = logs.CfgTimeline(recs) if a.settings_from_log else None
-    res = run(rows_by_window, variants, pl, replay.parse_sets(a.set), cfgs, replay.variant_kwargs(a))
+    res = run(rows_by_window, variants, pl, replay.parse_sets(a.set), cfgs, replay.variant_kwargs(a, recs, t0))
     if a.json:
         print(json.dumps({"plant": dataclasses.asdict(pl), "variants": variants, "results": res}, indent=1))
     else:

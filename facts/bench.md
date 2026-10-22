@@ -37,7 +37,7 @@ python3 -I tools/bench/compare.py 'LOGDIR/alpha2mqtt.jsonl*' --window 'A..B' --w
 
 Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 0.15) and `--loss-w` (default
 10). Replay and compare also take `--max-charge-w` and `--max-discharge-w` (default 4000), `--discharge-soc`
-(default 10), `--ack-s`, `--fail-every`, `--timeout-every` and `--tick-s`.
+(default 10), `--ack-s`, `--fail-every`, `--timeout-every`, `--tick-s`, and `--trim FILE` or `--trim-from-log`.
 
 ## Loading (`logs.py`)
 
@@ -45,8 +45,8 @@ Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 
   concatenated copy plus the originals loads twice.
 - A bad JSON line, or one without `k` or a numeric `t`, is counted and skipped. A truncated gzip keeps what was
   read.
-- Kept: `start`, `cfg` and `e` records whatever the window (so the cfg in force and the last east solar reading
-  are known), others within 60 s of the window. Only `e` records of the `--solar-entity` are parsed; none
+- Kept: `start`, `cfg`, `e`, `trim_load` and `trim` records whatever the window (so the cfg and learned table
+  in force and the last solar meter reading are known), others within 60 s of the window. Only `e` records of the `--solar-entity` are parsed; none
   without one.
 - `samples` keeps `step` records with `status == "regulating"` and finite `grid_w`, `battery`, `error_w`,
   `request_w`, `output_w`. A row has `brk` True when its `seq` is not the last row's + 1 or more than 5 s
@@ -131,6 +131,11 @@ the new logs too: a growing error is drift.
   sample, the ack timeout check runs, then `step` with the last sample's policy and no new sample. Ticks run
   only between consecutive samples, not across a `brk`. A tick's command counts in the `cmds` of the sample
   before it, as on the bus. With ticks off the timeout check runs at each sample.
+- Learned table: none by default, so the regulator starts from zero. `--trim FILE` loads the controller's
+  store file (`{"data": {"points": ...}}`) or `{"points": ...}`; `--trim-from-log` loads the points of the last
+  `trim_load` or `trim` record at or before the window, as `controller._load_trim` does at start. Either goes
+  through `load_trim`; a table that does not fit the regulator warns and starts from zero. It loads once; after
+  that the variant learns only if its `trim_learn` is on.
 - At a `brk` the model restarts from the logged battery, keeping its last aim; the regulator runs on and goes
   stale on its own after `stale_after_s`.
 - SOC is the logged one, not simulated.

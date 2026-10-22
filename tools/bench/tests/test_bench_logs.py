@@ -86,6 +86,20 @@ def test_reads_and_raw_writes_are_not_commands():
     assert logs.commands(recs) == [(2.0, 500.0, False), (3.0, -200.0, True), (4.0, None, False)]
 
 
+def test_the_learned_table_in_force_and_from_a_store_file(tmp_path):
+    a, b = [[0.0, 0.0], [500.0, 12.0]], [[0.0, 0.0], [500.0, 15.0]]
+    write_jsonl(tmp_path / "x.jsonl", [{"k": "trim_load", "t": 1.0, "loaded": True, "points": a},
+                                       {"k": "trim", "t": 500.0, "points": b}, step(1000.0, 1)])
+    recs, _ = logs.load([str(tmp_path / "x.jsonl")], 900.0, 1100.0)  # both kept though before the window
+    assert logs.trim_at(recs, 0.5) is None
+    assert logs.trim_at(recs, 100.0) == a
+    assert logs.trim_at(recs, 1000.0) == b
+    (tmp_path / "store").write_text(json.dumps({"version": 1, "key": "k", "data": {"points": a}}))
+    (tmp_path / "plain").write_text(json.dumps({"points": b}))
+    assert logs.read_trim(str(tmp_path / "store")) == a
+    assert logs.read_trim(str(tmp_path / "plain")) == b
+
+
 def test_iterations_split_on_code_and_cfg_changes():
     recs = [{"k": "start", "t": 0.0, "code": "aaa"}, {"k": "cfg", "t": 0.0, **CFG},
             {"k": "start", "t": 10.0, "code": "aaa"}, {"k": "cfg", "t": 10.0, **CFG},  # restart, same code

@@ -55,8 +55,8 @@ def expand(patterns: list[str]) -> list[str]:
 def load(patterns: list[str], t0: float = -math.inf, t1: float = math.inf,
          solar_suffix: str | None = EAST_SUFFIX) -> tuple[list[dict], int]:
     """Records sorted by t, and the number of bad lines skipped. Entity records are kept only for the
-    solar meter, none without a solar_suffix. start and cfg records are kept from before t0, so the cfg in force
-    is known."""
+    solar meter, none without a solar_suffix. start, cfg and learned table records are kept from before t0, so
+    the cfg and table in force are known."""
     recs: list[dict] = []
     bad = 0
     for f in expand(patterns):
@@ -82,7 +82,7 @@ def load(patterns: list[str], t0: float = -math.inf, t1: float = math.inf,
                         bad += 1
                         continue
                     r["t"] = t
-                    if k in ("start", "cfg", "e") or t0 - 60 <= t < t1 + 60:
+                    if k in ("start", "cfg", "e", "trim_load", "trim") or t0 - 60 <= t < t1 + 60:
                         recs.append(r)
             except (OSError, EOFError) as err:  # a gzip cut short
                 print(f"{f}: {err}, kept what was read", file=sys.stderr)
@@ -202,6 +202,28 @@ class CfgTimeline:
     def at(self, t: float) -> dict | None:
         i = bisect.bisect_right(self.ts, t) - 1
         return self.cfgs[i] if i >= 0 else None
+
+
+def trim_at(recs: list[dict], t: float) -> list | None:
+    """The learned table in force at t: the points of the last trim_load or trim record at or before t."""
+    pts = None
+    for r in recs:
+        if r["t"] > t:
+            break
+        if r["k"] in ("trim_load", "trim") and isinstance(r.get("points"), list):
+            pts = r["points"]
+    return pts
+
+
+def read_trim(path: str) -> list:
+    """The points of a saved learned table: the controller's store file ({"data": {"points": ...}}), or just
+    {"points": ...}."""
+    with open(path, encoding="utf-8") as f:
+        d = json.load(f)
+    d = d.get("data", d) if isinstance(d, dict) else d
+    if not isinstance(d, dict) or not isinstance(d.get("points"), list):
+        raise SystemExit(f"{path}: no learned table points")
+    return d["points"]
 
 
 def _num(x) -> float | None:
