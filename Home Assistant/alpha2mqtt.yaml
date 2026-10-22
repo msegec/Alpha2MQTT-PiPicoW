@@ -6,6 +6,8 @@
 # Sensors go unavailable if their topic is silent for several publish periods.
 # Energy totals only ever rise. A total that reads 0, falls, or jumps over 100 kWh in one publish
 # keeps its last value: HA would book a 0 then the real total as a reset worth the whole total.
+# With no last value, after a restart or a silence, a total is taken only if it is a number above 0
+# and below 1000000 kWh, which no house meter reaches but a misread 32 bit word can.
 
 mqtt:
   sensor:
@@ -293,7 +295,7 @@ mqtt:
       value_template: >-
         {%- set v = value_json.REG_BATTERY_HOME_R_BATTERY_CHARGE_ENERGY_1 | default(None) | float(None) -%}
         {%- set p = this.state | float(None) -%}
-        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- if v is not none and 0 < v < 1000000 and (p is none or p <= v <= p + 100) -%}{{ v }}
         {%- elif p is not none -%}{{ p }}
         {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
@@ -311,7 +313,7 @@ mqtt:
       value_template: >-
         {%- set v = value_json.REG_BATTERY_HOME_R_BATTERY_DISCHARGE_ENERGY_1 | default(None) | float(None) -%}
         {%- set p = this.state | float(None) -%}
-        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- if v is not none and 0 < v < 1000000 and (p is none or p <= v <= p + 100) -%}{{ v }}
         {%- elif p is not none -%}{{ p }}
         {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
@@ -329,7 +331,7 @@ mqtt:
       value_template: >-
         {%- set v = value_json.REG_BATTERY_HOME_R_BATTERY_ENERGY_CHARGE_FROM_GRID_1 | default(None) | float(None) -%}
         {%- set p = this.state | float(None) -%}
-        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- if v is not none and 0 < v < 1000000 and (p is none or p <= v <= p + 100) -%}{{ v }}
         {%- elif p is not none -%}{{ p }}
         {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
@@ -943,7 +945,7 @@ mqtt:
       value_template: >-
         {%- set v = value_json.REG_SYSTEM_OP_R_SYSTEM_TOTAL_PV_ENERGY_1 | default(None) | float(None) -%}
         {%- set p = this.state | float(None) -%}
-        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- if v is not none and 0 < v < 1000000 and (p is none or p <= v <= p + 100) -%}{{ v }}
         {%- elif p is not none -%}{{ p }}
         {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
@@ -961,7 +963,7 @@ mqtt:
       value_template: >-
         {%- set v = value_json.REG_GRID_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1 | default(None) | float(None) -%}
         {%- set p = this.state | float(None) -%}
-        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- if v is not none and 0 < v < 1000000 and (p is none or p <= v <= p + 100) -%}{{ v }}
         {%- elif p is not none -%}{{ p }}
         {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
@@ -979,7 +981,7 @@ mqtt:
       value_template: >-
         {%- set v = value_json.REG_GRID_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1 | default(None) | float(None) -%}
         {%- set p = this.state | float(None) -%}
-        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- if v is not none and 0 < v < 1000000 and (p is none or p <= v <= p + 100) -%}{{ v }}
         {%- elif p is not none -%}{{ p }}
         {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
@@ -997,7 +999,7 @@ mqtt:
       value_template: >-
         {%- set v = value_json.REG_PV_METER_R_TOTAL_ENERGY_FEED_TO_GRID_1 | default(None) | float(None) -%}
         {%- set p = this.state | float(None) -%}
-        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- if v is not none and 0 < v < 1000000 and (p is none or p <= v <= p + 100) -%}{{ v }}
         {%- elif p is not none -%}{{ p }}
         {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"
@@ -1015,7 +1017,7 @@ mqtt:
       value_template: >-
         {%- set v = value_json.REG_PV_METER_R_TOTAL_ENERGY_CONSUMED_FROM_GRID_1 | default(None) | float(None) -%}
         {%- set p = this.state | float(None) -%}
-        {%- if v is not none and v > 0 and (p is none or p <= v <= p + 100) -%}{{ v }}
+        {%- if v is not none and 0 < v < 1000000 and (p is none or p <= v <= p + 100) -%}{{ v }}
         {%- elif p is not none -%}{{ p }}
         {%- else -%}None{%- endif -%}
       unit_of_measurement: "kWh"

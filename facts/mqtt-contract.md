@@ -102,7 +102,10 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
   sensors, 10800 s on hour sensors, 10 s on fast sensors. Response sensors have none. Fast sensors have no
   `state_class`, so they keep no long term statistics.
 - Energy totals use `state_class: total_increasing` for the Energy dashboard. All eight keep `this.state`
-  when the new value is missing, 0, lower, or more than 100 kWh higher. On 2026-10-21 one 0 and one value
+  when the new value is missing, 0, lower, or more than 100 kWh higher. With no last value (first message, HA
+  restart, or after the 300 s expiry) a value is taken only if `0 < v < 1000000` kWh, which also drops NaN and
+  infinity. A plausible wrong first value still gets through, and every later true reading below it is then
+  held back as a fall. On 2026-10-21 one 0 and one value
   copied from another register each booked over 6000 kWh into the battery statistics. Why the firmware
   published them is unknown.
 - Response sensors take `value_json.responseStatus` as state and the whole JSON as attributes.
