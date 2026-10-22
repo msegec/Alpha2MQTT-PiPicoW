@@ -219,14 +219,22 @@ def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
     t, seq, grid_w, battery, soc, error_w, target, request_w, output_w, sent (signed W or None),
     power_only, solar, demand (grid_w + battery - loss(battery)), limit (None if unlogged), cfg_target and
     deadband_w (the logged cfg in force, None without one),
-    and brk: True when the row does not follow the previous one (seq not +1, over GAP_S, or the first row).
+    brk: True when the row does not follow the previous one (seq not +1, over GAP_S, or the first row), and cmds:
+    every dispatch request on the bus after this step record and before the next one (signed W, None for normal),
+    so commands sent on the controller's tick count too.
     Solar: the step's solar_w when logged, else west = pv * -10 when >= 95 W plus the last state of the
     solar_suffix entity (0 without one)."""
     cfgs = CfgTimeline(recs)
     east = 0.0
     out: list[dict] = []
+    kept = False  # the last step record seen became out[-1]
     for r in recs:
         k = r["k"]
+        if k == "cmd":
+            cmd = commands([r])
+            if kept and cmd:
+                out[-1]["cmds"].append(cmd[0][1])
+            continue
         if k == "e":
             if solar_suffix and str(r.get("e", "")).endswith(solar_suffix):
                 east = _num(r.get("s")) or 0.0
@@ -234,11 +242,13 @@ def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
         if k != "step":
             continue
         t = r["t"]
+        kept = False
         if not (t0 <= t < t1) or any(a <= t < b for a, b in exclude) or r.get("status") != "regulating":
             continue
         vals = [_num(r.get(f)) for f in ("grid_w", "battery", "error_w", "request_w", "output_w")]
         if any(v is None for v in vals):
             continue
+        kept = True
         grid_w, battery, error_w, request_w, output_w = vals
         solar = _num(r.get("solar_w"))
         if solar is None:
@@ -260,7 +270,8 @@ def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
                "power_only": bool(isinstance(sent, dict) and sent.get("power_only")), "solar": solar,
                "demand": grid_w + battery - loss(battery), "limit": r.get("limit"),
                "load_w": _num(r.get("load_w")),
-               "cfg_target": _num(cfg.get("target_w")), "deadband_w": _num(cfg.get("deadband_w")), "brk": brk}
+               "cfg_target": _num(cfg.get("target_w")), "deadband_w": _num(cfg.get("deadband_w")), "brk": brk,
+               "cmds": []}
         out.append(row)
     return out
 

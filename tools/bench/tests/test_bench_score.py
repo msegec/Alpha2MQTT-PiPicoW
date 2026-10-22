@@ -37,6 +37,16 @@ def test_commands_and_turn_rounds():
     assert m["commands_per_min"] == pytest.approx(5 / (6 / 60))
 
 
+def test_commands_and_turns_count_every_command_a_row_covers():
+    rows = [row(0, sent=100), row(1), row(2)]
+    rows[0]["cmds"] = [100, -50]  # the step's command and a tick command after it
+    rows[1]["cmds"] = [None]
+    rows[2]["cmds"] = [200]
+    m = score.score(rows)["all"]
+    assert m["commands"] == 4
+    assert m["turn_rounds"] == 2
+
+
 def test_budget_sums_to_the_total_and_shares_to_one():
     rows = [row(i, error_w=(-1) ** i * 40, demand=1000 * (i % 7 == 0), sent=1 if i % 3 == 0 else None)
             for i in range(60)]

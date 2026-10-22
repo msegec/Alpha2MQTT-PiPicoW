@@ -51,7 +51,8 @@ Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 
   `request_w`, `output_w`. A row has `brk` True when its `seq` is not the last row's + 1 or more than 5 s
   passed. `seq` restarts at a firmware reboot, so nothing keys on `seq` across rows that are not consecutive.
 - Row fields: `target = grid_w - error_w` (it holds the policy offset), `cfg_target` (logged `target_w` in
-  force), `deadband_w` (the same, None without one), `demand = grid_w + battery - loss(battery)`, `sent` (signed W, or None), `solar`, `load_w`.
+  force), `deadband_w` (the same, None without one), `cmds` (every dispatch request on the bus after this
+  step record and before the next step record, signed W or None for normal), `demand = grid_w + battery - loss(battery)`, `sent` (signed W, or None), `solar`, `load_w`.
 - Battery loss, `logs.Loss`: `share * |battery| + fixed_w`, and 0 at a battery of exactly 0. The term is not
   the controller's: `estimate_grid` adds none. It comes from the correction source. The development site's
   correction template charges 15 % of |battery| plus 10 W as inverter loss in the demand it reports, so the
@@ -134,7 +135,7 @@ Over rows from `samples` (live) or `replay` (simulated). `e = grid_w - target`. 
 | `cost_w`, `cost_wh` | `4 * import + export` |
 | `abs_error_w`, `mean_error_w` | time mean of `|e|` and `e` |
 | `grid_import_w`, `grid_export_w` | JSON only: the grid itself, above and below 0 |
-| `commands_per_min` | rows with a command chosen in that step, per minute. Live counts `step.sent`, which misses tick commands. |
+| `commands_per_min` | commands per minute, every command in each row's `cmds`: live, every dispatch request on the bus between the row's step record and the next, so tick commands count; replay, every command the replay sent |
 | `turn_rounds` | non-zero commands whose sign differs from the last non-zero one; 0 W keeps the sign |
 
 Weights. `IMPORT_WEIGHT` 4 is the ratio in the regulator's `ki_import_x` comment, import costing about four

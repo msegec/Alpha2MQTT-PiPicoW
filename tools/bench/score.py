@@ -87,7 +87,7 @@ def causes(rows: list[dict]) -> list[str]:
     out = []
     last_sent = -float("inf")
     for i, r in enumerate(rows):
-        if r["sent"] is not None or r.get("sent_normal"):
+        if _commands(r):
             last_sent = r["t"]
         c = tag[i]
         if abs(r["request_w"] - r["output_w"]) >= logs.CAPPED_W:
@@ -100,6 +100,13 @@ def causes(rows: list[dict]) -> list[str]:
             c = "noise"
         out.append(c)
     return out
+
+
+def _commands(r: dict) -> list:
+    """The commands a row covers, signed W or None for normal: its cmds when it has them, else its sent."""
+    if "cmds" in r:
+        return r["cmds"]
+    return [r["sent"]] if r["sent"] is not None else [None] if r.get("sent_normal") else []
 
 
 def _offset_w(r: dict) -> float:
@@ -146,11 +153,12 @@ def score(rows: list[dict]) -> dict:
         e = r["error_w"]
         g = r["grid_w"]
         turn = 0
-        sent = r["sent"] is not None or r.get("sent_normal")
-        if r["sent"]:
-            sg = 1 if r["sent"] > 0 else -1
-            turn = int(last_sign != 0 and sg != last_sign)
-            last_sign = sg
+        cmds = _commands(r)
+        for w in cmds:
+            if w:
+                sg = 1 if w > 0 else -1
+                turn += int(last_sign != 0 and sg != last_sign)
+                last_sign = sg
         for k in ("all", reg[i]):
             a = tot[k]
             a["s"] += dt
@@ -161,7 +169,7 @@ def score(rows: list[dict]) -> dict:
             a["gimp"] += max(g, 0) * dt
             a["gexp"] += max(-g, 0) * dt
             a["n"] += 1
-            a["cmds"] += int(bool(sent))
+            a["cmds"] += len(cmds)
             a["turns"] += turn
             b = bud[cau[i]][k]
             b[0] += max(e, 0) * dt / 3600

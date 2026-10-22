@@ -65,6 +65,17 @@ def test_entity_records_load_only_for_a_named_solar_meter(tmp_path):
     assert [r["k"] for r in logs.load([str(tmp_path / "a.jsonl")], solar_suffix="east_meter")[0]] == ["e", "step"]
 
 
+def test_a_row_carries_every_dispatch_request_until_the_next_step():
+    recs = [step(1.0, 1, sent={"kind": "discharge", "watts": 500, "soc": 10, "power_only": False}),
+            {"k": "cmd", "t": 1.05, "topic": "A/request/set/discharge", "p": '{"watts":500}'},
+            {"k": "cmd", "t": 1.6, "topic": "A/request/set/charge", "p": '{"watts":100}'},  # a tick command
+            {"k": "cmd", "t": 1.7, "topic": "A/request/read/register/raw", "p": "{}"},
+            step(2.0, 2), step(3.0, 3, status="hold"),
+            {"k": "cmd", "t": 3.1, "topic": "A/request/set/normal", "p": "{}"},  # after a step not kept
+            step(4.0, 4)]
+    assert [r["cmds"] for r in logs.samples(recs)] == [[500.0, -100.0], [], []]
+
+
 def test_reads_and_raw_writes_are_not_commands():
     recs = [{"k": "cmd", "t": 1.0, "topic": "A/request/read/register/raw", "p": "{}"},
             {"k": "cmd", "t": 2.0, "topic": "A/request/set/discharge", "p": '{"watts":500,"seq":1}'},
