@@ -196,4 +196,10 @@ inline bool parseFlag(const char* text, bool& out)
 	return false;
 }
 
+// Text equality at compile time, so a static_assert can refuse a placeholder in Secrets.h
+constexpr bool sameText(const char* a, const char* b)
+{
+	return *a == *b && (*a == '\0' || sameText(a + 1, b + 1));
+}
+
 #endif

@@ -30,6 +30,7 @@ First, go and customise options at the top of Definitions.h!
 #error Set OTA_PASSWORD in Secrets.h, see Secrets.example.h
 #endif
 static_assert(sizeof(OTA_PASSWORD) > 1, "OTA_PASSWORD must not be empty, or anyone on the network can flash the Pico");
+static_assert(!sameText(OTA_PASSWORD, "change-me"), "OTA_PASSWORD is still the example value, set your own in Secrets.h");
 #include <PubSubClient.h>
 
 // WiFi parameters

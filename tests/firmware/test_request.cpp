@@ -121,6 +121,13 @@ int main()
 	expect(!parseFlag("2", out), "2 is refused");
 	expect(!parseFlag("", out), "empty is refused");
 
+	// sameText runs at compile time, for the OTA_PASSWORD check
+	static_assert(sameText("change-me", "change-me"), "equal text is the same");
+	static_assert(!sameText("change-me", "change-me-too"), "a longer text is not the same");
+	static_assert(!sameText("change", "change-me"), "a shorter text is not the same");
+	static_assert(!sameText("Change-me", "change-me"), "case counts");
+	expect(sameText("", ""), "two empty texts are the same");
+
 	if (failures == 0)
 	{
 		printf("OK\n");
