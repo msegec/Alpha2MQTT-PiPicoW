@@ -2,13 +2,17 @@
 
 Every topic between the Pico firmware and Home Assistant, who writes and reads it, and what the HA package wires up.
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101, plus the correction entity's `west` and `east` attributes on 2026-10-22, plus its `age_s` and `west_fallback` attributes and the controller limits as settings (read from `controller.py`, same day), plus `SET_SUCCESS` on d80bfb1 the same day; package templates on 2026-10-21 rendered offline with jinja2; package sections recounted on d80bfb1, 2026-10-22. Method: read and grep only; nothing was run against MQTT or hardware.
+Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101, plus the correction entity's `west` and `east` attributes on 2026-10-22, plus its `age_s` and `west_fallback` attributes and the controller limits as settings (read from `controller.py`, same day), plus `SET_SUCCESS` on d80bfb1 the same day; package templates on 2026-10-21 rendered offline with jinja2; package sections recounted on d80bfb1, 2026-10-22, and the changed
+package templates rendered offline with jinja2 the same day (energy guards, PV and Solar holds in both template orders,
+Dispatch Power, Idle Hold, script switch step) and the unique ids diffed unchanged plus `alpha2mqtt_fast_ha_idle`. Method: read and grep only; nothing was run against MQTT or hardware.
 
 ## Ground rules
 
 - Base topic is `DEVICE_NAME` in `Definitions.h`, `"Alpha2MQTT"`. Firmware topics are `DEVICE_NAME` plus a
   `MQTT_SUB_*` or `MQTT_MES_*` suffix. The controller takes the base from config `base_topic` (default `Alpha2MQTT`).
-  The YAML package hard codes `Alpha2MQTT/...`.
+  The YAML package hard codes `Alpha2MQTT/...`: MQTT YAML topics are plain strings, and package YAML has no
+  substitution (`!secret` replaces a whole value, one per topic), so a renamed `DEVICE_NAME` needs a search and
+  replace in the package.
 - Firmware MQTT client is PubSubClient. `sendMqtt` calls `_mqtt.publish(topic, payload)`: QoS 0, not retained.
 - No firmware publish is retained. The firmware sets no will and no availability topic. HA sensors rely on
   `expire_after` instead.
