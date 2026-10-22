@@ -442,6 +442,7 @@ static const uint16_t _mqttAllHandledRegisters[] =
 
 // These timers are used in the main loop.
 #define RUNSTATE_INTERVAL 5000
+#define LED_BLINK_MS 4
 #define STATUS_INTERVAL_FAST 1000
 #define STATUS_INTERVAL_TEN_SECONDS 10000
 #define STATUS_INTERVAL_ONE_MINUTE 60000
@@ -829,19 +830,28 @@ modbusRequestAndResponseStatusValues getSerialNumber()
 
 	waitServicingOta(4000);
 
-	//Flash the LED
-	digitalWrite(LED_BUILTIN, LOW);
-	delay(4);
-	digitalWrite(LED_BUILTIN, HIGH);
+	blinkLed();
 
 	return result;
 }
 
 
 /*
+blinkLed
+
+One short blink of the LED, LED_BLINK_MS long.
+*/
+void blinkLed()
+{
+	digitalWrite(LED_BUILTIN, LOW);
+	delay(LED_BLINK_MS);
+	digitalWrite(LED_BUILTIN, HIGH);
+}
+
+/*
 flashLed
 
-Flashes the LED once every RUNSTATE_INTERVAL, to show the loop is running.
+Blinks the LED once every RUNSTATE_INTERVAL, to show the loop is running.
 */
 void flashLed()
 {
@@ -849,9 +859,7 @@ void flashLed()
 
 	if (checkTimer(&lastRun, RUNSTATE_INTERVAL))
 	{
-		digitalWrite(LED_BUILTIN, LOW);
-		delay(4);
-		digitalWrite(LED_BUILTIN, HIGH);
+		blinkLed();
 	}
 }
 
