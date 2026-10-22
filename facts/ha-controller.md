@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set and policy tests, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 333 passed.
+Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set, policy and clamp tests, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 338 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -345,6 +345,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_grid_offset_moves_the_target_while_charging` | `grid_offset` lowers the error by its value; bad or implausible is 0 |
 | `test_a_policy_soc_the_firmware_would_refuse_is_unreadable`, `test_an_other_soc_the_firmware_would_refuse_*` | SOC range |
 | `test_a_correction_with_a_frozen_input_is_a_gap`, `test_a_frozen_correction_is_a_gap_on_the_clamp_too` | `age_s` |
+| `test_the_clamp_reads_the_grid_as_it_is_by_default`, `test_the_clamp_scale_and_correction_make_the_grid`, `test_a_grid_scale_entity_overrides_the_scale_and_steps_on_its_change`, `test_an_unreadable_grid_scale_entity_is_a_gap_not_the_configured_scale` | clamp mode: `scale * raw + correction`, the entity over `grid_scale`, `_measure` on its change, unreadable is a gap |
 | `test_a_response_that_is_json_but_not_an_object_is_ignored` | response shape |
 | `test_west_from_the_10_s_fallback_gives_no_solar_step` | `west_fallback` |
 | `test_a_whole_number_setting_stays_a_whole_number` | int settings stay int, duration published without a `.` |

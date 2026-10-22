@@ -1019,6 +1019,43 @@ def test_a_frozen_correction_is_a_gap_on_the_clamp_too(monkeypatch):
     assert house.c.grid_w is None
 
 
+def clamp_house(monkeypatch, **config):
+    """A controller on the grid clamp, with config in place of the net demand estimate."""
+    house = House(monkeypatch)
+    house.c.config = config
+    return house
+
+
+def test_the_clamp_reads_the_grid_as_it_is_by_default(monkeypatch):
+    house = clamp_house(monkeypatch)
+    house.second(**{C.GRID_KEY: 400})
+    assert house.c.grid_w == 400 and house.sent()[-1]["kind"] == "discharge"
+
+
+def test_the_clamp_scale_and_correction_make_the_grid(monkeypatch):
+    house = clamp_house(monkeypatch, grid_scale=2.0, correction_entity="sensor.net_demand")
+    house.set("sensor.net_demand", "-100")
+    house.second(**{C.GRID_KEY: 400})
+    assert house.c.grid_w == 2 * 400 - 100
+
+
+def test_a_grid_scale_entity_overrides_the_scale_and_steps_on_its_change(monkeypatch):
+    house = clamp_house(monkeypatch, grid_scale=2.0, grid_scale_entity="input_number.grid_scale")
+    house.set("input_number.grid_scale", "-1.5")
+    house.second(**{C.GRID_KEY: 400})
+    assert house.c.grid_w == -600
+    house.update("input_number.grid_scale", "0.5")
+    assert house.c.grid_w == 200  # stepped on the change, with no new sample
+
+
+@pytest.mark.parametrize("scale", ["unavailable", "nan"])
+def test_an_unreadable_grid_scale_entity_is_a_gap_not_the_configured_scale(monkeypatch, scale):
+    house = clamp_house(monkeypatch, grid_scale=2.0, grid_scale_entity="input_number.grid_scale")
+    house.set("input_number.grid_scale", scale)
+    house.second(**{C.GRID_KEY: 400})
+    assert house.c.grid_w is None and "grid estimate" in house.c._gaps
+
+
 def test_a_response_that_is_json_but_not_an_object_is_ignored(monkeypatch):
     house = House(monkeypatch)
     house.second()
