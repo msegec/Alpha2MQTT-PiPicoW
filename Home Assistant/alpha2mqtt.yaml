@@ -1144,6 +1144,9 @@ mqtt:
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
 
+# One writer at a time. The battery controller, if installed, sends a command every few seconds and would
+# overwrite a script's command, so each script turns the controller's Enabled switch off first. Turning it
+# off sends set/normal, then the script's own command follows. Turn Enabled back on to hand control back.
 script:
   alpha2mqtt_set_charge:
     alias: "Alpha2MQTT Charge"
@@ -1163,16 +1166,26 @@ script:
         selector:
           number: {min: 0, max: 100, step: 1, unit_of_measurement: "%"}
       duration:
-        description: "Seconds to stay in dispatch mode."
+        description: "Seconds to stay in dispatch mode. The inverter returns to its own mode after it."
         required: true
-        default: 14400
+        default: 600
         selector:
           number: {min: 60, max: 86400, step: 60, unit_of_measurement: s}
+      controller_switch:
+        description: "Enabled switch of the battery controller, turned off first. Skipped when it does not exist."
+        default: switch.alpha2mqtt_battery_controller_enabled
+        selector:
+          entity: {domain: switch}
     sequence:
       # Field defaults only fill the UI form. A run without data, such as a tap in the car app,
       # would publish zeros, so stop unless all three values were given.
       - condition: template
         value_template: "{{ watts is defined and soc_percent is defined and duration is defined }}"
+      - if: "{{ is_state(controller_switch | default('switch.alpha2mqtt_battery_controller_enabled'), 'on') }}"
+        then:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ controller_switch | default('switch.alpha2mqtt_battery_controller_enabled') }}"
       - action: mqtt.publish
         data:
           topic: "Alpha2MQTT/request/set/charge"
@@ -1196,16 +1209,26 @@ script:
         selector:
           number: {min: 0, max: 100, step: 1, unit_of_measurement: "%"}
       duration:
-        description: "Seconds to stay in dispatch mode."
+        description: "Seconds to stay in dispatch mode. The inverter returns to its own mode after it."
         required: true
-        default: 14400
+        default: 600
         selector:
           number: {min: 60, max: 86400, step: 60, unit_of_measurement: s}
+      controller_switch:
+        description: "Enabled switch of the battery controller, turned off first. Skipped when it does not exist."
+        default: switch.alpha2mqtt_battery_controller_enabled
+        selector:
+          entity: {domain: switch}
     sequence:
       # Field defaults only fill the UI form. A run without data, such as a tap in the car app,
       # would publish zeros, so stop unless all three values were given.
       - condition: template
         value_template: "{{ watts is defined and soc_percent is defined and duration is defined }}"
+      - if: "{{ is_state(controller_switch | default('switch.alpha2mqtt_battery_controller_enabled'), 'on') }}"
+        then:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ controller_switch | default('switch.alpha2mqtt_battery_controller_enabled') }}"
       - action: mqtt.publish
         data:
           topic: "Alpha2MQTT/request/set/discharge"
@@ -1215,7 +1238,18 @@ script:
     alias: "Alpha2MQTT Normal"
     description: "End dispatch mode and hand control back to the inverter."
     mode: single
+    fields:
+      controller_switch:
+        description: "Enabled switch of the battery controller, turned off first. Skipped when it does not exist."
+        default: switch.alpha2mqtt_battery_controller_enabled
+        selector:
+          entity: {domain: switch}
     sequence:
+      - if: "{{ is_state(controller_switch | default('switch.alpha2mqtt_battery_controller_enabled'), 'on') }}"
+        then:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ controller_switch | default('switch.alpha2mqtt_battery_controller_enabled') }}"
       - action: mqtt.publish
         data:
           topic: "Alpha2MQTT/request/set/normal"

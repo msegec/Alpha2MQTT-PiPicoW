@@ -114,9 +114,15 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
   and with it the controller, down.
 - Pico VSYS: `vsys_mv / 1000`, rounded to 2 places, in V. Pico USB Power: `ON` when `usb_power` is true.
 - Scripts `alpha2mqtt_set_charge` and `alpha2mqtt_set_discharge`: fields `watts` (default 3000),
-  `soc_percent` (100 charge, 10 discharge), `duration` (default 14400 s). No `seq`, no `powerOnly`.
-  The defaults only fill the UI form; a run missing any field stops before publishing.
-  `alpha2mqtt_set_normal` sends `{"void": 0}`.
+  `soc_percent` (100 charge, 10 discharge), `duration` (default 600 s), `controller_switch`. No `seq`, no
+  `powerOnly`. The defaults only fill the UI form; a run missing `watts`, `soc_percent` or `duration` stops
+  before publishing. `alpha2mqtt_set_normal` sends `{"void": 0}`.
+- All three scripts first turn off `controller_switch` when it is `on`, default
+  `switch.alpha2mqtt_battery_controller_enabled`: the controller's `EnableSwitch` (`switch.py`, name `Enabled`)
+  on its device `Alpha2MQTT battery controller` (`Controller.__init__`, default `base_topic`). A renamed entity
+  or a second controller needs the field set. `is_state` on a missing entity is false, so the step is skipped
+  without the controller. `switch.turn_off` awaits `async_set_enabled(False)`, which awaits the release
+  `set/normal` publish, so that release is queued before the script's own command.
 - No package entity feeds the controller. The controller reads `state/fast` itself.
 
 ## What the controller needs from outside the repo
@@ -142,7 +148,7 @@ Grid estimate (`estimate_grid` in `regulator.py`, positive on import):
 | Watts, direction and SOC each step; keepalive; release on disable or stale input | ctl `Regulator` |
 | What is allowed (charge, discharge, hold, fixed, normal, limits) | the policy entity, outside the repo (unknown) |
 | Power-only vs full block write | firmware `dispatchPowerOnly`, when the request says `powerOnly: 1` |
-| Lease length | request `duration`: ctl 120 s (`Settings.duration_s`), scripts 14400 s by default |
+| Lease length | request `duration`: ctl 120 s (`Settings.duration_s`), scripts 600 s by default |
 | Battery idle while HA is gone | firmware `holdIdleWhileHaGone`: charge 0 W to 100 % for 120 s, rewritten every 60 s, after 180 s gone |
 | Hiding a lone PV 0 | firmware `readPvMeterPower`; pkg PV sensors bridge the gap |
 | House load figure | firmware `REG_CUSTOM_LOAD`; the controller does not use it |
@@ -150,12 +156,15 @@ Grid estimate (`estimate_grid` in `regulator.py`, positive on import):
 Writers of the dispatch block, any of which can override another:
 
 1. Controller (`_publish`), every command.
-2. Package scripts `alpha2mqtt_set_*`, by hand.
+2. Package scripts `alpha2mqtt_set_*`, from the UI or any caller of the script (the yaml comment names a car
+   app). Each turns the controller off first.
 3. Firmware idle hold, only while HA counts as gone.
 4. Raw register writes to 0x0880 to 0x0888.
 
-The controller does not watch for other writers. It logs them through `request/#` when the step log is on, and
-its next command or keepalive overwrites them. A raw write or `set/normal` clears the firmware's `_activeDispatch`,
+Arbitration: one writer at a time. The scripts hand over by turning the controller's Enabled switch off;
+turning it back on hands control back. The firmware idle hold yields to any `set/*` request. Nothing stops
+a raw register write or an outside publish. The controller does not watch for other writers. It logs them
+through `request/#` when the step log is on, and while enabled its next command or keepalive overwrites them. A raw write or `set/normal` clears the firmware's `_activeDispatch`,
 so the next charge or discharge writes the full block.
 
 ## Mismatches
@@ -182,8 +191,10 @@ so the next charge or discharge writes the full block.
 
 ## Gotchas
 
-- A script charge runs 14400 s by default. With the controller off, nothing ends it early except `set/normal`.
-- With the controller on, a script command lasts only until the controller's next command or keepalive.
+- A script charge runs 600 s by default. Nothing ends it early except `set/normal` or a new command.
+- A script leaves the controller off. It stays off until someone turns Enabled on again.
+- A direct publish to `request/set/*` that bypasses the scripts still lasts only until the controller's next
+  command or keepalive.
 - HA's birth is not retained by default. The firmware treats any `set/*` request as HA being up to cover that.
 - The firmware leaves failed reads out of the JSON, so every package template uses `| default(None)`.
   The controller drops a fast message that lacks grid or battery power, and keeps the last SOC when SOC is missing.
@@ -192,4 +203,5 @@ so the next charge or discharge writes the full block.
 
 - Where `sensor.battery_auto_action` and the net demand correction are defined, and their exact templates: unknown, not in this repo.
 - Whether the deployed HA has the birth and will retained, as the README advises: unknown.
-- Whether any automation outside the repo calls the `alpha2mqtt_set_*` scripts while the controller is on: unknown.
+- Whether any automation outside the repo calls the `alpha2mqtt_set_*` scripts: unknown. Since the scripts turn
+  the controller off, such a caller now leaves it off.
