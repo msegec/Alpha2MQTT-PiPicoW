@@ -85,10 +85,11 @@ def _plausible(x: float, limit: float) -> bool:
 
 
 def _code_version() -> str:
-    """The first 12 hex of a sha256 over regulator.py and controller.py, so a log says which loop ran."""
+    """The first 12 hex of a sha256 over every Python file of the integration in name order, so a log says which code
+    ran: the monitor, the step log, the entities and their ranges count as much as the loop."""
     folder = os.path.dirname(__file__)
     digest = hashlib.sha256()
-    for name in ("regulator.py", "controller.py"):
+    for name in sorted(n for n in os.listdir(folder) if n.endswith(".py")):
         with open(os.path.join(folder, name), "rb") as f:
             digest.update(f.read())
     return digest.hexdigest()[:12]
@@ -213,7 +214,10 @@ class Controller:
         cfg = self.config
         base = cfg.get(CONF_BASE_TOPIC, DEFAULT_BASE_TOPIC)
         log_dir = cfg.get(CONF_LOG_DIR) or self.hass.config.path(DOMAIN)
-        self.code = await self.hass.async_add_executor_job(_code_version)
+        try:
+            self.code = await self.hass.async_add_executor_job(_code_version)
+        except OSError as err:  # only a label: the controller runs without it
+            _LOGGER.warning("Battery controller loop version unknown: %s", err)
         try:
             self._steplog = await self.hass.async_add_executor_job(StepLog, os.path.join(log_dir, file_name(base)))
         except OSError as err:

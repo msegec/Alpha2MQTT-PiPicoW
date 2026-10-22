@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 353 passed.
+Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 354 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -30,7 +30,8 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
   "Alpha2MQTT battery controller", plus " (<base>)" when the base topic is not `Alpha2MQTT`, so a shadow
   controller gets its own entity ids (24f5a85).
 - `async_start` creates, in order:
-  - `code`: `_code_version()` on the executor, the first 12 hex of a sha256 over the bytes of `regulator.py` then `controller.py`.
+  - `code`: `_code_version()` on the executor, the first 12 hex of a sha256 over the bytes of every `*.py` file of the
+    integration in name order. An `OSError` logs a warning and leaves `code` None; the start goes on.
   - `StepLog` at `<log_dir or hass.config.path(DOMAIN)>/file_name(base)` on the executor. `OSError` logs a warning and leaves the step log off.
   - MQTT subscribe: state topic -> `_on_state`.
   - MQTT subscribe: `{base}/response/set/+` -> `_on_response`.
@@ -345,6 +346,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_dropped_sample_is_logged_with_why` | `drop` record for an unreadable or implausible sample |
 | `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_start_record_and_the_loop_version_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
 | `test_a_setting_switch_*` | switch restore, default, cfg log, group |
+| `test_an_unreadable_loop_code_leaves_the_version_unknown_and_starts` | `_code_version` failure leaves `code` None, start goes on |
 | `test_a_saved_table_*`, `test_a_bad_saved_table_*`, `test_a_moved_table_*`, `test_a_stop_saves_*`, `test_the_forget_button_*`, `test_the_integral_sensor_carries_*` | learned table load, save, log cadence, forget, chart attribute |
 | `test_a_negative_cap_reads_as_0_w`, `test_an_unreadable_cap_keeps_*` | cap clamp, last readable cap |
 | `test_a_fixed_policy_sends_its_watts_whatever_the_grid`, `test_a_fixed_policy_without_plausible_watts_is_unreadable` | `fixed` sign per direction, SOC passed, bad watts unreadable |

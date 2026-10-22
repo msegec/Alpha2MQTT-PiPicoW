@@ -746,7 +746,8 @@ def test_the_start_record_and_the_loop_version_sensor_name_the_loop_code(tmp_pat
     (path,) = tmp_path.rglob("*.jsonl")
     start = json.loads(path.read_text().splitlines()[0])
     folder = Path(C.__file__).parent
-    code = hashlib.sha256((folder / "regulator.py").read_bytes() + (folder / "controller.py").read_bytes())
+    code = hashlib.sha256(b"".join(path.read_bytes() for path in sorted(folder.glob("*.py"))))
+    assert {"response.py", "steplog.py", "sensor.py", "number.py"} <= {path.name for path in folder.glob("*.py")}
     assert start == {"k": "start", "t": start["t"], "code": code.hexdigest()[:12]}
     c = C.Controller(MagicMock(), {}, "entry")
     c.code = "abc"
@@ -754,6 +755,15 @@ def test_the_start_record_and_the_loop_version_sensor_name_the_loop_code(tmp_pat
     sensor = S.ControllerSensor(MagicMock(runtime_data=c), key, *rest)
     assert (sensor._attr_name, sensor._value(c)) == ("Loop version", "abc")
     assert sensor._attr_entity_category == S.EntityCategory.DIAGNOSTIC
+
+
+def test_an_unreadable_loop_code_leaves_the_version_unknown_and_starts(tmp_path, monkeypatch):
+    def unreadable():
+        raise OSError("gone")
+    monkeypatch.setattr(C, "_code_version", unreadable)
+    _, paths, kinds = started(tmp_path, {})
+    assert kinds == ["start", "cfg", "stop"]
+    assert json.loads(paths[0].read_text().splitlines()[0])["code"] is None
 
 
 def learned(c, w=500.0, y=-30.0):

@@ -76,7 +76,7 @@ SENSORS = [
     ("step_response", "Step response time", False, lambda c: (c.last_response or {}).get("t80_s"),
      lambda c: dict(c.last_response or {})),
     ("slow_responses", "Slow step responses today", False, lambda c: c.slow_responses_today, None),
-    # A hash of the loop's code, the same as the start record's code: which regulator and controller are running.
+    # A hash of the integration's code, the same as the start record's code: which version is running.
     ("code", "Loop version", False, lambda c: c.code, None),
 ]
 DIAGNOSTIC = {"code"}
