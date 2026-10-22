@@ -7,7 +7,7 @@
 Each regulating sample of the log gives the house demand (grid_w + battery less the battery loss, logs.Loss), the
 target (grid_w - error_w) and the SOC. The simulated grid is demand + loss(simulated battery) - simulated
 battery. The policy is REGULATE with the CLI limits and the logged target offset. Each command is acked 0.1 s
-later as written the way it asked (power only or block). A regulator whose update_grid takes solar_w (or soc) gets the
+later as written the way it asked (power only or block), unless --fail-every or --timeout-every say otherwise. A regulator whose update_grid takes solar_w (or soc) gets the
 sample's solar (or SOC); one with update_load gets the logged load_w when there is one. See facts/bench.md.
 """
 
@@ -31,7 +31,8 @@ import score  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 REGULATOR = "Home Assistant/custom_components/alpha2mqtt_controller/regulator.py"
-ACK_S = 0.1
+ACK_S = 0.1  # a response comes this long after its command
+OK, FAIL, TIMEOUT = "ok", "fail", "timeout"  # what happens to a published command: written, refused, no response
 _names = itertools.count()
 
 
@@ -79,12 +80,28 @@ def parse_sets(items: list[str]) -> dict:
     return out
 
 
+def every(fail_every: int = 0, timeout_every: int = 0):
+    """An outcome for the n-th command published (from 0): every fail_every-th is refused, every timeout_every-th
+    gets no response; 0 is never. Refused wins when both fall on one command."""
+    def outcome(n: int) -> str:
+        if fail_every > 0 and (n + 1) % fail_every == 0:
+            return FAIL
+        if timeout_every > 0 and (n + 1) % timeout_every == 0:
+            return TIMEOUT
+        return OK
+    return outcome
+
+
 def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None = None,
            cfgs: logs.CfgTimeline | None = None, max_charge_w: float = 4000.0, max_discharge_w: float = 4000.0,
-           discharge_soc: int = 10, charge_soc: int = 100,
-           loss: logs.Loss = logs.Loss()) -> tuple[list[dict], list[str]]:
+           discharge_soc: int = 10, charge_soc: int = 100, loss: logs.Loss = logs.Loss(), ack_s: float = ACK_S,
+           outcome=None) -> tuple[list[dict], list[str]]:
     """Simulated rows in the shape score.score reads, and warnings. overrides apply over the cfg in force
-    (cfgs, when given) or the module's defaults. loss must be the one the rows' demand was taken with."""
+    (cfgs, when given) or the module's defaults. loss must be the one the rows' demand was taken with.
+    outcome(n) says what happens to the n-th command published (OK by default), as the controller sees it: OK is
+    written and acked ack_s later; FAIL is not written and its response calls fail(); TIMEOUT is not written, has
+    no response, and calls fail() once ack_timeout_s has passed. Only the newest command's response counts."""
+    outcome = outcome or (lambda n: OK)
     overrides = overrides or {}
     warnings: list[str] = []
     base = {}
@@ -99,11 +116,50 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
     takes_soc = "soc" in params
     has_ack = hasattr(reg, "ack")
     ack_power = has_ack and "power_write" in inspect.signature(reg.ack).parameters
+    has_fail = hasattr(reg, "fail")
+    ack_timeout_s = getattr(s, "ack_timeout_s", 10.0)
     has_load = hasattr(reg, "update_load")
     pol_fields = {f.name for f in dataclasses.fields(mod.Policy)}
     cur_cfg = base
     sim = None
-    ack_due: tuple[float, bool] | None = None
+    responses: list[tuple[float, object, bool]] = []  # (due, command, written), in time order
+    last: list | None = None  # [command, time sent, answered] of the newest command published
+    published = 0
+
+    def newest(cmd) -> bool:
+        return last is not None and cmd is last[0] and getattr(reg, "sent", cmd) is cmd
+
+    def respond(now: float) -> None:
+        while responses and responses[0][0] <= now:
+            due, cmd, ok = responses.pop(0)
+            if not newest(cmd):
+                continue
+            last[2] = True
+            if not ok:
+                if has_fail:
+                    reg.fail()
+            elif has_ack:
+                pw = bool(getattr(cmd, "power_only", False))
+                reg.ack(due, power_write=pw) if ack_power else reg.ack(due)
+
+    def check_ack(now: float) -> None:
+        if last is not None and not last[2] and newest(last[0]) and now - last[1] > ack_timeout_s:
+            last[2] = True
+            if has_fail:
+                reg.fail()
+
+    def publish(now: float, cmd) -> float | None:
+        nonlocal last, published
+        result = outcome(published)
+        published += 1
+        last = [cmd, now, False]
+        signed = None if cmd.kind == "normal" else float(cmd.signed_w)
+        if result == OK:
+            sim.command(now, signed)
+        if result != TIMEOUT:
+            responses.append((now + ack_s, cmd, result == OK))
+        return signed
+
     out = []
     for r in rows:
         t = r["t"]
@@ -117,9 +173,8 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
             sim = plantmod.Sim(plant, r["battery"], None if sim is None else sim.aim)
             sim.t = t
         b = sim.advance(t)
-        if ack_due is not None and ack_due[0] <= t and has_ack:
-            reg.ack(ack_due[0], power_write=ack_due[1]) if ack_power else reg.ack(ack_due[0])
-            ack_due = None
+        respond(t)
+        check_ack(t)
         grid = r["demand"] + loss(b) - b
         kw = {"soc": r["soc"]} if takes_soc else {}
         if takes_solar:
@@ -133,14 +188,7 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
               "discharge_soc": discharge_soc, "target_offset_w": offset}
         policy = mod.Policy(mod.REGULATE, **{k: v for k, v in pk.items() if k in pol_fields})
         cmd = reg.step(t, policy)
-        signed = None
-        if cmd is not None:
-            if cmd.kind == "normal":
-                sim.command(t, None)
-            else:
-                signed = float(cmd.signed_w)
-                sim.command(t, signed)
-                ack_due = (t + ACK_S, bool(getattr(cmd, "power_only", False)))
+        signed = None if cmd is None else publish(t, cmd)
         out.append({"t": t, "seq": r["seq"], "brk": r["brk"], "grid_w": grid, "battery": b, "soc": r["soc"],
                     "target": s.target_w + offset, "error_w": grid - (s.target_w + offset),
                     "request_w": reg.request_w, "output_w": reg.output_w, "sent": signed,
@@ -156,7 +204,16 @@ def add_variant_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--max-charge-w", type=float, default=4000.0)
     p.add_argument("--max-discharge-w", type=float, default=4000.0)
     p.add_argument("--discharge-soc", type=int, default=10)
+    p.add_argument("--ack-s", type=float, default=ACK_S, help="seconds from a command to its response")
+    p.add_argument("--fail-every", type=int, default=0, help="refuse every Nth command (0 never)")
+    p.add_argument("--timeout-every", type=int, default=0, help="leave every Nth command unanswered (0 never)")
     p.add_argument("--json", action="store_true")
+
+
+def variant_kwargs(a) -> dict:
+    """replay() keyword arguments from add_variant_args and logs.add_window_args options."""
+    return {"max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w, "discharge_soc": a.discharge_soc,
+            "loss": logs.loss_from_args(a), "ack_s": a.ack_s, "outcome": every(a.fail_every, a.timeout_every)}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -175,7 +232,7 @@ def main(argv: list[str] | None = None) -> None:
     pl = plantmod.Plant.load(a.plant) if a.plant else plantmod.fit(rows, logs.commands(recs))[0]
     mod = load_regulator(a.regulator, a.ref)
     sim, warnings = replay(mod, rows, pl, parse_sets(a.set), logs.CfgTimeline(recs) if a.settings_from_log else None,
-                           a.max_charge_w, a.max_discharge_w, a.discharge_soc, loss=logs.loss_from_args(a))
+                           **variant_kwargs(a))
     for w in warnings:
         print(w, file=sys.stderr)
     sc = score.score(sim)

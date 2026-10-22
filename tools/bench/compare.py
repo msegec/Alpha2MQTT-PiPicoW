@@ -45,7 +45,7 @@ def parse_variant(s: str) -> dict:
 
 
 def run(rows_by_window: dict[str, list[dict]], variants: list[dict], pl: plantmod.Plant, base_set: dict,
-        cfgs: logs.CfgTimeline | None, limits: dict) -> dict:
+        cfgs: logs.CfgTimeline | None, kwargs: dict) -> dict:
     """{window: {'live': scorecard, variant name: scorecard}}, plus an 'all windows' entry over every window."""
     out: dict[str, dict] = {}
     mods = {}
@@ -59,7 +59,7 @@ def run(rows_by_window: dict[str, list[dict]], variants: list[dict], pl: plantmo
         joined["live"] += rows
         for v in variants:
             sim, warnings = replay.replay(mods[(v["ref"], v["path"])], rows, pl, {**base_set, **v["set"]}, cfgs,
-                                          **limits)
+                                          **kwargs)
             for msg in warnings:
                 print(f"{v['name']}: {msg}", file=sys.stderr)
             out[w][v["name"]] = score.score(sim)
@@ -121,9 +121,7 @@ def main(argv: list[str] | None = None) -> None:
         allrows = [r for rows in rows_by_window.values() for r in rows]
         pl = plantmod.fit(allrows, logs.commands(recs))[0]
     cfgs = logs.CfgTimeline(recs) if a.settings_from_log else None
-    limits = {"max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w, "discharge_soc": a.discharge_soc,
-              "loss": loss}
-    res = run(rows_by_window, variants, pl, replay.parse_sets(a.set), cfgs, limits)
+    res = run(rows_by_window, variants, pl, replay.parse_sets(a.set), cfgs, replay.variant_kwargs(a))
     if a.json:
         print(json.dumps({"plant": dataclasses.asdict(pl), "variants": variants, "results": res}, indent=1))
     else:

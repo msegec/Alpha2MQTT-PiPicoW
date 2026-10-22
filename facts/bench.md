@@ -35,8 +35,9 @@ python3 -I tools/bench/compare.py 'LOGDIR/alpha2mqtt.jsonl*' --window 'A..B' --w
     --variant 'now:ref=HEAD' --variant 'ki3:ref=HEAD,ki=0.03' --variant 'wip:path=/some/regulator.py'
 ```
 
-Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 0.15) and
-`--loss-w` (default 10), `--max-charge-w` and `--max-discharge-w` (default 4000), `--discharge-soc` (default 10).
+Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 0.15) and `--loss-w` (default
+10). Replay and compare also take `--max-charge-w` and `--max-discharge-w` (default 4000), `--discharge-soc`
+(default 10), `--ack-s`, `--fail-every` and `--timeout-every`.
 
 ## Loading (`logs.py`)
 
@@ -114,11 +115,18 @@ the new logs too: a growing error is drift.
 - API by signature: `update_grid` gets `soc=` and `solar_w=` only if it takes them. `update_load` (older
   versions) gets the logged `load_w` when there is one. `ack` gets `power_write=` if it takes it; a regulator
   without `ack` gets none.
-- Per sample: advance the model to `t`; ack the last command at its send time + 0.1 s with
-  `power_write = cmd.power_only`; grid = `demand + loss(battery) - battery`; `update_grid`; then
+- Per sample: advance the model to `t`; deliver the responses due by `t`; grid = `demand + loss(battery) - battery`; `update_grid`; then
   `step` with `Policy(REGULATE, max_charge_w, max_discharge_w, charge_soc=100, discharge_soc,
   target_offset_w = target - cfg_target)`. The replayed target is the variant's `target_w` plus that offset.
   Without a logged cfg, `cfg_target` is the variant's `target_w`.
+- Responses, as `controller._on_response` and `_check_ack` handle them. Each published command has an
+  outcome, `ok` unless `--fail-every N` or `--timeout-every N` picks it (counted from 1; refused wins a tie).
+  `ok`: the model gets the command, and a response at send time + `--ack-s` (0.1 s) calls `ack(that time,
+  power_write = cmd.power_only)`. `fail`: the model never gets it; the response calls `fail()`. `timeout`: the
+  model never gets it, no response comes, and the first check over `ack_timeout_s` after sending calls `fail()`
+  once. A response counts only for the newest command while the regulator's `sent` is still it. Responses carry
+  their own time but are delivered at the next sample; the regulator reads `_t_ack` only in `step`, so this
+  matches live as long as no step falls between the response and that sample.
 - At a `brk` the model restarts from the logged battery, keeping its last aim; the regulator runs on and goes
   stale on its own after `stale_after_s`.
 - SOC is the logged one, not simulated.
