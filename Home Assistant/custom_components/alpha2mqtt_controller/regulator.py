@@ -419,6 +419,7 @@ class Regulator:
                            and abs(demand - self._demand) > s.spike_confirm_w)
             self._demand = demand
         e = self._error(grid_w)
+        c = self.sent.signed_w if self.sent is not None and self.sent.kind != "normal" else 0
         if s.arrive_restart_w > 0 and _sign(self._sent_w) * (battery_w - self._arrive_w) >= s.arrive_restart_w:
             self._t_arrive, self._arrive_w = t, battery_w  # still closing: lag, not an offset
         arrived = (self.sent is None or self.sent.kind == "normal"
@@ -430,8 +431,7 @@ class Regulator:
             if _sign(e) != self._saturation:
                 dt = min(t - self._t_measure, s.max_integrate_s)
                 g = s.ki * (s.ki_import_x if e > 0 else 1.0)
-                self.integral_w = _clip(self.integral_w + g * e * dt, -s.integral_limit_w, s.integral_limit_w)
-        c = self.sent.signed_w if self.sent is not None and self.sent.kind != "normal" else 0
+                self.integral_w = _clip(self.integral_w + g * e * dt, *self._integral_window(c))
         raw = grid_w - s.target_w - self._target_offset_w
         if (s.trim_learn and s.trim_rate > 0 and self._learn_ok and arrived and not self._spike
                 and self._t_measure is not None and abs(c) >= s.trim_min_w and t - self._t_change >= s.trim_settle_s
@@ -444,12 +444,16 @@ class Regulator:
             # Trim and integral together have no more authority than the integral alone. The command moves by the
             # integral minus the trim at c (learning keeps that difference), so that is what the limit bounds. A trim
             # past the limit on its own is the table's, bounded by trim_limit_w: the integral may only take it back
-            # towards the limit, never be forced off 0.
-            tr, lim = _interp(TRIM_NODES, self.trim, c), s.integral_limit_w
-            self.integral_w = _clip(self.integral_w, min(0.0, tr - lim), max(0.0, tr + lim))
+            # towards the limit, never be forced off 0. Learning just moved the trim, so the window is taken again.
+            self.integral_w = _clip(self.integral_w, *self._integral_window(c))
         self.grid_w, self.battery_w, self._t_measure = grid_w, battery_w, t
         if fresh:
             self._t_fresh = t
+
+    def _integral_window(self, c: float) -> tuple[float, float]:
+        """Where the integral may sit at setpoint c: integral minus trim within the limit, and 0 always allowed."""
+        lim, tr = self.settings.integral_limit_w, _interp(TRIM_NODES, self.trim, c)  # the 0 W node is always 0
+        return min(0.0, tr - lim), max(0.0, tr + lim)
 
     def _error(self, grid_w: float) -> float:
         e = grid_w - self.settings.target_w - self._target_offset_w

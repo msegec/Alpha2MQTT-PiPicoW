@@ -1573,7 +1573,7 @@ def _flat_trim(reg, trim_w):
     return reg
 
 
-@pytest.mark.parametrize("trim_w, short_w", [(-100, 400), (100, -400)])
+@pytest.mark.parametrize("trim_w, short_w", [(-100, 400), (100, -400), (-100, -400), (100, 400)])
 def test_the_integral_and_the_trim_together_push_no_more_than_the_integral_limit(trim_w, short_w):
     # The command moves by the integral minus the trim at the setpoint, so that is what the limit bounds.
     reg = _flat_trim(make(ki=0.2, deadband_w=0, target_w=0, min_interval_s=0, write_threshold_w=10, lag_w=1000,
