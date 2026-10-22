@@ -1156,7 +1156,8 @@ def test_an_other_soc_the_firmware_would_refuse_closes_the_other_direction(monke
 
 def test_a_correction_with_a_frozen_input_is_a_gap(monkeypatch):
     # A template re-rendered every second stays fresh by last_reported though an input under it froze. Its optional
-    # age_s attribute, the age of its oldest input, over CORRECTION_MAX_AGE_S counts as missing: hold, then release.
+    # age_s attribute, the age of its oldest input, over the correction_max_age_s setting counts as missing: hold,
+    # then release.
     house = House(monkeypatch)
     house.second()
     house.set("sensor.net_demand", "1000", age_s=60)
