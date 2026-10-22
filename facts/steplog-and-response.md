@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 354 passed.
+Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 357 passed.
 
 ## Files
 
@@ -56,7 +56,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | Field | Source | Type, unit |
 |---|---|---|
 | `seq`, `ms`, `read_ms` | fast message, firmware `sendFastState` | int; `ms` is Pico `millis()` when reads started, `read_ms` their duration in ms |
-| `grid`, `pv`, `battery`, `soc`, `dispatch` | fast message keys in `FAST_FIELDS` | raw values (W, %, dispatch start as sent, `"Start"` in tests); null if absent |
+| `grid`, `pv`, `battery`, `soc`, `dispatch` | fast message keys in `FAST_FIELDS` | raw values (W, %, dispatch start `"Start"`, `"Stop"` or `"Unknown"`); null if absent |
 | `wait_ms` | `time.monotonic() - t_seen` | int ms the sample waited for its correction (up to `match_wait_s`, 0.5 s) |
 | `status` | `Controller.status` | str, `"disabled"` when off, else regulator status |
 | `limit` | `Regulator.limit` | str: what held the output (`none`, `floor`, `soc_unknown`, `refused`, `full`, `warm`, `discharge_cap`, `charge_cap`, `turn_round`, `spike`); kept from the last step while disabled |
@@ -170,7 +170,11 @@ Test run, from the repo root: `python3 -m pytest "Home Assistant/tests/test_step
 
 ## Open questions
 
-- Type of `p` in `cmd` and `ack` when Home Assistant delivers bytes: unknown; `default=str` would write a `b'...'` text.
-- Exact `dispatch` values from the firmware beyond `"Start"`: unknown.
-- Whether `TimedRotatingFileHandler` rolls correctly across DST changes in this setup: unknown.
+- Type of `p` in `cmd`, `ack` and `drop` when Home Assistant delivers bytes: unknown, no Home Assistant source was
+  available to read; `default=str` would write a `b'...'` text. `json.loads` takes either, so control is unaffected.
+- `dispatch` is `"Start"` (1), `"Stop"` (0) or `"Unknown"` (any other value): `dispatchStartLookup` in
+  `Alpha2MQTT/Registers.h`, quoted by `addStateInfo`.
+- DST: `TimedRotatingFileHandler.computeRollover` with `utc` false moves the next midnight by an hour when DST starts
+  or ends before it (read in the Python 3.13 standard library on the build machine). The Python on the Home
+  Assistant host was not checked.
 - Any replay or analysis tool that reads these logs: none found in this repo; unknown elsewhere.

@@ -26,7 +26,7 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
   2. Builds `Controller(hass, dict(entry.data), entry.entry_id)` and stores it in `entry.runtime_data`.
   3. Forwards to platforms BUTTON, NUMBER, SENSOR, SWITCH.
   4. `Controller.async_start`.
-- `Controller.__init__`: fresh `Regulator()`, `enabled = False`, `ResponseMonitor()`, and a Home Assistant `Store` (version 1, key `alpha2mqtt_controller.<entry_id>.learned_offsets`) for the learned offset table. Device name is
+- `Controller.__init__`: fresh `Regulator()`, `enabled = False`, `ResponseMonitor(self.regulator.settings)` (it reads its three limits live), and a Home Assistant `Store` (version 1, key `alpha2mqtt_controller.<entry_id>.learned_offsets`) for the learned offset table. Device name is
   "Alpha2MQTT battery controller", plus " (<base>)" when the base topic is not `Alpha2MQTT`, so a shadow
   controller gets its own entity ids (24f5a85).
 - `async_start` creates, in order:
@@ -36,7 +36,9 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
   - MQTT subscribe: state topic -> `_on_state`.
   - MQTT subscribe: `{base}/response/set/+` -> `_on_response`.
   - Only with a step log: logs `start` (with `code`) and `cfg`, subscribes `{base}/request/#` -> `_on_request` (raw log only), and tracks `log_entities` state changes -> `_on_log_entity`.
-  - `_load_trim`: loads the store; with a saved `points` list, `regulator.load_trim(points)` and a `trim_load` record. Nothing saved logs nothing.
+  - `_load_trim`: loads the store; with a saved `points` list, `regulator.load_trim(points)` and a `trim_load` record. Nothing saved, or no `points`, logs nothing. A store that
+    raises on load logs the exception and a `trim_load` record with `loaded: false` and the empty table, and the start
+    goes on.
   - State change tracking of the configured policy, grid scale, correction, max charge, max discharge entities -> `_on_entity`.
   - `async_track_time_interval` 1 s -> `_on_tick`.
 - `async_unload_entry`: `Controller.async_stop`, then unload platforms.
@@ -70,7 +72,8 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
 5. `_take`: stores raw grid and battery; SOC from `REG_BATTERY_HOME_R_SOC`, or `None` when absent (the regulator keeps
    its last SOC, 7603b02); feeds `ResponseMonitor.sample(t_seen, battery)`; calls `_measure(fresh=True)`; logs a `step` record.
 6. `_grid_estimate` by `grid_source`:
-   - `estimate`: correction via `_number(..., correction_max_age_s=90)`; `None` if missing or older than 90 s
+   - `estimate`: correction via `_correction(settings.correction_max_age_s)` (default 90 s); `None` if missing or older
+     than that
      by `last_reported`. Result `estimate_grid(correction, battery)` = correction - battery.
    - `clamp` (default): scale from `grid_scale_entity`, else `grid_scale` config (1.0). A configured scale
      entity that is unreadable or past +-`GRID_SCALE_MAX` (100) gives `None`. Correction entity optional (0 if unset, `None` if set and unreadable,
@@ -260,13 +263,15 @@ its entity id and history, and only a new install takes an entity id from the ne
 `import_trim_gap_s` means a small command move, and in `trim_*` the learned offset table; only the keys clash, which
 cannot change without new unique ids, and the learned table's display names say "offset" instead.
 
-The last eight are `Settings` fields the regulator never reads: the controller and `ResponseMonitor` read them from
+The last eight rows of this table (not of `NUMBERS`, where `command_step_w` comes last) are `Settings` fields the
+regulator never reads: the controller and `ResponseMonitor` read them from
 `regulator.settings`, so every limit has one owner and goes in the `cfg` record.
 
 `set_setting` keeps a field whose current value is an int (`duration_s`, `full_register`, `command_step_w`) an int,
 rounding what Home Assistant gives, and a bool a bool: the firmware strips a `.` from a value, so a lease of `120.0`
 would arrive as 1200 s. A change of `trim_limit_w` reloads the learned table through `load_trim`, which clips it
-to the new limit. Every call logs `cfg` and notifies the sensors, so a change shows at once, not on the next tick up to 1 s later.
+to the new limit. Every call logs `cfg` and notifies the sensors, so a change shows at once, not on the next tick
+up to 1 s later.
 
 Sensors (`ControllerSensor`, push only, all attributes unrecorded via `MATCH_ALL`). Control never reads them.
 
@@ -277,6 +282,12 @@ Sensors (`ControllerSensor`, push only, all attributes unrecorded via `MATCH_ALL
 | integral (power) | `integral_w`; attr `learned_offsets`, `regulator.trim_points()` for a chart, riding on this sensor's writes |
 | error, output, battery (power) | regulator fields; output attrs request, integral, feed_forward, offset, `p`, `u`, `slewed` |
 | limit | `regulator.limit` when enabled, else None; attrs `lo`, `hi`, `direction`, `direction_since`, `refusal_since`, `refused_soc` |
+| sent (power) | `last_command.signed_w` |
+| commands | publishes in the last `COMMAND_WINDOW_S` 3600 s (bebb043) |
+| last_command | `normal` or `"<kind> <watts> W"`; attrs soc, seq, sent time, ack dict |
+| step_response | `t80_s` of the last non-cancelled response record; attrs the record |
+| slow_responses | slow responses today, local date |
+| code ("Loop version") | `Controller.code`; entity category diagnostic (`DIAGNOSTIC` in `sensor.py`) |
 
 Diagnosis attributes (all for display, control never reads them):
 
@@ -290,12 +301,6 @@ Diagnosis attributes (all for display, control never reads them):
 - Write cost: status and limit attributes change only at those edges. `p`, `u`, `slewed` change every step but sit on
   the output power sensor, which writes only on its own `MOVE_W`/`EVERY_S` gate. All attributes stay unrecorded
   through `MATCH_ALL`; a state row is still written on each state_changed.
-| sent (power) | `last_command.signed_w` |
-| commands | publishes in the last `COMMAND_WINDOW_S` 3600 s (bebb043) |
-| last_command | `normal` or `"<kind> <watts> W"`; attrs soc, seq, sent time, ack dict |
-| step_response | `t80_s` of the last non-cancelled response record; attrs the record |
-| slow_responses | slow responses today, local date |
-| code ("Loop version") | `Controller.code`; entity category diagnostic (`DIAGNOSTIC` in `sensor.py`) |
 
 Power sensors write on a move of 25 W (`MOVE_W`) or after 10 s (`EVERY_S`), to cut recorder rows (e0e291d).
 Non-power sensors without attributes write only on change.
@@ -340,6 +345,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_the_enabled_switch_restores_on_only_from_on`, `test_turning_the_controller_off_hands_the_inverter_back_at_once`, `test_the_controller_turns_off_even_when_the_release_cannot_be_published` | Enabled switch restore, normal published on off, off holds when the publish fails |
 | `test_a_reload_never_reuses_a_seq_of_the_run_before`, `test_a_seq_stays_what_the_firmware_echoes` | seq seeded from the clock, a late pre-reload response does not ack, 1..`SEQ_MAX` wrap, payload under 90 bytes |
 | `test_power_only_commands_carry_the_flag_and_others_do_not` | `powerOnly` payload |
+| `test_a_charge_to_100_sends_the_full_register` | a charge to 100 % sends `full_register - 150`; 105 and other SOCs pass as they are |
 | `test_state_topic_defaults_to_the_fast_state_and_keeps_an_explicit_one` | default state topic |
 | `test_min_interval_restores_in_half_seconds_from_2_s` | restore clamps into range |
 | `test_the_options_form_offers_the_entry_as_it_is`, `test_saved_options_replace_the_entry_data_and_reload_it` | options flow |
@@ -355,6 +361,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_start_record_and_the_loop_version_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
 | `test_a_setting_switch_*` | switch restore, default, cfg log, group |
 | `test_an_unreadable_loop_code_leaves_the_version_unknown_and_starts` | `_code_version` failure leaves `code` None, start goes on |
+| `test_lowering_the_learned_offset_limit_clips_the_table_at_once`, `test_an_unreadable_store_starts_from_an_empty_table` | `trim_limit_w` reclip in `set_setting`; a store that raises gives an empty table and `trim_load` `loaded: false` |
 | `test_a_saved_table_*`, `test_a_bad_saved_table_*`, `test_a_moved_table_*`, `test_a_stop_saves_*`, `test_the_forget_button_*`, `test_the_integral_sensor_carries_*` | learned table load, save, log cadence, forget, chart attribute |
 | `test_a_negative_cap_reads_as_0_w`, `test_an_unreadable_cap_keeps_*` | cap clamp, last readable cap |
 | `test_a_fixed_policy_sends_its_watts_whatever_the_grid`, `test_a_fixed_policy_without_plausible_watts_is_unreadable` | `fixed` sign per direction, SOC passed, bad watts unreadable |
@@ -381,14 +388,23 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 
 ## Gotchas
 
-- An unreadable cap entity keeps its last value, silently, not a gap. After a restart, until its first read, it is 3000 W.
+- An unreadable cap entity keeps its last value, silently, not a gap. After a restart, until its first read, it is
+  `default_max_w` (3000 W). `_caps` is memory only; lower `default_max_w` if 3000 W is unsafe for a moment.
 - In `clamp` mode the correction has no 90 s `last_reported` check; only `estimate` mode has one. The `age_s` check applies in both.
 - A correction entity with a `seq` attribute never triggers `_measure` on its own change; it only steps a waiting sample or runs `_run`.
 - `{base}/request/#` and `log_entities` are subscribed only when the step log opened.
 - Every options save reloads the entry, so `async_stop` runs `async_set_enabled(False)` and may publish normal before the switch re-enables.
 - Platforms are forwarded before `async_start`, so the switch may restore `on` before subscriptions exist. Effect: guess, harmless (no samples yet).
+- `match_wait_s` runs to 2 s, but on the 1 s fast topic the next sample steps a waiting one after 1 s, so only the
+  first second can take effect there. The longer waits fit the 10 s `state/second/ten` topic.
 - Sensors with attributes (`status`, `limit`, `last_command`, `step_response`, `output`) skip the unchanged-value gate. HA core fires no state_changed for an unchanged state and attributes (from its `async_set`, not measured on a host), so they rely on that.
 
 ## Open questions
 
-- Behaviour when the firmware sends `seq` as a string versus an int in responses: unknown; `_on_response` compares with `==` while `_correction_behind` compares strings.
+- Response `seq` is a JSON integer: `closeSetResponse` in `Alpha2MQTT.ino` writes it unquoted with `%lu`, so
+  `_on_response` compares an int with the int `last_seq`. The fast state `seq` is an int the same way. The correction
+  entity's `seq` comes from a template outside this repo: its type is unknown here, and `_correction_behind` compares
+  as text so an int or a text seq both match.
+- Whether Home Assistant finishes restoring the numbers and switches before `async_forward_entry_setups` returns,
+  so whether the start `cfg` record holds the restored values: unknown. No Home Assistant source was available to
+  read, and the tests stub it.
