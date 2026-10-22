@@ -105,7 +105,7 @@ Public API (all return `modbusRequestAndResponseStatusValues`):
 
 A descriptor is `{address, name, returnDataType, registerCount, format, lookup}`. The `HANDLED_REGISTER` and `HANDLED_LOOKUP` macros stringify the define, so the JSON key always equals the define name. A `registerLookup` maps a value to text; with no match it writes its `unknown` text, or leaves the field as it was when that is NULL. With `bits` set, `formatBitLookup` names every set bit, lowest first, joined by `, `, cut at the 128 character field; a bit with no entry shows as `Bit N` and a clear word as `""`. Before 2026-10-22 it gave only the lowest set bit, and battery fault bits 0, 1 and 30, which have no text in the vendor table, gave `""`, the same as no fault. `systemFault` picks the AL or AE table from the serial prefix, and writes `Unknown` for any other prefix. The AL table maps bits 0 to 16 to `SYSTEM_ERROR_AL_BIT_0` to `_16`; the vendor table (V1.23) lists 0 to 12 only, and the text for 13 to 16 comes from upstream. Before 2026-10-22 bits 13 to 15 showed the next bit's text and `SYSTEM_ERROR_AL_BIT_13` never showed.
 
-206 registers are handled; `test_registers.cpp` pins the count, unique addresses, names and a few formats. `Definitions.h` has 208 `#define REG_` lines including the four custom ones. The table replaced two per register switches in the cleanup.
+206 registers are handled; `test_registers.cpp` pins the count, unique addresses, names and a few formats. `Definitions.h` has 208 `#define REG_` lines including the four custom ones. The two not handled are `REG_AUXILIARY_W_EMS_DO0` (0x08B0) and `REG_AUXILIARY_W_EMS_DO1` (0x08B1), the EMS digital outputs (bypass control and system fault output, per their comments). The table replaced two per register switches in the cleanup.
 
 ### Custom registers (not on the inverter)
 
@@ -147,7 +147,7 @@ Supporting registers (ten second, one minute or on request; not in the fast loop
 | 0x001B | `REG_GRID_METER_R_ACTIVE_POWER_OF_A_PHASE_1` | S32 | 1 W | Input to custom grid current | R |
 | 0x0014 | `REG_GRID_METER_R_VOLTAGE_OF_A_PHASE` | U16 | 0.1 V (`GRID_VOLTAGE_MULTIPLIER`) | Spec says 1 V | R |
 | 0x0100 | `REG_BATTERY_HOME_R_VOLTAGE` | U16 | 0.1 V | | R |
-| 0x0101 | `REG_BATTERY_HOME_R_CURRENT` | S16 | 0.1 A | Always zero on the author's unit, per a comment removed in the cleanup (still in 75e08a8 `RegisterHandler.cpp`) | R |
+| 0x0101 | `REG_BATTERY_HOME_R_CURRENT` | S16 | 0.1 A | Always zero on the upstream author's unit, per a comment removed in the cleanup (still in 75e08a8 `RegisterHandler.cpp`). A SMILE-B3 read nonzero values on 2026-10-21, so it is not zero on every unit | R |
 | 0x0111 / 0x0112 | `REG_BATTERY_HOME_R_MAX_CHARGE_CURRENT` / `MAX_DISCHARGE_CURRENT` | U16 | 0.1 A | Limits; not read by the controller | R |
 | 0x012C / 0x012D | `REG_BATTERY_HOME_R_BATTERY_MAX_CHARGE_POWER` / `MAX_DISCHARGE_POWER` | U16 | 1 W | Limits; only in `_mqttAllHandledRegisters`; discharge read 5350 on a B3, per a comment removed in the cleanup (still in 75e08a8) | R |
 | 0x0805 | `REG_SYSTEM_CONFIG_RW_SYSTEM_MODE` | U16 | lookup | 1 AC, 2 DC, 3 Hybrid; only in `_mqttAllHandledRegisters` | RW |

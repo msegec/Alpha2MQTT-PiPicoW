@@ -175,7 +175,7 @@ Gone rules (`haGone` = `offlineGone || mqttGone`):
 | otherwise | `none` |
 
 - `held` is set by any hold attempt, even a failed one, since it may have landed in part. Cleared only by an acknowledged release or a command.
-- `idleHoldCommand` (any set topic, even a malformed one): status online, clears both gone flags, `held` and `tried`. No release is written over the command.
+- `idleHoldCommand` (any set topic, even a malformed one, but not one over 127 bytes, which is dropped first): status online, clears both gone flags, `held` and `tried`. No release is written over the command.
 - `haStatusFromPayload`: exact `online` or `offline`, length bounded, anything else is `unknown` and ignored.
 - `holdIdleWhileHaGone` runs only from `loop()`, at most one write per pass, never waits. Not from `serviceBetweenReads`.
 - The hold sets `_activeDispatch` to charge, 250, 120 s. A later command with `powerOnly` and the same kind, SOC and duration could therefore go out power only.
