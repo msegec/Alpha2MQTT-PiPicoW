@@ -334,6 +334,16 @@ class Regulator:
             self._grid = (self.settings.offset_comp, xs, [x + self.table(x) for x in xs])
         return _solve(self._grid[1], self._grid[2], w)
 
+    def _correcting(self) -> bool:
+        """Under REGULATE the command goes through _setpoint: a static share or a learned trim is in the table."""
+        return bool(self.settings.offset_comp or any(self.trim))
+
+    def _ready_cmd(self) -> int:
+        """The command watts that land the battery on the ready floor, rounded up so rounding never undercuts it.
+        warm_w is battery watts, so under the offset correction this is its setpoint, not warm_w itself."""
+        w = self.settings.warm_w
+        return math.ceil(round(self._setpoint(w), 6) if self._correcting() else w)
+
     def trim_points(self) -> list[list[float]]:
         """The learned table as [setpoint W, trim W] pairs, for the controller to persist and show."""
         return [[x, round(y, 1)] for x, y in zip(TRIM_NODES, self.trim)]
@@ -595,7 +605,7 @@ class Regulator:
             # A turn out of a charge that the slew cuts short lands on the floor, not at idle or under it.
             self.output_w = max(self.output_w, ready_w)
         # Everything above is battery watts. Only the command asks for less where the inverter gives more.
-        on = policy.mode == REGULATE and (s.offset_comp or any(self.trim))
+        on = policy.mode == REGULATE and self._correcting()
         self.offset_w = self._setpoint(self.output_w) - self.output_w if on else 0.0
         low_soc = policy.discharge_soc + s.floor_margin_soc + LEARN_SOC_MARGIN
         self._learn_ok = (policy.mode == REGULATE and not held and self.limit == "none" and self._saturation == 0
@@ -628,7 +638,7 @@ class Regulator:
         step = s.command_step_w
         w = int(round(abs(ask) / step)) * step
         if policy.mode == REGULATE and self.output_w >= s.warm_w > 0:
-            w = max(w, math.ceil(s.warm_w))  # rounding to 10 W must not take a discharge under the ready floor
+            w = max(w, self._ready_cmd())  # rounding to 10 W must not take a discharge under the ready floor
         last = self.sent
         if policy.mode == HOLD:
             return Command("charge", 0, 100, s.duration_s)
@@ -653,7 +663,7 @@ class Regulator:
         if cmd.kind != last.kind and (cmd.watts or last.watts):
             return self._send(t, cmd)
         # A rise to the ready floor goes out however small, or the battery idles until the keepalive.
-        ready_cmd = math.ceil(s.warm_w)
+        ready_cmd = self._ready_cmd() if s.warm_w > 0 else 0
         to_floor = policy.mode == REGULATE and ready_cmd > 0 and last.signed_w < ready_cmd <= cmd.signed_w
         # A stop at 0 W goes out however small, as at the floor or a refusal: it is not a trim.
         if (not to_floor and cmd.watts and cmd.soc == last.soc and abs(cmd.signed_w - last.signed_w) < s.small_trim_w

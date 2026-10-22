@@ -1104,6 +1104,36 @@ def test_the_ready_floor_is_not_rounded_under():
     assert reg.step(0, DISCHARGE) == R.Command("discharge", 25, 20, 120)
 
 
+def _warm_trim(reg):
+    """A learned table where the battery gives 40 % more than the setpoint up to 100 W, 40 W more past it."""
+    pts = reg.trim_points()
+    for p in pts:
+        p[1] = 40.0 if p[0] >= 100 else 0.0
+    assert reg.load_trim(pts)
+    return reg
+
+
+@pytest.mark.parametrize("reg, watts", [
+    (lambda: make(warm_w=100, offset_comp=1), 125),  # the battery reads 25 W under: 120 W would land it at 95 W
+    (lambda: _warm_trim(make(warm_w=100)), 72),  # 40 % over: 100 W would land it at 140 W
+])
+def test_under_offset_correction_the_ready_floor_command_lands_the_battery_on_the_floor(reg, watts):
+    reg = reg()
+    reg.update_grid(0, 20, 0, soc=50)
+    cmd = reg.step(0, DISCHARGE)
+    assert reg.output_w == 100 and cmd.watts == watts
+    assert cmd.watts + reg.table(cmd.watts) >= 100
+
+
+def test_under_offset_correction_a_rise_to_the_floor_command_goes_out_however_small():
+    reg = make(offset_comp=1, min_interval_s=0)
+    reg.update_grid(0, 125, 0, soc=50)  # 85 W asked: a 110 W command, the battery at 82.5 W
+    assert reg.step(0, DISCHARGE).watts == 110
+    reg.settings.warm_w = 100
+    reg.update_grid(1, 20, 85, soc=50)
+    assert reg.step(1, DISCHARGE).watts == 125  # a 15 W rise, but the battery is under the floor until it goes
+
+
 def test_the_ready_floor_holds_through_a_surplus_it_cannot_store_and_one_under_the_margin():
     # The floor's watts go out on top of the surplus for as long as it lasts; a 0 W reading costs a slow start.
     reg = make(warm_w=20)
