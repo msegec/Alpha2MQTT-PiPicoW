@@ -111,7 +111,9 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
     Every tick_s (0 is off), half a tick out of phase with the first sample, the controller's tick runs: the ack
     timeout check, then step with the last sample's policy. Ticks run only between consecutive samples, never
     across a brk; with ticks off the timeout check runs at each sample. trim is a learned table to start from, as
-    the controller loads its store at start; None starts from zero."""
+    the controller loads its store at start; None starts from zero. A row's wait_s (the logged match wait) puts
+    the battery reading that much before the step, as the controller reads the sample, then waits for its
+    correction."""
     outcome = outcome or (lambda n: OK)
     overrides = overrides or {}
     warnings: list[str] = []
@@ -196,10 +198,11 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
                 cur_cfg = c
                 for k, v in coerce(mod, {**c, **overrides})[0].items():
                     setattr(s, k, v)
+        seen = t - r.get("wait_s", 0.0)  # the controller waited this long for the correction, then stepped at t
         if sim is None or r["brk"]:
             sim = plantmod.Sim(plant, r["battery"], None if sim is None else sim.aim)
-            sim.t = t
-        b = sim.advance(t)
+            sim.t = seen
+        b = sim.advance(max(seen, sim.t))
         respond(t)
         if tick_s <= 0:
             check_ack(t)

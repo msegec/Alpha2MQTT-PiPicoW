@@ -53,7 +53,8 @@ in force), `--discharge-soc` (default 10), `--ack-s`, `--fail-every`, `--timeout
   passed. `seq` restarts at a firmware reboot, so nothing keys on `seq` across rows that are not consecutive.
 - Row fields: `target = grid_w - error_w` (it holds the policy offset), `cfg_target` (logged `target_w` in
   force), `deadband_w` (the same, None without one), `cmds` (every dispatch request on the bus after this
-  step record and before the next step record, signed W or None for normal), `demand = grid_w + battery - loss(battery)`, `sent` (signed W, or None), `solar`, `load_w`.
+  step record and before the next step record, signed W or None for normal), `wait_s` (`wait_ms / 1000`, 0
+  unlogged), `demand = grid_w + battery - loss(battery)`, `sent` (signed W, or None), `solar`, `load_w`.
 - Battery loss, `logs.Loss`: `share * |battery| + fixed_w`, and 0 at a battery of exactly 0. The term is not
   the controller's: `estimate_grid` adds none. It comes from the correction source. The development site's
   correction template charges 15 % of |battery| plus 10 W as inverter loss in the demand it reports, so the
@@ -115,7 +116,9 @@ the new logs too: a growing error is drift.
 - API by signature: `update_grid` gets `soc=` and `solar_w=` only if it takes them. `update_load` (older
   versions) gets the logged `load_w` when there is one. `ack` gets `power_write=` if it takes it; a regulator
   without `ack` gets none.
-- Per sample: advance the model to `t`; deliver the responses due by `t`; grid = `demand + loss(battery) - battery`; `update_grid`; then
+- Per sample: advance the model to `t - wait_s` and read the battery there (the controller reads a sample,
+  then waits up to `match_wait_s` for its correction, and logs `wait_ms`; the step record's `t` is after the
+  wait); deliver the responses due by `t`; grid = `demand + loss(battery) - battery`; `update_grid`; then
   `step` with `Policy(REGULATE, max_charge_w, max_discharge_w, charge_soc=100, discharge_soc,
   target_offset_w = target - cfg_target)`. The replayed target is the variant's `target_w` plus that offset.
   Without a logged cfg, `cfg_target` is the variant's `target_w`.

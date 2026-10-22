@@ -43,6 +43,7 @@ def test_sample_fields_target_demand_and_window():
     assert r["target"] == -50  # grid_w - error_w: the policy offset of -30 is in it
     assert r["cfg_target"] == -20
     assert r["deadband_w"] is None  # not in this cfg
+    assert r["wait_s"] == 0.0  # synth logs wait_ms 0
     assert r["demand"] == 100 + 1000 - (0.15 * 1000 + 10)  # the default loss: 15 % plus 10 W
     assert r["sent"] == -300 and r["power_only"]
     assert logs.samples(recs, exclude=[(0.5, 2.5)])[0]["t"] == 3.0

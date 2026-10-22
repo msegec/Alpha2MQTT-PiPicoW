@@ -153,6 +153,18 @@ def test_caps_default_to_the_default_max_w_in_force(tmp_path):
     assert [c[3] for c in mod.CALLS if c[0] == "step"] == [1200.0, 1200.0]
 
 
+def test_the_battery_is_read_before_the_match_wait(tmp_path):
+    mod = module(tmp_path, NEW)
+    slow = P.Plant(dead_s=0.0, tau_discharge_s=1.0, tau_charge_s=1.0)
+    r = rows(3)
+    out0, _ = replay.replay(mod, r, slow, tick_s=0)
+    for x in r:
+        x["wait_s"] = 0.5
+    out, _ = replay.replay(mod, r, slow, tick_s=0)
+    assert out[1]["t"] == 1.0  # the step stays at the logged time
+    assert 0 < out[1]["battery"] < out0[1]["battery"]  # read half a second earlier, on the rise
+
+
 def test_outcomes_count_commands_from_one():
     o = replay.every(fail_every=3, timeout_every=2)
     assert [o(n) for n in range(6)] == ["ok", "timeout", "fail", "timeout", "ok", "fail"]

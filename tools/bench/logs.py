@@ -243,7 +243,8 @@ def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
     deadband_w (the logged cfg in force, None without one),
     brk: True when the row does not follow the previous one (seq not +1, over GAP_S, or the first row), and cmds:
     every dispatch request on the bus after this step record and before the next one (signed W, None for normal),
-    so commands sent on the controller's tick count too.
+    so commands sent on the controller's tick count too. wait_s is how long the sample waited for its
+    correction (wait_ms, 0 unlogged): the step at t ran on a sample seen wait_s earlier.
     Solar: the step's solar_w when logged, else west = pv * -10 when >= 95 W plus the last state of the
     solar_suffix entity (0 without one)."""
     cfgs = CfgTimeline(recs)
@@ -293,7 +294,7 @@ def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
                "demand": grid_w + battery - loss(battery), "limit": r.get("limit"),
                "load_w": _num(r.get("load_w")),
                "cfg_target": _num(cfg.get("target_w")), "deadband_w": _num(cfg.get("deadband_w")), "brk": brk,
-               "cmds": []}
+               "cmds": [], "wait_s": max(_num(r.get("wait_ms")) or 0.0, 0.0) / 1000}
         out.append(row)
     return out
 
