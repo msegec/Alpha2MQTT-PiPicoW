@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d80bfb1 plus the regulator fixes up to `error_w` with the offset, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 324 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the regulator fixes up to the `charge_cap` test, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 324 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -225,6 +225,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 |---|---|
 | `test_bumpless_start_*`, `test_load_step_is_corrected_*`, `test_load_step_goes_out_in_one_command` | Start from measured battery; a load step goes out whole in one command. |
 | `test_output_clamped_*`, `test_slew_*`, `test_min_interval_*`, `test_small_changes_wait_for_keepalive` | Caps, slew from last sent, min interval, write threshold vs keepalive. |
+| `test_limit_names_what_holds_the_output` | `limit` reads none, discharge_cap, charge_cap, floor and turn_round when each holds the output, and none after a release. |
 | `test_no_flapping_*`, `test_default_dwell_*`, `test_flip_needs_margin_*` | Turn round margin and dwell. |
 | `test_hold_shows_and_turns_on_the_0_w_*`, `test_the_error_counts_the_policy_offset_*`, `test_stale_*`, `test_correction_updates_*`, `test_release_*`, `test_lease_expiry_*`, `test_a_release_at_start_*` | Hand back rules and lease logic. |
 | `test_a_failed_*`, `test_min_interval_holds_across_a_release` | Retry and anti-hammer. |

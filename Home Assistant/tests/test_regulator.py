@@ -990,6 +990,10 @@ def test_limit_names_what_holds_the_output():
     reg.step(5, DISCHARGE)
     assert reg.limit == "discharge_cap"
     reg = make()
+    reg.update_grid(0, -2000, 0, soc=50)  # 2 kW of surplus against a 1 kW charge cap
+    reg.step(0, replace(CHARGE, max_charge_w=1000))
+    assert (reg.output_w, reg.limit) == (-1000, "charge_cap")
+    reg = make()
     reg.update_grid(0, 520, 0, soc=21.2)
     reg.step(0, DISCHARGE)
     assert reg.limit == "floor"
