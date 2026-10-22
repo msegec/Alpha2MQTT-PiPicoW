@@ -95,6 +95,16 @@ int main()
 	const uint8_t aeHigh[] = { 0x10, 0x00, 0x00, 0x01 };
 	expect(strcmp(handled(0x08D4, aeHigh, "AE").dataValueFormatted, "Inverter disconnected, Bit 28") == 0, "an AE system fault bit past the table shows its number");
 	expect(strcmp(handled(0x08D4, noFault, "AE").dataValueFormatted, "") == 0, "a clear system fault word is empty");
+	const uint8_t alTwelve[] = { 0x00, 0x00, 0x10, 0x00 };
+	expect(strcmp(handled(0x08D4, alTwelve, "AL").dataValueFormatted, "Parallel_Mode_Differ") == 0, "AL system fault bit 12");
+	const uint8_t alThirteen[] = { 0x00, 0x00, 0x20, 0x00 };
+	expect(strcmp(handled(0x08D4, alThirteen, "AL").dataValueFormatted, "Flash_Fault") == 0, "AL system fault bit 13 is its own text, not bit 14's");
+	const uint8_t alFifteen[] = { 0x00, 0x00, 0x80, 0x00 };
+	expect(strcmp(handled(0x08D4, alFifteen, "AL").dataValueFormatted, "Extension CAN error") == 0, "AL system fault bit 15");
+	const uint8_t alSixteen[] = { 0x00, 0x01, 0x00, 0x00 };
+	expect(strcmp(handled(0x08D4, alSixteen, "AL").dataValueFormatted, "inv type not specified") == 0, "AL system fault bit 16 has text");
+	const uint8_t alSeventeen[] = { 0x00, 0x02, 0x00, 0x00 };
+	expect(strcmp(handled(0x08D4, alSeventeen, "AL").dataValueFormatted, "Bit 17") == 0, "AL system fault bit 17 shows its number");
 	expect(strcmp(handled(0x08D4, aeHigh, "XX").dataValueFormatted, "Unknown") == 0, "a system fault with no known serial prefix is Unknown");
 
 	// System date and time: 0xYYMM, 0xDDHH, 0xmmss read as one custom register

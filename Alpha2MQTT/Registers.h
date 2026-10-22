@@ -215,7 +215,7 @@ static const registerLookupEntry dispatchModeEntries[] =
 };
 static const registerLookup dispatchModeLookup = REGISTER_LOOKUP(dispatchModeEntries, false, "Unknown");
 
-// Bits 13 to 15 show SYSTEM_ERROR_AL_BIT_14 to _16, as they always have; SYSTEM_ERROR_AL_BIT_13 is never shown.
+// The vendor table (V1.23) lists bits 0 to 12. The text for 13 to 16 comes from upstream Alpha2MQTT.
 static const registerLookupEntry systemFaultAlEntries[] =
 {
 	{ 0, SYSTEM_ERROR_AL_BIT_0 },
@@ -231,9 +231,10 @@ static const registerLookupEntry systemFaultAlEntries[] =
 	{ 10, SYSTEM_ERROR_AL_BIT_10 },
 	{ 11, SYSTEM_ERROR_AL_BIT_11 },
 	{ 12, SYSTEM_ERROR_AL_BIT_12 },
-	{ 13, SYSTEM_ERROR_AL_BIT_14 },
-	{ 14, SYSTEM_ERROR_AL_BIT_15 },
-	{ 15, SYSTEM_ERROR_AL_BIT_16 },
+	{ 13, SYSTEM_ERROR_AL_BIT_13 },
+	{ 14, SYSTEM_ERROR_AL_BIT_14 },
+	{ 15, SYSTEM_ERROR_AL_BIT_15 },
+	{ 16, SYSTEM_ERROR_AL_BIT_16 },
 };
 static const registerLookup systemFaultAlLookup = REGISTER_LOOKUP(systemFaultAlEntries, true, NULL);
 
