@@ -45,6 +45,11 @@ DEFAULT_BASE_TOPIC = "Alpha2MQTT"
 DEFAULT_POLICY_ENTITY = "sensor.battery_auto_action"
 # The firmware refuses a socPercent over 105 (dispatchRequestValid), and a negative one wraps to the same refusal.
 SOC_MAX = 105
+# A direction the policy did not open gets a 0 W cap and Policy's default SOC limit, 10 % or 100 %. The limits still
+# bound offset learning, which runs only between the two.
+CLOSED = Policy()
+# The Commands in the last hour sensor counts publishes this recent.
+COMMAND_WINDOW_S = 3600
 # The firmware reads a request's seq with strtoul into a 32-bit unsigned long and echoes it as %lu, so a seq stays in
 # 1..SEQ_MAX; 0 is what it echoes for a request with none.
 SEQ_MAX = 2**32 - 1
@@ -159,7 +164,7 @@ class Controller:
 
     @property
     def commands_last_hour(self) -> int:
-        while self._sent_times and time.monotonic() - self._sent_times[0] > 3600:
+        while self._sent_times and time.monotonic() - self._sent_times[0] > COMMAND_WINDOW_S:
             self._sent_times.popleft()
         return len(self._sent_times)
 
@@ -411,9 +416,11 @@ class Controller:
             if not _plausible(offset, self._limit):
                 offset = 0.0
             return Policy(REGULATE, max_charge_w=charge_cap, charge_soc=soc, target_offset_w=offset,
-                          max_discharge_w=discharge_cap if both else 0.0, discharge_soc=other_soc if both else 10)
+                          max_discharge_w=discharge_cap if both else 0.0,
+                          discharge_soc=other_soc if both else CLOSED.discharge_soc)
         return Policy(REGULATE, max_discharge_w=discharge_cap, discharge_soc=soc,
-                      max_charge_w=charge_cap if both else 0.0, charge_soc=other_soc if both else 100)
+                      max_charge_w=charge_cap if both else 0.0,
+                      charge_soc=other_soc if both else CLOSED.charge_soc)
 
     @callback
     def _on_state(self, msg) -> None:

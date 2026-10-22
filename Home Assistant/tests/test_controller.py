@@ -1005,8 +1005,8 @@ def test_commands_in_the_last_hour_counts_publishes_in_a_sliding_hour(monkeypatc
     for t[0] in (0.0, 1000.0, 3000.0):
         seqs_published(c, 1)
     assert c.commands_last_hour == 3
-    t[0] = 3600.5
-    assert c.commands_last_hour == 2
+    t[0] = C.COMMAND_WINDOW_S + 0.5
+    assert C.COMMAND_WINDOW_S == 3600 and c.commands_last_hour == 2
     t[0] = 6600.5
     assert c.commands_last_hour == 0
 
@@ -1219,6 +1219,15 @@ def test_the_controller_limits_are_settings_with_the_old_values():
     s = R.Settings()
     assert (s.default_max_w, s.max_plausible_w, s.correction_max_age_s, s.ack_timeout_s, s.match_wait_s) == (
         3000, 20000, 90, 10, 0.5)
+
+
+def test_a_direction_the_policy_did_not_open_gets_0_w_and_the_policy_defaults(monkeypatch):
+    house = House(monkeypatch)
+    policy = house.c._read_policy()
+    assert (policy.max_charge_w, policy.charge_soc) == (0, C.CLOSED.charge_soc) == (0, 100)
+    house.set("sensor.battery_auto_action", "charge", soc_target=90)
+    policy = house.c._read_policy()
+    assert (policy.max_discharge_w, policy.discharge_soc) == (0, C.CLOSED.discharge_soc) == (0, 10)
 
 
 def test_the_default_cap_is_a_setting(monkeypatch):

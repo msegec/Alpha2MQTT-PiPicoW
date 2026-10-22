@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set, policy, clamp, setup and sensor tests and the grid scale bound, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 347 passed.
+Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 351 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -104,7 +104,8 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 
 - Caps come from `max_charge_entity` / `max_discharge_entity` through `_cap`: a negative reading is 0 W; an unreadable one keeps the last readable value (`_caps`, per config key, in memory only); one not configured or never read yet is `default_max_w` 3000 W.
 - `both` == "true" plus a numeric `other_soc` within 0..105 opens the other direction with its cap and `other_soc` as its limit
-  (4aa846d). Otherwise the other direction gets 0 W with charge_soc 100 or discharge_soc 10.
+  (4aa846d). Otherwise the other direction gets 0 W and `Policy`'s default limit through `CLOSED`: charge_soc 100 or
+  discharge_soc 10. Those still bound offset learning, which the regulator runs only between the two limits.
 - `_policy`: an unreadable policy reuses the last good one until `settings.stale_after_s` (default 30 s), then
   `Policy(RELEASE)`. An explicit `normal` releases at once (70fe0e2). Gaps logged once at start and end.
 
@@ -280,7 +281,7 @@ Diagnosis attributes (all for display, control never reads them):
   the output power sensor, which writes only on its own `MOVE_W`/`EVERY_S` gate. All attributes stay unrecorded
   through `MATCH_ALL`; a state row is still written on each state_changed.
 | sent (power) | `last_command.signed_w` |
-| commands | publishes in the last 3600 s (bebb043) |
+| commands | publishes in the last `COMMAND_WINDOW_S` 3600 s (bebb043) |
 | last_command | `normal` or `"<kind> <watts> W"`; attrs soc, seq, sent time, ack dict |
 | step_response | `t80_s` of the last non-cancelled response record; attrs the record |
 | slow_responses | slow responses today, local date |
@@ -358,7 +359,8 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
 | `test_the_status_says_*`, `test_the_output_shows_*`, `test_the_limit_shows_*` | diagnosis attributes, wall times worked out once |
 | `test_a_power_sensor_writes_on_a_25_w_move_or_after_10_s`, `test_a_sensor_without_attributes_writes_on_change_and_one_with_them_on_every_update` | sensor write gate `MOVE_W`, `EVERY_S`, change only, attributes always |
-| `test_commands_in_the_last_hour_counts_publishes_in_a_sliding_hour` | `commands_last_hour` prunes past 3600 s |
+| `test_commands_in_the_last_hour_counts_publishes_in_a_sliding_hour` | `commands_last_hour` prunes past `COMMAND_WINDOW_S` |
+| `test_a_direction_the_policy_did_not_open_gets_0_w_and_the_policy_defaults` | closed direction: 0 W, SOC 10 or 100 from `Policy` |
 | `test_the_ack_says_how_long_the_firmware_took_to_answer` | `ack_after_ms` from the newest publish, None for another seq |
 
 ## Gotchas
