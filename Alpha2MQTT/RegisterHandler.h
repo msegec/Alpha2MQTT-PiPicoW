@@ -47,7 +47,6 @@ class RegisterHandler
 		int32_t _lastPvMeterPower = 0;
 		modbusRequestAndResponseStatusValues readPvMeterPower(modbusRequestAndResponse* rs, int32_t* pvPower);
 		modbusRequestAndResponseStatusValues readTotalSolarPower(modbusRequestAndResponse* rs, int32_t* pvPower);
-		void createFormattedDateTime(char *target, uint8_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second);
 
 	protected:
 

@@ -1,6 +1,6 @@
 Modbus RTU transport, frame checks and the AlphaESS register map as the firmware reads and writes them.
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup. `tests/firmware/run` passed all seven suites (`test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_timer` each print `OK`, exit 0).
+Last verified: 2026-10-22 on fix/firmware, date format in `Registers.h`. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. `tests/firmware/run` passed all eight suites (`test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer` each print `OK`, exit 0).
 
 ## Files
 
@@ -101,7 +101,7 @@ Public API (all return `modbusRequestAndResponseStatusValues`):
 2. `describeRegister` sets `returnDataType`, `mqttName`, `registerCount`, and `hasLookup` for the `lookup`, `systemFault` and `ipAddress` formats.
 3. Custom addresses compute from several reads (below). `REG_PV_METER_R_TOTAL_ACTIVE_POWER_1` goes through `readPvMeterPower`. `REG_CUSTOM_SYSTEM_DATE_TIME` reads from 0x0740. Everything else sends one 0x03 frame.
 4. On success, `decodeRegisterValue` decodes `rs->data` big endian by type into one of `unsignedShortValue` (U16), `signedShortValue` (S16), `unsignedIntValue` (U32), `signedIntValue` (S32) or `characterValue`. 32 bit registers are high word first.
-5. `formatRegisterValue` writes `dataValueFormatted` by the descriptor's `registerFormat`: `value` (`%u`/`%d`), a scaled `%0.02f` (`tenths`, `hundredths`, `gridVoltage`, `cellVoltage`, `inverterTemp`, `totalEnergy`), `dispatchSoc`, `ipAddress`, `text`, `textMoved`, `lookup` or `systemFault`. The `dateTime` format is left to `createFormattedDateTime` in `RegisterHandler`.
+5. `formatRegisterValue` writes `dataValueFormatted` by the descriptor's `registerFormat`: `value` (`%u`/`%d`), a scaled `%0.02f` (`tenths`, `hundredths`, `gridVoltage`, `cellVoltage`, `inverterTemp`, `totalEnergy`), `dispatchSoc`, `ipAddress`, `text`, `textMoved`, `lookup`, `systemFault` or `dateTime`. `dateTime` takes bytes YY MM DD HH mm ss as `dd/MMM/20yy HH:mm:ss`; a month outside 1 to 12 prints `---` (before 2026-10-22 it indexed the month names out of bounds), and a one digit year keeps its leading zero (it printed `205`).
 
 A descriptor is `{address, name, returnDataType, registerCount, format, lookup}`. The `HANDLED_REGISTER` and `HANDLED_LOOKUP` macros stringify the define, so the JSON key always equals the define name. A `registerLookup` maps a value to text, or with `bits` set gives the first set bit's text. With no match it writes its `unknown` text, or leaves the field as it was when that is NULL. `systemFault` picks the AL or AE table from the serial prefix, and writes `Unknown` for any other prefix.
 

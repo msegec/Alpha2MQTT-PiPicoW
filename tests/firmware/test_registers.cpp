@@ -79,6 +79,18 @@ int main()
 	const uint8_t discharge[] = { 0x00, 0x00, 0x7E, 0xF4 };
 	expect(formats(0x0881, discharge, "32500"), "dispatch active power keeps the 32000 offset");
 
+	// System date and time: 0xYYMM, 0xDDHH, 0xmmss read as one custom register
+	const uint8_t when[] = { 0x11, 0x09, 0x11, 0x09, 0x05, 0x3B };
+	modbusRequestAndResponse dated = handled(REG_CUSTOM_SYSTEM_DATE_TIME, when);
+	expect(strcmp(dated.dataValueFormatted, "17/Sep/2017 09:05:59") == 0, "the system time reads as dd/MMM/yyyy HH:mm:ss");
+	expect(dated.characterValue[0] == 0, "the system time leaves no character value");
+	const uint8_t earlyYear[] = { 0x05, 0x01, 0x01, 0x00, 0x00, 0x00 };
+	expect(formats(REG_CUSTOM_SYSTEM_DATE_TIME, earlyYear, "01/Jan/2005 00:00:00"), "a one digit year keeps its leading zero");
+	const uint8_t monthZero[] = { 0x18, 0x00, 0x01, 0x00, 0x00, 0x00 };
+	expect(formats(REG_CUSTOM_SYSTEM_DATE_TIME, monthZero, "01/---/2024 00:00:00"), "month 0 does not index before the month names");
+	const uint8_t monthHigh[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+	expect(formats(REG_CUSTOM_SYSTEM_DATE_TIME, monthHigh, "255/---/20255 255:255:255"), "month 255 does not index past the month names");
+
 	if (failures == 0)
 	{
 		printf("OK\n");

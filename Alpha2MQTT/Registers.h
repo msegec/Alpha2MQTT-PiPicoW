@@ -24,7 +24,7 @@ enum class registerFormat : uint8_t
 	textMoved,		// characterValue, which is then cleared
 	lookup,			// The description the register's lookup gives the value
 	systemFault,	// The description of the lowest fault bit, which differs between AL and AE systems
-	dateTime		// Formatted by RegisterHandler
+	dateTime		// 0xYYMM, 0xDDHH, 0xmmss as dd/MMM/yyyy HH:mm:ss
 };
 
 // A value, or for a bit lookup a bit number, and its description
@@ -760,7 +760,16 @@ inline void formatRegisterValue(const registerDescriptor* reg, modbusRequestAndR
 		break;
 	}
 	case registerFormat::dateTime:
+	{
+		// A month outside 1 to 12 shows as --- rather than indexing past the names
+		static const char months[12][4] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+		uint8_t month = rs->data[1];
+
+		snprintf(rs->dataValueFormatted, sizeof(rs->dataValueFormatted), "%02u/%s/20%02u %02u:%02u:%02u", rs->data[2],
+			month >= 1 && month <= 12 ? months[month - 1] : "---", rs->data[0], rs->data[3], rs->data[4], rs->data[5]);
+		rs->characterValue[0] = 0;
 		break;
+	}
 	}
 }
 

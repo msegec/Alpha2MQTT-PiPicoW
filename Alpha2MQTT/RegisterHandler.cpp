@@ -280,18 +280,7 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 		// So, it's a success, so we can process according to the rules of the Modbus documentation
 		// What we are aiming for as an understanding of a correct value, correctly typed, identifiable by any calling function
 		decodeRegisterValue(rs);
-		if (reg->format == registerFormat::dateTime)
-		{
-			// Custom date/time returned as text based on the three registers.
-			createFormattedDateTime(rs->dataValueFormatted, rs->data[0], rs->data[1], rs->data[2], rs->data[3], rs->data[4], rs->data[5]);
-
-			// Clear the characterValue as we are customising this one
-			rs->characterValue[0] = 0;
-		}
-		else
-		{
-			formatRegisterValue(reg, rs, _serialNumberPrefix);
-		}
+		formatRegisterValue(reg, rs, _serialNumberPrefix);
 	}
 	return result;
 }
@@ -301,16 +290,7 @@ modbusRequestAndResponseStatusValues RegisterHandler::readHandledRegister(uint16
 
 
 
-/*
-createFormattedDateTime
 
-Takes a series of uint8_t variables and converts into UK formatted date/time value (dd/MMM/yyyy HH:mm:ss)
-*/
-void RegisterHandler::createFormattedDateTime(char *target, uint8_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second)
-{
-	char months[12][4] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-	sprintf(target, "%02d/%0s/20%d %02d:%02d:%02d", day, months[month - 1], year, hour, minute, second);
-}
 
 
 
