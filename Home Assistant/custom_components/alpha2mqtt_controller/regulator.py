@@ -37,6 +37,10 @@ TRIM_SLOPE = 0.5
 # trim_points rounds each node to 0.1 W, so a stored pair at the slope bound may be this much past it (load_trim
 # adds 1e-9 W for float error).
 TRIM_ROUND_W = 0.1
+# Learning needs the SOC this many percent over the floor hold (discharge_soc + floor_margin_soc), so the samples
+# just before the hold takes the discharge to 0 W teach nothing. Set with the table in 9381e49; no measurement
+# is behind the 1.
+LEARN_SOC_MARGIN = 1.0
 
 
 @dataclass(frozen=True)
@@ -107,9 +111,9 @@ class Settings:
     # per second moves into the two nodes around the running setpoint, and the integral gives up the same watts, so
     # the command does not move. Off: nothing is learned, what was learned is still used. Learning needs the command
     # unchanged trim_settle_s, the raw grid error within trim_band_w, a setpoint of at least trim_min_w, SOC under
-    # trim_max_soc and over the floor hold, no cap, hold, slew or policy offset. Each node stays within
-    # trim_limit_w, and the integral minus the trim at the running setpoint stays within integral_limit_w. A rate
-    # of 0 learns nothing.
+    # trim_max_soc and LEARN_SOC_MARGIN over the floor hold, no cap, hold, slew or policy offset. Each node stays
+    # within trim_limit_w, and the integral minus the trim at the running setpoint stays within integral_limit_w. A
+    # rate of 0 learns nothing.
     trim_learn: bool = False
     trim_rate: float = 0.0
     trim_limit_w: float = 100.0
@@ -600,9 +604,9 @@ class Regulator:
         # Everything above is battery watts. Only the command asks for less where the inverter gives more.
         on = policy.mode == REGULATE and (s.offset_comp or any(self.trim))
         self.offset_w = self._setpoint(self.output_w) - self.output_w if on else 0.0
+        low_soc = policy.discharge_soc + s.floor_margin_soc + LEARN_SOC_MARGIN
         self._learn_ok = (policy.mode == REGULATE and not held and self.limit == "none" and self._saturation == 0
-                          and not self.slewed and self.soc is not None
-                          and policy.discharge_soc + s.floor_margin_soc + 1 < self.soc < policy.charge_soc)
+                          and not self.slewed and self.soc is not None and low_soc < self.soc < policy.charge_soc)
         return self._maybe_send(t, policy)
 
     def _refused(self, t: float, policy: Policy) -> bool:

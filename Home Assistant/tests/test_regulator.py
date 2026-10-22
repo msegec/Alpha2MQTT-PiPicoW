@@ -1556,6 +1556,12 @@ def test_each_learning_gate_is_a_setting_that_stops_learning(key, blocks, learns
     assert _learns(**{key: learns})
 
 
+def test_learning_stops_a_margin_above_the_floor_hold():
+    # The policy SOC is 20 and the samples are at SOC 50: a floor hold at 48 % leaves room, one at 49.5 % does not.
+    assert _learns(floor_margin_soc=28)
+    assert not _learns(floor_margin_soc=50 - 20 - R.LEARN_SOC_MARGIN + 0.5)
+
+
 def test_the_learning_band_is_on_the_raw_grid_error():
     # A 30 W deadband leaves 30 W of raw error the integral never trims: inside a 50 W band, outside a 20 W one.
     assert not _learns(deadband_w=30, trim_band_w=20)
