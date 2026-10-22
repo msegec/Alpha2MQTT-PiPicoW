@@ -19,6 +19,7 @@ import importlib.util
 import inspect
 import itertools
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,7 @@ import score  # noqa: E402
 REPO = Path(__file__).resolve().parents[2]
 REGULATOR = "Home Assistant/custom_components/alpha2mqtt_controller/regulator.py"
 ACK_S = 0.1  # a response comes this long after its command
+TICK_S = 1.0  # the controller's tick: check the ack, then step without a new sample
 OK, FAIL, TIMEOUT = "ok", "fail", "timeout"  # what happens to a published command: written, refused, no response
 _names = itertools.count()
 
@@ -95,12 +97,15 @@ def every(fail_every: int = 0, timeout_every: int = 0):
 def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None = None,
            cfgs: logs.CfgTimeline | None = None, max_charge_w: float = 4000.0, max_discharge_w: float = 4000.0,
            discharge_soc: int = 10, charge_soc: int = 100, loss: logs.Loss = logs.Loss(), ack_s: float = ACK_S,
-           outcome=None) -> tuple[list[dict], list[str]]:
+           outcome=None, tick_s: float = TICK_S) -> tuple[list[dict], list[str]]:
     """Simulated rows in the shape score.score reads, and warnings. overrides apply over the cfg in force
     (cfgs, when given) or the module's defaults. loss must be the one the rows' demand was taken with.
     outcome(n) says what happens to the n-th command published (OK by default), as the controller sees it: OK is
     written and acked ack_s later; FAIL is not written and its response calls fail(); TIMEOUT is not written, has
-    no response, and calls fail() once ack_timeout_s has passed. Only the newest command's response counts."""
+    no response, and calls fail() once ack_timeout_s has passed. Only the newest command's response counts.
+    Every tick_s (0 is off), half a tick out of phase with the first sample, the controller's tick runs: the ack
+    timeout check, then step with the last sample's policy. Ticks run only between consecutive samples, never
+    across a brk; with ticks off the timeout check runs at each sample."""
     outcome = outcome or (lambda n: OK)
     overrides = overrides or {}
     warnings: list[str] = []
@@ -161,8 +166,19 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
         return signed
 
     out = []
-    for r in rows:
+    policy = None
+    for i, r in enumerate(rows):
         t = r["t"]
+        if tick_s > 0 and policy is not None and not r["brk"]:
+            k = math.floor((out[-1]["t"] - rows[0]["t"]) / tick_s - 0.5) + 1
+            while (tt := rows[0]["t"] + (k + 0.5) * tick_s) < t:
+                if tt > out[-1]["t"]:
+                    respond(tt)
+                    check_ack(tt)
+                    cmd = reg.step(tt, policy)
+                    if cmd is not None:
+                        out[-1]["cmds"].append(publish(tt, cmd))
+                k += 1
         if cfgs is not None:
             c = cfgs.at(t)
             if c is not None and c is not cur_cfg:
@@ -174,7 +190,8 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
             sim.t = t
         b = sim.advance(t)
         respond(t)
-        check_ack(t)
+        if tick_s <= 0:
+            check_ack(t)
         grid = r["demand"] + loss(b) - b
         kw = {"soc": r["soc"]} if takes_soc else {}
         if takes_solar:
@@ -205,6 +222,7 @@ def add_variant_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--max-discharge-w", type=float, default=4000.0)
     p.add_argument("--discharge-soc", type=int, default=10)
     p.add_argument("--ack-s", type=float, default=ACK_S, help="seconds from a command to its response")
+    p.add_argument("--tick-s", type=float, default=TICK_S, help="controller tick between samples, 0 off")
     p.add_argument("--fail-every", type=int, default=0, help="refuse every Nth command (0 never)")
     p.add_argument("--timeout-every", type=int, default=0, help="leave every Nth command unanswered (0 never)")
     p.add_argument("--json", action="store_true")
@@ -213,7 +231,8 @@ def add_variant_args(p: argparse.ArgumentParser) -> None:
 def variant_kwargs(a) -> dict:
     """replay() keyword arguments from add_variant_args and logs.add_window_args options."""
     return {"max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w, "discharge_soc": a.discharge_soc,
-            "loss": logs.loss_from_args(a), "ack_s": a.ack_s, "outcome": every(a.fail_every, a.timeout_every)}
+            "loss": logs.loss_from_args(a), "ack_s": a.ack_s, "outcome": every(a.fail_every, a.timeout_every),
+            "tick_s": a.tick_s}
 
 
 def main(argv: list[str] | None = None) -> None:

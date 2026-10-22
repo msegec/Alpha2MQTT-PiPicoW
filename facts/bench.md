@@ -37,7 +37,7 @@ python3 -I tools/bench/compare.py 'LOGDIR/alpha2mqtt.jsonl*' --window 'A..B' --w
 
 Shared options: `--solar-entity SUFFIX` (default none), `--loss-share` (default 0.15) and `--loss-w` (default
 10). Replay and compare also take `--max-charge-w` and `--max-discharge-w` (default 4000), `--discharge-soc`
-(default 10), `--ack-s`, `--fail-every` and `--timeout-every`.
+(default 10), `--ack-s`, `--fail-every`, `--timeout-every` and `--tick-s`.
 
 ## Loading (`logs.py`)
 
@@ -125,8 +125,12 @@ the new logs too: a growing error is drift.
   power_write = cmd.power_only)`. `fail`: the model never gets it; the response calls `fail()`. `timeout`: the
   model never gets it, no response comes, and the first check over `ack_timeout_s` after sending calls `fail()`
   once. A response counts only for the newest command while the regulator's `sent` is still it. Responses carry
-  their own time but are delivered at the next sample; the regulator reads `_t_ack` only in `step`, so this
-  matches live as long as no step falls between the response and that sample.
+  their own time but are delivered at the next sample or tick. The regulator reads ack and fail state only
+  inside `step`, so this matches live: no step falls between a response and its delivery.
+- Tick, as `controller._on_tick`: every `--tick-s` (1 s, 0 off), half a tick out of phase with the first
+  sample, the ack timeout check runs, then `step` with the last sample's policy and no new sample. Ticks run
+  only between consecutive samples, not across a `brk`. A tick's command counts in the `cmds` of the sample
+  before it, as on the bus. With ticks off the timeout check runs at each sample.
 - At a `brk` the model restarts from the logged battery, keeping its last aim; the regulator runs on and goes
   stale on its own after `stale_after_s`.
 - SOC is the logged one, not simulated.

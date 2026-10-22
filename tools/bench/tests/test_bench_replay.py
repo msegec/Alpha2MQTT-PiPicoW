@@ -95,7 +95,7 @@ def test_a_trivial_regulator_settles_the_grid_on_target(tmp_path):
 
 def test_each_command_is_acked_a_tenth_of_a_second_later(tmp_path):
     mod = module(tmp_path, NEW)
-    replay.replay(mod, rows(5), FAST)
+    replay.replay(mod, rows(5), FAST, tick_s=0)
     acks = [c for c in mod.CALLS if c[0] == "ack"]
     assert [a[1] for a in acks] == pytest.approx([0.1, 1.1, 2.1, 3.1])
     assert all(a[2] is True for a in acks)
@@ -106,7 +106,7 @@ def test_a_refused_command_is_not_written_and_calls_fail(tmp_path):
     r = rows(5)
     for x in r[1:]:
         x["demand"] = 1000.0
-    out, _ = replay.replay(mod, r, FAST, outcome=replay.every(fail_every=2))
+    out, _ = replay.replay(mod, r, FAST, outcome=replay.every(fail_every=2), tick_s=0)
     seen = [(c[0], c[1]) for c in mod.CALLS if c[0] in ("ack", "fail")]
     assert seen == [("ack", 0.1), ("fail", None), ("ack", 2.1), ("fail", None)]
     assert out[1]["battery"] == pytest.approx(out[2]["battery"], abs=1)  # the step up at t 1 was refused
@@ -125,6 +125,21 @@ def test_an_unanswered_command_fails_once_after_the_ack_timeout(tmp_path):
     fail_at = [i for i, c in enumerate(mod.CALLS) if c[0] == "fail"][0]
     assert [c[1] for c in mod.CALLS[:fail_at] if c[0] == "grid"][-1] == 10.0  # fails at the 11 s sample
     assert {r["battery"] for r in out} == {0.0}  # never written
+
+
+def test_the_tick_steps_between_samples_but_not_across_a_break(tmp_path):
+    mod = module(tmp_path, NEW)
+    r = rows(6)
+    r[3]["brk"] = True
+    out, _ = replay.replay(mod, r, FAST)
+    steps = [c[1] for c in mod.CALLS if c[0] == "step"]
+    assert steps == [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0]
+    assert [len(x["cmds"]) for x in out] == [2, 2, 1, 2, 2, 1]  # a tick's command counts on the row before it
+    grids = [c[1] for c in mod.CALLS if c[0] == "grid"]
+    assert grids == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]  # a tick has no new sample
+    mod.CALLS.clear()
+    replay.replay(mod, rows(3), FAST, tick_s=0)
+    assert [c[1] for c in mod.CALLS if c[0] == "step"] == [0.0, 1.0, 2.0]
 
 
 def test_outcomes_count_commands_from_one():
