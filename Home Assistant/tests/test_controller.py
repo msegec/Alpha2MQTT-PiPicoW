@@ -14,7 +14,8 @@ import pytest
 
 for _name in ("homeassistant", "homeassistant.components", "homeassistant.config_entries", "homeassistant.core",
               "homeassistant.helpers", "homeassistant.helpers.device_registry", "homeassistant.helpers.entity_platform",
-              "homeassistant.helpers.event", "homeassistant.util", "homeassistant.const", "voluptuous"):
+              "homeassistant.helpers.event", "homeassistant.helpers.typing", "homeassistant.util", "homeassistant.const",
+              "voluptuous"):
     sys.modules.setdefault(_name, MagicMock())
 
 
@@ -45,6 +46,7 @@ sys.modules["homeassistant.components.sensor"] = types.SimpleNamespace(
 sys.modules["homeassistant.components.switch"] = types.SimpleNamespace(SwitchEntity=type("SwitchEntity", (), {}))
 sys.modules["homeassistant.helpers.restore_state"] = types.SimpleNamespace(RestoreEntity=type("RestoreEntity", (), {}))
 sys.modules["homeassistant.components.button"] = types.SimpleNamespace(ButtonEntity=type("ButtonEntity", (), {}))
+sys.modules["homeassistant.exceptions"] = types.SimpleNamespace(ConfigEntryNotReady=type("ConfigEntryNotReady", (Exception,), {}))
 
 
 class _Store:
@@ -78,6 +80,7 @@ N = importlib.import_module("a2m_controller.number")
 S = importlib.import_module("a2m_controller.sensor")
 W = importlib.import_module("a2m_controller.switch")
 B = importlib.import_module("a2m_controller.button")
+I = importlib.import_module("a2m_controller.__init__")
 R = sys.modules["a2m_controller.regulator"]
 DISCHARGE = R.Policy(R.REGULATE, max_discharge_w=3000, discharge_soc=20)
 
@@ -265,6 +268,57 @@ def test_saved_options_replace_the_entry_data_and_reload_it():
     asyncio.run(flow.async_step_init(new))
     flow.hass.config_entries.async_update_entry.assert_called_once_with(entry, data=new)
     flow.hass.config_entries.async_schedule_reload.assert_called_once_with("entry")
+
+
+def user_flow():
+    flow = F.Alpha2MqttControllerFlow()
+    flow.async_set_unique_id = AsyncMock()
+    flow._abort_if_unique_id_configured = MagicMock()
+    return flow
+
+
+def test_the_user_step_shows_the_form_then_makes_one_entry_per_base_topic():
+    flow = user_flow()
+    form = asyncio.run(flow.async_step_user())
+    assert form["step_id"] == "user" and form["data_schema"] is F.SCHEMA
+    data = {"base_topic": "Alpha2MQTT/shadow", "state_topic": "Alpha2MQTT/state/fast"}
+    assert asyncio.run(flow.async_step_user(data)) == {"title": "Battery controller", "data": data}
+    flow.async_set_unique_id.assert_awaited_once_with("Alpha2MQTT/shadow")
+    flow._abort_if_unique_id_configured.assert_called_once_with()
+
+
+def test_an_import_from_yaml_updates_the_entry_for_its_base_topic():
+    flow = user_flow()
+    data = {"base_topic": "Alpha2MQTT", "grid_scale": 1.0}
+    assert asyncio.run(flow.async_step_import(data)) == {"title": "Battery controller", "data": data}
+    flow.async_set_unique_id.assert_awaited_once_with("Alpha2MQTT")
+    flow._abort_if_unique_id_configured.assert_called_once_with(updates=data)
+
+
+def test_yaml_starts_an_import_and_no_yaml_starts_nothing():
+    hass = MagicMock()
+    assert asyncio.run(I.async_setup(hass, {})) is True
+    hass.async_create_task.assert_not_called()
+    assert asyncio.run(I.async_setup(hass, {C.DOMAIN: {"base_topic": "Alpha2MQTT"}})) is True
+    hass.config_entries.flow.async_init.assert_called_once_with(
+        C.DOMAIN, context={"source": I.SOURCE_IMPORT}, data={"base_topic": "Alpha2MQTT"})
+    hass.async_create_task.assert_called_once()
+
+
+def test_setup_waits_for_mqtt_and_starts_after_the_entities(monkeypatch):
+    mqtt = sys.modules["homeassistant.components"].mqtt
+    mqtt.async_wait_for_mqtt_client = AsyncMock(return_value=False)
+    hass, entry = MagicMock(), MagicMock(entry_id="entry", data={"base_topic": "Alpha2MQTT"})
+    with pytest.raises(sys.modules["homeassistant.exceptions"].ConfigEntryNotReady):
+        asyncio.run(I.async_setup_entry(hass, entry))
+    order = []
+    mqtt.async_wait_for_mqtt_client = AsyncMock(return_value=True)
+    hass.config_entries.async_forward_entry_setups = AsyncMock(side_effect=lambda e, p: order.append(("forward", p)))
+    monkeypatch.setattr(C.Controller, "async_start", AsyncMock(side_effect=lambda: order.append("start")))
+    assert asyncio.run(I.async_setup_entry(hass, entry)) is True
+    assert isinstance(entry.runtime_data, C.Controller) and entry.runtime_data.config == entry.data
+    assert entry.runtime_data.config is not entry.data  # a copy: the options flow replaces the entry's data
+    assert order == [("forward", I.PLATFORMS), "start"]
 
 
 NOW = C.datetime(2026, 1, 1)

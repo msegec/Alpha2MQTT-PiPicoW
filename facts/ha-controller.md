@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set, policy and clamp tests and the grid scale bound, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 339 passed.
+Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set, policy, clamp and setup tests and the grid scale bound, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 343 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -331,6 +331,8 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_state_topic_defaults_to_the_fast_state_and_keeps_an_explicit_one` | default state topic |
 | `test_min_interval_restores_in_half_seconds_from_2_s` | restore clamps into range |
 | `test_the_options_form_offers_the_entry_as_it_is`, `test_saved_options_replace_the_entry_data_and_reload_it` | options flow |
+| `test_the_user_step_shows_the_form_then_makes_one_entry_per_base_topic`, `test_an_import_from_yaml_updates_the_entry_for_its_base_topic` | user step unique id and abort, import step updates the existing entry |
+| `test_yaml_starts_an_import_and_no_yaml_starts_nothing`, `test_setup_waits_for_mqtt_and_starts_after_the_entities` | `async_setup` import; `async_setup_entry` `ConfigEntryNotReady`, a copy of `entry.data`, platforms forwarded before `async_start` |
 | `test_a_gap_in_an_input_holds_the_last_command_until_stale_after`, `test_an_input_back_within_stale_after_keeps_regulating` | gap hold, release after 30 s |
 | `test_a_policy_of_normal_releases_at_once`, `test_an_unknown_policy_state_*` | release paths and once per value logging |
 | `test_at_the_policy_soc_the_battery_is_held_at_zero_not_asked_to_discharge` | SOC passed through; one charge 0 W |
