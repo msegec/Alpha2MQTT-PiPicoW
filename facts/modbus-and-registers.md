@@ -1,6 +1,6 @@
 Modbus RTU transport, frame checks and the AlphaESS register map as the firmware reads and writes them.
 
-Last verified: 2026-10-22 on fix/firmware, date format in `Registers.h`, slave id resync capped, every fault bit named, AL bits 13 to 16 mapped, grid current in 0.1 A. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. `tests/firmware/run` passed all eight suites (`test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer` each print `OK`, exit 0).
+Last verified: 2026-10-22 on fix/firmware, date format in `Registers.h`, slave id resync capped, every fault bit named, AL bits 13 to 16 mapped, grid current in 0.1 A, register comments corrected. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. `tests/firmware/run` passed all eight suites (`test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer` each print `OK`, exit 0).
 
 ## Files
 
@@ -174,7 +174,8 @@ Supporting registers (ten second, one minute or on request; not in the fast loop
 
 ## Gotchas
 
-- The `RegisterHandler.h` and `RegisterHandler.cpp` headers say Write Data Register is 0x0A. The code uses 0x10 (`MODBUS_FN_WRITEDATAREGISTER`). The comment is wrong.
+- Before 2026-10-22 the `RegisterHandler.h` and `RegisterHandler.cpp` headers said Write Data Register is 0x0A; the code uses 0x10 (`MODBUS_FN_WRITEDATAREGISTER`), and the headers now say so.
+- Min and max cell temperature (0x010D, 0x0110) use `tenths`, 0.1 deg C, as the vendor table says. Their define comments said 0.001D/bit until 2026-10-22. The pack and cell ID defines beside them, 0x0105 to 0x010F, carried voltage or temperature scales; they are IDs with no scale.
 - The 400 ms timeout restarts for each byte. A line that keeps sending non 0x55 bytes keeps `listenResponse` reading; only the hardware watchdog bounds it.
 - `slaveError` does not mark the line dirty; `noResponse`, `invalidFrame`, `responseTooShort` and `unexpectedResponse` do, so the next send can wait up to 150 ms more.
 - `_lastPvMeterPower` is one value shared by the fast schedule, the ten second schedule, `REG_CUSTOM_TOTAL_SOLAR_POWER` and `REG_CUSTOM_LOAD`. An `unconfirmedZero` also fails both custom registers for that read.

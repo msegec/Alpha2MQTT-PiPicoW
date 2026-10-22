@@ -12,7 +12,7 @@ Handles AlphaESS specific functions as of v1.23 AlphaESS Modbus documentation
 Namely:
 	0x03 READ DATA REGISTER
 	0x06 WRITE SINGLE REGISTER
-	0x0A WRITE DATA REGISTER
+	0x10 WRITE DATA REGISTER
 
 I presumed when I started that WRITE SINGLE REGISTER was for single two byte registers, and was
 put in to provide a simpler way to write the bulk of the smaller registers without needing to worry

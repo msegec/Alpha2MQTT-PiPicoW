@@ -187,18 +187,18 @@ inline void feedWatchdog()
 #define REG_BATTERY_HOME_R_SOC														0x0102	// 0.1/bit								// 2 Bytes		// Unsigned Short
 #define REG_BATTERY_HOME_R_STATUS													0x0103	// <<Note1 - BATTERY STATUS LOOKUP>>	// 2 Bytes		// Unsigned Short
 #define REG_BATTERY_HOME_R_RELAY_STATUS												0x0104	// <<Note2 - BATTERY RELAY STATUS LU>>	// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_PACK_ID_OF_MIN_CELL_VOLTAGE								0x0105	// 0.001V/bit							// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_CELL_ID_OF_MIN_CELL_VOLTAGE								0x0106	// 0.001V/bit							// 2 Bytes		// Unsigned Short
+#define REG_BATTERY_HOME_R_PACK_ID_OF_MIN_CELL_VOLTAGE								0x0105	// ID, no scale							// 2 Bytes		// Unsigned Short
+#define REG_BATTERY_HOME_R_CELL_ID_OF_MIN_CELL_VOLTAGE								0x0106	// ID, no scale							// 2 Bytes		// Unsigned Short
 #define REG_BATTERY_HOME_R_MIN_CELL_VOLTAGE											0x0107	// 0.001V/bit							// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_PACK_ID_OF_MAX_CELL_VOLTAGE								0x0108	// 0.001V/bit							// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_CELL_ID_OF_MAX_CELL_VOLTAGE								0x0109	// 0.001V/bit							// 2 Bytes		// Unsigned Short
+#define REG_BATTERY_HOME_R_PACK_ID_OF_MAX_CELL_VOLTAGE								0x0108	// ID, no scale							// 2 Bytes		// Unsigned Short
+#define REG_BATTERY_HOME_R_CELL_ID_OF_MAX_CELL_VOLTAGE								0x0109	// ID, no scale							// 2 Bytes		// Unsigned Short
 #define REG_BATTERY_HOME_R_MAX_CELL_VOLTAGE											0x010A	// 0.001V/bit							// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_PACK_ID_OF_MIN_CELL_TEMPERATURE							0x010B	// 0.001D/bit							// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_CELL_ID_OF_MIN_CELL_TEMPERATURE							0x010C	// 0.001D/bit							// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_MIN_CELL_TEMPERATURE										0x010D	// 0.001D/bit							// 2 Bytes		// Short
-#define REG_BATTERY_HOME_R_PACK_ID_OF_MAX_CELL_TEMPERATURE							0x010E	// 0.001D/bit							// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_CELL_ID_OF_MAX_CELL_TEMPERATURE							0x010F	// 0.001D/bit							// 2 Bytes		// Unsigned Short
-#define REG_BATTERY_HOME_R_MAX_CELL_TEMPERATURE										0x0110	// 0.001D/bit							// 2 Bytes		// Short
+#define REG_BATTERY_HOME_R_PACK_ID_OF_MIN_CELL_TEMPERATURE							0x010B	// ID, no scale							// 2 Bytes		// Unsigned Short
+#define REG_BATTERY_HOME_R_CELL_ID_OF_MIN_CELL_TEMPERATURE							0x010C	// ID, no scale							// 2 Bytes		// Unsigned Short
+#define REG_BATTERY_HOME_R_MIN_CELL_TEMPERATURE										0x010D	// 0.1D/bit							// 2 Bytes		// Short
+#define REG_BATTERY_HOME_R_PACK_ID_OF_MAX_CELL_TEMPERATURE							0x010E	// ID, no scale							// 2 Bytes		// Unsigned Short
+#define REG_BATTERY_HOME_R_CELL_ID_OF_MAX_CELL_TEMPERATURE							0x010F	// ID, no scale							// 2 Bytes		// Unsigned Short
+#define REG_BATTERY_HOME_R_MAX_CELL_TEMPERATURE										0x0110	// 0.1D/bit							// 2 Bytes		// Short
 #define REG_BATTERY_HOME_R_MAX_CHARGE_CURRENT										0x0111	// 0.1A/bit								// 2 Bytes		// Unsigned Short
 #define REG_BATTERY_HOME_R_MAX_DISCHARGE_CURRENT									0x0112	// 0.1A/bit								// 2 Bytes		// Unsigned Short
 #define REG_BATTERY_HOME_R_CHARGE_CUT_OFF_VOLTAGE									0x0113	// 0.1V/bit								// 2 Bytes		// Unsigned Short
@@ -340,7 +340,7 @@ inline void feedWatchdog()
 //#define REG_INVERTER_INFO_R_SERIAL_NUMBER_3											0x064C	//
 //#define REG_INVERTER_INFO_R_SERIAL_NUMBER_4											0x064D	//
 //#define REG_INVERTER_INFO_R_SERIAL_NUMBER_5											0x064E	//
-//#define REG_INVERTER_INFO_R_SERIAL_NUMBER_6											0x065F	//
+//#define REG_INVERTER_INFO_R_SERIAL_NUMBER_6											0x064F	//
 //#define REG_INVERTER_INFO_R_SERIAL_NUMBER_7											0x0650	//
 //#define REG_INVERTER_INFO_R_SERIAL_NUMBER_8											0x0651	//
 //#define REG_INVERTER_INFO_R_SERIAL_NUMBER_9											0x0652	//
