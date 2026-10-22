@@ -616,7 +616,8 @@ mqtt:
         name: "Alpha2MQTT"
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
-    - name: "Battery Warning"
+    # 0x011C, which the register map labels Reserve. Battery Warning 1 to 6 are other registers.
+    - name: "Battery Reserve Warning"
       unique_id: alpha2mqtt_battery_home_r_battery_warning_1
       state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_WARNING_1 | default(None) }}"
@@ -950,7 +951,8 @@ mqtt:
         name: "Alpha2MQTT"
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
-    - name: "Battery Fault"
+    # 0x011E decoded to the text of its lowest set bit. Battery Fault 1 to 6 are other registers, raw.
+    - name: "Battery Fault Text"
       unique_id: alpha2mqtt_battery_home_r_battery_fault_1
       state_topic: "Alpha2MQTT/state/minute/one"
       value_template: "{{ value_json.REG_BATTERY_HOME_R_BATTERY_FAULT_1 | default(None) }}"

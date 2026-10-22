@@ -112,6 +112,10 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 - Inverter Power maps 32768..65535 to negative: the inverter fills only the low word of 0x0406 with a
   signed 16-bit value (62511 read while charging 3025 W; inferred from values, not seen on the wire).
 - Battery SOH reads 0 on the SMILE-B3 always, so 0 becomes unknown.
+- Display names, renamed 2026-10-22 with unique ids kept, so existing entity ids and history stay: Battery
+  Fault Text (`REG_BATTERY_HOME_R_BATTERY_FAULT_1`, 0x011E, lookup text) was Battery Fault, next to Battery
+  Fault 1 (0x0131, raw). Battery Reserve Warning (`REG_BATTERY_HOME_R_BATTERY_WARNING_1`, 0x011C, `Reserve` in
+  `Definitions.h`) was Battery Warning, next to Battery Warning 1 (0x013D).
 - PV Meter Power, PV Meter Power Fast and Solar Power keep `this.state` when the key is missing,
   for at most 60 s, 10 s and 60 s. Solar Power (`REG_CUSTOM_TOTAL_SOLAR_POWER`) includes the PV meter and fails
   with it on `unconfirmedZero`. Reason in the comment and in 70fe0e2: an unavailable PV meter takes the net demand,
