@@ -16,6 +16,10 @@ inline bool requestPayloadFits(unsigned int length)
 // 60 to 600 s. What the inverter does with 0 or a longer lease is unknown, so neither is written.
 #define DISPATCH_DURATION_MAX_S 86400
 
+// The gap between the five single writes of the fallback dispatch write. It was RS485_TRIES x 50 ms, the reply
+// timeout, which coupled the two; the value is unchanged.
+#define DISPATCH_FALLBACK_GAP_MS 400
+
 // The active power register is 32000 plus the discharge watts or minus the charge watts, so a charge over
 // 32000 W would wrap below zero. A SOC above 105, the last step past full, is no target. Checked before any
 // is narrowed.

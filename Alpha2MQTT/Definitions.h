@@ -68,8 +68,8 @@ Customise these options as per README.txt.  Please read README.txt before contin
 #define MQTT_HEADER_SIZE 512
 
 
-// x 50mS to wait for RS485 input chars.  300ms as per Modbus documentation, but I got timeouts on that.  However 400ms works without issue
-#define RS485_TRIES 8 // 16
+// x 50 ms to wait for each RS485 reply byte. The Modbus documentation says 300 ms, but that gave timeouts; 400 ms works.
+#define RS485_TRIES 8
 
 // A user informed me that their router leverages leases on network connections which can't be disabled.
 // I.e. when lease expires, WiFi doesn't drop but data stops.

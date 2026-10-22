@@ -1234,7 +1234,7 @@ modbusRequestAndResponseStatusValues writeFullDispatchBlock(bool charge, uint32_
 		*failedRegister = "REG_DISPATCH_RW_DISPATCH_START";
 		return result;
 	}
-	delay(RS485_TRIES * 50);
+	delay(DISPATCH_FALLBACK_GAP_MS);
 	rs->registerCount = 2;
 	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_ACTIVE_POWER_1, powerRegister, rs);
 	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
@@ -1242,7 +1242,7 @@ modbusRequestAndResponseStatusValues writeFullDispatchBlock(bool charge, uint32_
 		*failedRegister = "REG_DISPATCH_RW_ACTIVE_POWER_1";
 		return result;
 	}
-	delay(RS485_TRIES * 50);
+	delay(DISPATCH_FALLBACK_GAP_MS);
 	rs->registerCount = 2;
 	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_TIME_1, durationS, rs);
 	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
@@ -1250,7 +1250,7 @@ modbusRequestAndResponseStatusValues writeFullDispatchBlock(bool charge, uint32_
 		*failedRegister = "REG_DISPATCH_RW_DISPATCH_TIME_1";
 		return result;
 	}
-	delay(RS485_TRIES * 50);
+	delay(DISPATCH_FALLBACK_GAP_MS);
 	rs->registerCount = 1;
 	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_SOC, socRegister, rs);
 	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)
@@ -1258,7 +1258,7 @@ modbusRequestAndResponseStatusValues writeFullDispatchBlock(bool charge, uint32_
 		*failedRegister = "REG_DISPATCH_RW_DISPATCH_SOC";
 		return result;
 	}
-	delay(RS485_TRIES * 50);
+	delay(DISPATCH_FALLBACK_GAP_MS);
 	rs->registerCount = 1;
 	result = _registerHandler->writeRawDataRegister(REG_DISPATCH_RW_DISPATCH_MODE, DISPATCH_MODE_STATE_OF_CHARGE_CONTROL, rs);
 	if (result != modbusRequestAndResponseStatusValues::writeDataRegisterSuccess)

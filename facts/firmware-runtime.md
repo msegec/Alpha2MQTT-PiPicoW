@@ -2,7 +2,7 @@
 
 One single threaded Arduino loop on the Pico W. It polls the inverter on fixed schedules, publishes JSON state over MQTT and runs commands inline, between bus reads.
 
-Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed, buffer floor tried. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
+Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed, buffer floor tried, fallback gap named. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
 
 ## Boot sequence (`setup`)
 
@@ -123,7 +123,7 @@ There are 8 under `DEVICE_NAME` (`MQTT_SUB_REQUEST_*`: read handled, read raw, s
 | Silent inverter, per exchange | about 0.6 s, including line drain up to `RS485_DRAIN_MAX_MS` 150 ms | 458e9a4, `RS485Handler.h` |
 | Power only dispatch write | about 30 to 40 ms at 9600 baud | README |
 | One frame dispatch block | about 50 ms | 9452d4a |
-| Five write fallback | four `delay(RS485_TRIES * 50)` gaps, about 1.8 s | `writeFullDispatchBlock`, 9452d4a |
+| Five write fallback | four `delay(DISPATCH_FALLBACK_GAP_MS)` gaps of 400 ms, about 1.8 s | `writeFullDispatchBlock`, 9452d4a |
 | Fast state `read_ms` | unknown on hardware; README example shows 142 | README |
 | Fast state with all five reads failing | about 3 s (guess: 5 x 0.6 s) | derived |
 | Broker attempt | up to 2.5 s connect + 2 s CONNACK + 0.3 s delays; 7 s if `MQTT_SERVER` is a hostname | 66e7f49, 65f3526 |
@@ -150,7 +150,7 @@ There are 8 under `DEVICE_NAME` (`MQTT_SUB_REQUEST_*`: read handled, read raw, s
 - The code builds for the Pico W only. There is no board select define.
 - `Definitions.h`: `DEVICE_NAME`, `ALPHA_SLAVE_ID`, `MAX_MQTT_PAYLOAD_SIZE`, `MIN_MQTT_PAYLOAD_SIZE`, `MQTT_HEADER_SIZE`, `RS485_TRIES`, `REQUIRE_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL`, `REQUIRED_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL`, `FORCE_RESTART`, `FORCE_RESTART_HOURS`, `WATCHDOG_TIMEOUT`, `MQTT_SUB_HA_STATUS` (`#ifndef`, so it can be overridden), `DEBUG` (on), `DEBUG_LEVEL2`, `DEBUG_OUTPUT_TX_RX` (prints each frame a byte at a time), `DEBUG_OUTPUT_SIZE` (the `_debugOutput` line, 100; every write is `snprintf` bounded by it), the `*_MULTIPLIER` scale factors, and the `MQTT_MES_*` and `MQTT_SUB_*` topic suffixes. Without `ARDUINO` (the host tests) it skips `Secrets.h` and `feedWatchdog` does nothing.
 - `Alpha2MQTT.ino` (local `#define`s): `RUNSTATE_INTERVAL`, `STATUS_INTERVAL_FAST`, `STATUS_INTERVAL_TEN_SECONDS`, `STATUS_INTERVAL_ONE_MINUTE`, `STATUS_INTERVAL_FIVE_MINUTE`, `STATUS_INTERVAL_ONE_HOUR`, `WIFI_JOIN_TIMEOUT`, `WIFI_RETRY_INTERVAL`, `MQTT_RETRY_INTERVAL`, `MQTT_CLIENT_TIMEOUT`, `MQTT_REPLY_TIMEOUT`. The schedule lists are the `_mqtt*StatusRegisters` arrays.
-- Other headers: `RS485_QUIET_MS`, `RS485_DRAIN_MAX_MS` and `RS485_RESYNC_MAX_BYTES` (`RS485Handler.h`); `HA_GONE_AFTER_MS`, `IDLE_HOLD_DURATION_S`, `IDLE_HOLD_REWRITE_MS`, `IDLE_HOLD_RETRY_MS` (`IdleHold.h`); `MQTT_REQUEST_PAYLOAD_MAX`, `DISPATCH_DURATION_MAX_S` (`Dispatch.h`); `REQUEST_FIELD_SIZE` (`Request.h`); `PV_METER_ZERO_CONFIRM_FROM_W` (`PvMeter.h`).
+- Other headers: `RS485_QUIET_MS`, `RS485_DRAIN_MAX_MS` and `RS485_RESYNC_MAX_BYTES` (`RS485Handler.h`); `HA_GONE_AFTER_MS`, `IDLE_HOLD_DURATION_S`, `IDLE_HOLD_REWRITE_MS`, `IDLE_HOLD_RETRY_MS` (`IdleHold.h`); `MQTT_REQUEST_PAYLOAD_MAX`, `DISPATCH_DURATION_MAX_S`, `DISPATCH_FALLBACK_GAP_MS` (`Dispatch.h`); `REQUEST_FIELD_SIZE` (`Request.h`); `PV_METER_ZERO_CONFIRM_FROM_W` (`PvMeter.h`).
 - `Secrets.example.h` names: `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_SERVER`, `MQTT_PORT`, `MQTT_USERNAME` (empty means no credentials), `MQTT_PASSWORD`, `OTA_PASSWORD`. A missing or empty `OTA_PASSWORD` fails the build.
 
 ## Gotchas

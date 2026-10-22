@@ -106,7 +106,7 @@ Power only path: one `writeRawDataRegister(0x0881, power)` with 2 registers. Suc
 
 Full block path, `writeFullDispatchBlock` (9c3a983 moved it out of `mqttCallback`):
 1. If `_blockFrameRefused` is false: one 27 byte frame from `dispatchBlockFrame` (slave, 0x10, 0x0880, 9 regs, 18 bytes, start, power, reactive 32000, mode 2, SOC, time, CRC). About 50 ms at 9600 baud. Success sets `_activeDispatch = {true, charge, soc, duration, writeStartedMs}`. `frames` = 1.
-2. On any frame failure, or when the latch is set: five single writes, 400 ms apart (`delay(RS485_TRIES * 50)`, `RS485_TRIES` = 8). `frames` = 5. Order is fixed; the comment says no other is proven on hardware:
+2. On any frame failure, or when the latch is set: five single writes, 400 ms apart (`delay(DISPATCH_FALLBACK_GAP_MS)`; before 2026-10-22 it was `RS485_TRIES * 50`, the same 400 ms). `frames` = 5. Order is fixed; the comment says no other is proven on hardware:
    START 0x0880 = 1, ACTIVE_POWER 0x0881 (2 regs), TIME 0x0887 (2 regs), SOC 0x0886, MODE 0x0885 = 2.
 3. The first failing single write returns at once and names its register in `failureDetail`. Earlier writes in the sequence stay on the inverter.
 4. Latch: `_blockFrameRefused` becomes true only if the frame got `slaveError` and all five singles then landed (d49930f). A timeout never sets it (2f5e1c7). Only a reboot clears it.
