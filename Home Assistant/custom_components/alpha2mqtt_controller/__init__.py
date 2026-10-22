@@ -28,6 +28,7 @@ from .controller import (
     DEFAULT_POLICY_ENTITY,
     DEFAULT_STATE_TOPIC,
     DOMAIN,
+    GRID_SCALE_MAX,
     GRID_SOURCES,
     Controller,
 )
@@ -42,7 +43,8 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(CONF_BASE_TOPIC, default=DEFAULT_BASE_TOPIC): cv.string,
                 vol.Optional(CONF_POLICY_ENTITY, default=DEFAULT_POLICY_ENTITY): cv.entity_id,
                 vol.Optional(CONF_GRID_SOURCE, default="clamp"): vol.In(GRID_SOURCES),
-                vol.Optional(CONF_GRID_SCALE, default=1.0): vol.Coerce(float),
+                vol.Optional(CONF_GRID_SCALE, default=1.0): vol.All(
+                    vol.Coerce(float), vol.Range(min=-GRID_SCALE_MAX, max=GRID_SCALE_MAX)),
                 vol.Optional(CONF_GRID_SCALE_ENTITY): cv.entity_id,
                 vol.Optional(CONF_CORRECTION_ENTITY): cv.entity_id,
                 vol.Optional(CONF_MAX_CHARGE_ENTITY): cv.entity_id,

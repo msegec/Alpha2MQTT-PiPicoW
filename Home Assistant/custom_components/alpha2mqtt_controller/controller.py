@@ -53,6 +53,9 @@ SEQ_MAX = 2**32 - 1
 SEQ_PER_S = 10
 # The responseStatus of each set request that was written, as Definitions.h spells them. Any other status is a failure.
 SET_SUCCESS = frozenset({"setChargeSuccess", "setDishargeSuccess", "setNormalSuccess"})
+# The largest grid clamp scale, either sign: the form's range, and the bound on a scale entity. The scale is a factor,
+# so max_plausible_w, a limit in watts, is no bound for it.
+GRID_SCALE_MAX = 100.0
 # clamp: scale x grid clamp + correction. estimate: correction - battery, for a clamp that cannot see the house.
 GRID_SOURCES = ["clamp", "estimate"]
 
@@ -313,7 +316,7 @@ class Controller:
         if self.config.get(CONF_GRID_SOURCE) == "estimate":
             correction = self._correction(self.regulator.settings.correction_max_age_s)
             return None if correction is None else estimate_grid(correction, self._battery_w)
-        scale = _number(self.hass, self.config.get(CONF_GRID_SCALE_ENTITY), self._limit)
+        scale = _number(self.hass, self.config.get(CONF_GRID_SCALE_ENTITY), GRID_SCALE_MAX)
         if scale is None:
             if self.config.get(CONF_GRID_SCALE_ENTITY):
                 return None

@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set, policy and clamp tests, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 338 passed.
+Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set, policy and clamp tests and the grid scale bound, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 339 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -71,7 +71,7 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
    - `estimate`: correction via `_number(..., correction_max_age_s=90)`; `None` if missing or older than 90 s
      by `last_reported`. Result `estimate_grid(correction, battery)` = correction - battery.
    - `clamp` (default): scale from `grid_scale_entity`, else `grid_scale` config (1.0). A configured scale
-     entity that is unreadable gives `None`. Correction entity optional (0 if unset, `None` if set and unreadable,
+     entity that is unreadable or past +-`GRID_SCALE_MAX` (100) gives `None`. Correction entity optional (0 if unset, `None` if set and unreadable,
      no age check). Result `scale * raw_grid + correction`.
    - Both read the correction through `_correction`: an optional `age_s` attribute (the age of the template's oldest
      input) over `correction_max_age_s` makes it missing, a gap like any other. No `age_s`, or one that is not a
@@ -149,8 +149,8 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 | `base_topic` | `Alpha2MQTT` | request, response topics, entry unique id, device name, step log name |
 | `policy_entity` | `sensor.battery_auto_action` | policy, any domain |
 | `grid_source` | `clamp` | `clamp` or `estimate` (50850bf) |
-| `grid_scale` | 1.0 (form range -100 to 100) | clamp multiplier |
-| `grid_scale_entity` | none | overrides `grid_scale` |
+| `grid_scale` | 1.0 (range +-`GRID_SCALE_MAX` 100 in the form and in YAML) | clamp multiplier |
+| `grid_scale_entity` | none | overrides `grid_scale`; a value outside +-`GRID_SCALE_MAX` is unreadable, a gap |
 | `correction_entity` | none | W added to scaled clamp, or house load less solar under `estimate`; may carry `seq`, `west` and `east` (solar W) for the solar feed forward, `age_s` (age of its oldest input) and `west_fallback` (true: West is the 10 s value) |
 | `max_charge_entity`, `max_discharge_entity` | none (3000 W) | caps |
 | `log_dir` | `<config>/alpha2mqtt_controller` | step log directory |
@@ -345,6 +345,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_grid_offset_moves_the_target_while_charging` | `grid_offset` lowers the error by its value; bad or implausible is 0 |
 | `test_a_policy_soc_the_firmware_would_refuse_is_unreadable`, `test_an_other_soc_the_firmware_would_refuse_*` | SOC range |
 | `test_a_correction_with_a_frozen_input_is_a_gap`, `test_a_frozen_correction_is_a_gap_on_the_clamp_too` | `age_s` |
+| `test_a_grid_scale_entity_past_the_form_range_is_a_gap` | the scale entity is bounded by `GRID_SCALE_MAX`, not `max_plausible_w` |
 | `test_the_clamp_reads_the_grid_as_it_is_by_default`, `test_the_clamp_scale_and_correction_make_the_grid`, `test_a_grid_scale_entity_overrides_the_scale_and_steps_on_its_change`, `test_an_unreadable_grid_scale_entity_is_a_gap_not_the_configured_scale` | clamp mode: `scale * raw + correction`, the entity over `grid_scale`, `_measure` on its change, unreadable is a gap |
 | `test_a_response_that_is_json_but_not_an_object_is_ignored` | response shape |
 | `test_west_from_the_10_s_fallback_gives_no_solar_step` | `west_fallback` |

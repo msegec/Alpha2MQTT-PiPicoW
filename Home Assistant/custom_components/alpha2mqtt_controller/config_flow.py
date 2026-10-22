@@ -26,6 +26,7 @@ from .controller import (
     DEFAULT_POLICY_ENTITY,
     DEFAULT_STATE_TOPIC,
     DOMAIN,
+    GRID_SCALE_MAX,
     GRID_SOURCES,
 )
 
@@ -41,7 +42,7 @@ SCHEMA = vol.Schema(
             selector.SelectSelectorConfig(options=GRID_SOURCES, translation_key=CONF_GRID_SOURCE)
         ),
         vol.Required(CONF_GRID_SCALE, default=1.0): selector.NumberSelector(
-            selector.NumberSelectorConfig(min=-100, max=100, step=0.1, mode=selector.NumberSelectorMode.BOX)
+            selector.NumberSelectorConfig(min=-GRID_SCALE_MAX, max=GRID_SCALE_MAX, step=0.1, mode=selector.NumberSelectorMode.BOX)
         ),
         vol.Optional(CONF_GRID_SCALE_ENTITY): _ENTITY,
         vol.Optional(CONF_CORRECTION_ENTITY): _ENTITY,

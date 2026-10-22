@@ -1056,6 +1056,17 @@ def test_an_unreadable_grid_scale_entity_is_a_gap_not_the_configured_scale(monke
     assert house.c.grid_w is None and "grid estimate" in house.c._gaps
 
 
+def test_a_grid_scale_entity_past_the_form_range_is_a_gap(monkeypatch):
+    # The scale is a factor, so the watts limit max_plausible_w is no bound for it; the form's range is.
+    house = clamp_house(monkeypatch, grid_scale_entity="input_number.grid_scale")
+    house.set("input_number.grid_scale", str(C.GRID_SCALE_MAX))
+    house.second(**{C.GRID_KEY: 4})
+    assert house.c.grid_w == 4 * C.GRID_SCALE_MAX
+    house.set("input_number.grid_scale", "150")
+    house.second(**{C.GRID_KEY: 4})
+    assert house.c.grid_w is None
+
+
 def test_a_response_that_is_json_but_not_an_object_is_ignored(monkeypatch):
     house = House(monkeypatch)
     house.second()
