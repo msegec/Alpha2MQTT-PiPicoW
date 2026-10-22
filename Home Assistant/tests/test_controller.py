@@ -888,6 +888,17 @@ def test_a_fast_step_response_is_logged_and_not_counted_slow(monkeypatch):
     assert house.c.last_response["t80_s"] == resp["t80_s"] and house.c.slow_responses_today == 0
 
 
+def test_a_step_with_no_samples_after_it_ends_cancelled_by_the_stale_release(monkeypatch):
+    # The timeout is checked on a sample. With none, the regulator goes stale and its release cancels the step, so
+    # missing data is not counted as a slow battery.
+    house = stepped_house(monkeypatch, lambda b, t: b, seconds=1)
+    for _ in range(int(house.c.regulator.settings.stale_after_s) + 2):
+        house.t += 1
+        house.c._on_tick(None)
+    assert house.released()
+    assert [r["result"] for r in house.log.kind("resp")] == ["cancelled"] and house.c.slow_responses_today == 0
+
+
 def test_a_9_w_per_s_step_response_is_counted_slow(monkeypatch):
     house = stepped_house(monkeypatch, lambda b, t: min(t, b + 9))
     (resp,) = house.log.kind("resp")

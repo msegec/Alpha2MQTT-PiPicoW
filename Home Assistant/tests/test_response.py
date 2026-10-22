@@ -115,3 +115,13 @@ def test_the_monitor_reads_its_limits_from_the_settings():
     assert run(slow, {0: 700}, response_slow_s=6)[0]["result"] == "ok"
     assert run(ramp, {0: 2000}, response_timeout_s=10)[0]["elapsed_s"] == 10
     assert run(ramp, {0: 500}, response_step_w=300)[0]["result"] == "timeout"
+
+
+def test_a_turn_from_charge_to_discharge_is_timed_over_the_whole_rise():
+    (record,) = run(fast, {0: -1000, 5: 1500}, start_w=-1000)
+    assert (record["result"], record["from_w"], record["to_w"], record["rise_w"]) == ("ok", -1000, 1500, 2500)
+
+
+def test_a_turn_from_discharge_to_charge_is_timed_too():
+    (record,) = run(fast, {0: 1000, 5: -1500}, start_w=1000)
+    assert (record["result"], record["rise_w"]) == ("ok", 2500)

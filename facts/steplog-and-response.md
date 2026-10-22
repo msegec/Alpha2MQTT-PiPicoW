@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: b8822ea plus the step response limits as settings, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 330 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 350 passed.
 
 ## Files
 
@@ -143,10 +143,12 @@ Sensors: `step_response` state is `last_response["t80_s"]` (null after a timeout
 - A cut to 1500 of a 2000 step cancels; to 1700 keeps measuring. A release cancels.
 - Down steps and steps under 500 W are not timed. A charge step is timed the same way.
 - Keepalives of the same setpoint over 120 s give one `timeout`, not one per resend.
+- A turn from charge to discharge or back is timed over the whole rise.
+- With no samples after a step, the stale release cancels it.
 - Controller: a fast plant leaves `slow_responses_today == 0`; a 9 W/s plant counts 1.
 - The three limits are settings with the old values, and the monitor reads them (`test_the_monitor_*`).
 
-Test run, from the repo root: `python3 -m pytest "Home Assistant/tests/test_steplog.py" "Home Assistant/tests/test_response.py" -q` gave 16 passed. `test_controller.py -k "log or resp or slow"` gave 16 passed.
+Test run, from the repo root: `python3 -m pytest "Home Assistant/tests/test_steplog.py" "Home Assistant/tests/test_response.py" -q` gave 20 passed. `test_controller.py -k "log or resp or slow"` gave 26 passed.
 
 ## Gotchas
 
@@ -154,10 +156,13 @@ Test run, from the repo root: `python3 -m pytest "Home Assistant/tests/test_step
 - Commands chosen on the 1 s tick or an entity change have no `step` record; only `cmd` shows them.
 - Regulator fields in `step` are after the step. A `resp` from a sample comes before that sample's `step` line.
 - Monitor time is monotonic; log `t` is wall time. They do not mix.
-- `timeout` is checked only when a sample arrives. If fast messages stop, `elapsed_s` can exceed 30.
+- `timeout` is checked only when a sample arrives. If fast messages stop, the regulator goes stale at `stale_after_s`
+  and its release cancels the step, so missing data is not counted slow
+  (`test_a_step_with_no_samples_after_it_ends_cancelled_by_the_stale_release`). Only if that release fails to
+  publish does the step stay open, and the next sample can then finish it with `elapsed_s` over 30.
 - A step stays measured against its first target. A later larger setpoint neither restarts nor retargets it.
 - A cancel and a new step can happen in one `command` call.
-- A turn from one direction to the other passes both tests and is timed, though a step towards zero is not (read from code; no test).
+- A turn from one direction to the other passes both tests and is timed over the whole rise, though a step towards zero is not (`test_a_turn_from_*`).
 - No battery reading yet means no step opens. A failed publish never reaches `command`.
 - `slow_responses_today` lives in memory and restarts at 0 with the controller.
 
