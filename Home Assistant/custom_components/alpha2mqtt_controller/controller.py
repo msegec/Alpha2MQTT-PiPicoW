@@ -51,6 +51,8 @@ SEQ_MAX = 2**32 - 1
 # A controller numbers its commands on from the wall clock in tenths of a second. The regulator sends at most about two
 # a second, so after a reload no seq repeats one a late response from the run before could still carry.
 SEQ_PER_S = 10
+# The responseStatus of each set request that was written, as Definitions.h spells them. Any other status is a failure.
+SET_SUCCESS = frozenset({"setChargeSuccess", "setDishargeSuccess", "setNormalSuccess"})
 # clamp: scale x grid clamp + correction. estimate: correction - battery, for a clamp that cannot see the house.
 GRID_SOURCES = ["clamp", "estimate"]
 
@@ -655,7 +657,8 @@ class Controller:
             "ack_after_ms": None if sent is None else round((time.monotonic() - sent) * 1000),
             "ack_write": data.get("write"),  # power or block; older firmware sends neither
         }
-        ok = "success" in str(data.get("responseStatus")).lower()
+        status = data.get("responseStatus")
+        ok = isinstance(status, str) and status in SET_SUCCESS
         # Only the newest command's response counts, and not once the regulator has chosen another.
         newest = seq is not None and seq == self.last_seq and self.regulator.sent is self.last_command
         if not ok:

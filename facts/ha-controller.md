@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 308 passed.
+Last verified: d80bfb1 plus seqs seeded from the clock and exact success statuses, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 317 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -131,7 +131,9 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 - Any response with a `seq` sets `_seq_echo`: the firmware echoes seq.
 - `ack` dict (shown on the Last command sensor): `ack_seq`, `ack_status` (`responseStatus`), `ack_detail`
   (`failureDetail`), `ack_after_ms`, `ack_write` (`write`: power, block or absent on older firmware).
-- Success means `"success"` in `responseStatus` lowercased; the firmware spells it `setDishargeSuccess`.
+- Success means `responseStatus` is exactly one of `SET_SUCCESS`: `setChargeSuccess`, `setDishargeSuccess` (the
+  firmware's spelling, `Definitions.h`) or `setNormalSuccess`. Any other value, including a register write's own
+  `writeDataRegisterSuccess`, a word that merely contains "success", or a non-string, is a failure.
 - Only the newest counts: `seq == last_seq` and `regulator.sent is last_command`. Then success calls
   `regulator.ack(now, power_write=(write == "power"))` (754c81d, a3a20a7); failure calls `regulator.fail()`.
 - `_check_ack` each tick: once `_seq_echo`, a newest command unanswered for `ack_timeout_s` 10 s calls
@@ -313,6 +315,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | Test | Pins |
 |---|---|
 | `test_success_for_the_last_seq_acks`, `test_old_seq_failure_or_no_seq_does_not_ack`, `test_no_ack_once_a_newer_command_is_pending` | only the newest seq, still current, acks |
+| `test_each_set_success_status_of_the_firmware_acks`, `test_any_other_status_fails_the_command` | only the three set success statuses ack; any other fails the newest |
 | `test_the_ack_says_whether_only_the_power_was_written` | `power_write` from `write` |
 | `test_a_failed_write_of_the_newest_command_is_retried` | refusal of newest calls fail, older does not |
 | `test_a_command_with_no_response_is_sent_again_in_full`, `test_a_command_with_a_response_is_not_timed_out` | 10 s ack timeout only after seq echo, once |

@@ -103,6 +103,26 @@ def test_success_for_the_last_seq_acks():
     c.regulator.ack.assert_called_once()
 
 
+@pytest.mark.parametrize("status", ["setChargeSuccess", "setDishargeSuccess", "setNormalSuccess"])
+def test_each_set_success_status_of_the_firmware_acks(status):
+    c = sent_controller()
+    c.regulator.fail = MagicMock()
+    respond(c, c.last_seq, status)
+    c.regulator.ack.assert_called_once()
+    c.regulator.fail.assert_not_called()
+
+
+# A failed write sends the register write's own status, and nothing stops another sender using "success" in a word.
+@pytest.mark.parametrize("status", ["slaveError", "invalidMQTTPayload", "writeDataRegisterSuccess", "unsuccessful", ["setChargeSuccess"],
+                                    None])
+def test_any_other_status_fails_the_command(status):
+    c = sent_controller()
+    c.regulator.fail = MagicMock()
+    respond(c, c.last_seq, status)
+    c.regulator.ack.assert_not_called()
+    c.regulator.fail.assert_called_once()
+
+
 def test_old_seq_failure_or_no_seq_does_not_ack():
     c = sent_controller()
     respond(c, 0, "setDishargeSuccess")

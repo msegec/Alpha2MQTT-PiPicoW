@@ -2,7 +2,7 @@
 
 Every topic between the Pico firmware and Home Assistant, who writes and reads it, and what the HA package wires up.
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101, plus the correction entity's `west` and `east` attributes on 2026-10-22, plus its `age_s` and `west_fallback` attributes and the controller limits as settings (read from `controller.py`, same day); package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
+Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup and the past-full SOC 101, plus the correction entity's `west` and `east` attributes on 2026-10-22, plus its `age_s` and `west_fallback` attributes and the controller limits as settings (read from `controller.py`, same day), plus `SET_SUCCESS` on d80bfb1 the same day; package templates on 2026-10-21 rendered offline with jinja2. Method: read and grep only; nothing was run against MQTT or hardware.
 
 ## Ground rules
 
@@ -65,7 +65,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 ## Response values
 
 - `responseStatus` on success: `setChargeSuccess`, `setDishargeSuccess` (sic, missing "c"), `setNormalSuccess`.
-  The controller tests `"success" in responseStatus.lower()`, so the typo is harmless there.
+  The controller acks only on exactly these three (`SET_SUCCESS`, typo included); any other status fails the command.
 - On failure `responseStatus` is the Modbus status text (`noResponse`, `slaveError`, `invalidFrame`, and so on) and
   `failureDetail` names the register, for example `REG_DISPATCH_RW_ACTIVE_POWER_1`.
 - `write` is `power` or `block`. `frames` is 1 for the single 9 register frame, more for the five write fallback.
