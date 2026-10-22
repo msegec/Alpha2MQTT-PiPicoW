@@ -399,8 +399,8 @@ class Regulator:
             # cannot start, confirm or end a spike, nor feed forward a solar change twice.
             recent = self._t_fresh is not None and t - self._t_fresh <= s.solar_max_gap_s
             change = solar_w - self.solar_w if recent and solar_w is not None and self.solar_w is not None else 0.0
-            floor_w = s.solar_ff_min_w
-            if floor_w > 0 and (solar_w is None or self.solar_w is None or min(solar_w, self.solar_w) < floor_w):
+            min_w = s.solar_ff_min_w
+            if min_w > 0 and (solar_w is None or self.solar_w is None or min(solar_w, self.solar_w) < min_w):
                 change = 0.0
             self._solar_step = change if abs(change) > s.solar_deadband_w else 0.0
             self.solar_w = solar_w
@@ -536,22 +536,22 @@ class Regulator:
             self._filtered = request
             # A cap is a limit, never a push: a negative one is 0 W, not a forced charge or discharge.
             lo, hi = -max(0.0, policy.max_charge_w), max(0.0, policy.max_discharge_w)
-            floor, ceiling = "discharge_cap", "charge_cap"
+            hi_name, lo_name = "discharge_cap", "charge_cap"
             if self.soc is None and s.discharge_needs_soc:
-                hi, floor = 0.0, "soc_unknown"  # see Settings.discharge_needs_soc
+                hi, hi_name = 0.0, "soc_unknown"  # see Settings.discharge_needs_soc
             elif self.soc is not None and self.soc <= policy.discharge_soc + s.floor_margin_soc:
                 # At its limit the battery refuses to discharge, so ask for 0 W, not a request that only grows.
-                hi, floor = 0.0, "floor"
+                hi, hi_name = 0.0, "floor"
             elif self._refused(t, policy):
-                hi, floor = 0.0, "refused"
+                hi, hi_name = 0.0, "refused"
             if self.soc is not None and self.soc >= policy.charge_soc:
                 # Full: the same for a charge, so the export it cannot store does not wind the integral.
-                lo, ceiling = 0.0, "full"
+                lo, lo_name = 0.0, "full"
             if request > hi:
-                self.limit = floor
+                self.limit = hi_name
             elif request < lo:
-                self.limit = ceiling
-            held = floor != "discharge_cap" or ceiling != "charge_cap"  # in force, whether or not it clips this step
+                self.limit = lo_name
+            held = hi_name != "discharge_cap" or lo_name != "charge_cap"  # in force, whether or not it clips this step
         self.request_w = request
         self.lo_w, self.hi_w = lo, hi
         u = _clip(request, lo, hi)
@@ -653,8 +653,8 @@ class Regulator:
         if cmd.kind != last.kind and (cmd.watts or last.watts):
             return self._send(t, cmd)
         # A rise to the ready floor goes out however small, or the battery idles until the keepalive.
-        floor = math.ceil(s.warm_w)
-        to_floor = policy.mode == REGULATE and floor > 0 and last.signed_w < floor <= cmd.signed_w
+        ready_cmd = math.ceil(s.warm_w)
+        to_floor = policy.mode == REGULATE and ready_cmd > 0 and last.signed_w < ready_cmd <= cmd.signed_w
         # A stop at 0 W goes out however small, as at the floor or a refusal: it is not a trim.
         if (not to_floor and cmd.watts and cmd.soc == last.soc and abs(cmd.signed_w - last.signed_w) < s.small_trim_w
                 and since < (s.import_trim_gap_s if cmd.signed_w > last.signed_w else s.small_trim_gap_s)):

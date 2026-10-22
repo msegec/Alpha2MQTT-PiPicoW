@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d80bfb1 plus the regulator fixes up to one interpolator, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 320 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the regulator fixes up to the `floor` local renames, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 320 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -187,7 +187,7 @@ Learning (long term trim) runs next, on `c`, the running command's `signed_w` (0
     1. Within `min_interval_s` and no early send: None.
     2. No last command, last failed, lease over, or keepalive due: send full.
     3. Kind changed and either side is non-zero: send full.
-    4. `to_floor`: `REGULATE`, floor > 0, last signed under `ceil(warm_w)` and new at or over it.
+    4. `to_floor`: `REGULATE`, `ready_cmd = ceil(warm_w)` > 0, last signed under it and new at or over it.
     5. Small trim: not `to_floor`, non-zero watts, same SOC, move under `small_trim_w` and under `small_trim_gap_s` since last (`import_trim_gap_s` for a move up): None.
     6. `to_floor`, SOC changed, or move >= `write_threshold_w`: send, as `power_only` if same kind/SOC/duration and `power_write_gap_s > 0`.
     7. Else None.
