@@ -1060,3 +1060,81 @@ def test_the_correction_match_wait_is_a_setting(monkeypatch):
     house.seq = 5
     house.sample()
     assert house.timers[-1].delay == 1.5
+
+
+# The safety paths: a publish that fails, a step that raises, and the Enabled switch handing the inverter back.
+
+def errors(caplog, text):
+    return [r for r in caplog.records if r.levelname == "ERROR" and text in r.getMessage()]
+
+
+def test_a_failed_publish_is_sent_again_in_full_and_logged_once(monkeypatch, caplog):
+    caplog.set_level("INFO")
+    house = House(monkeypatch)
+    house.mqtt.async_publish = AsyncMock(side_effect=OSError("broker down"))
+    for _ in range(10):
+        house.second()
+    assert house.mqtt.async_publish.call_count > 1 and house.c.last_command is None
+    assert len(errors(caplog, "could not publish")) == 1
+    house.mqtt.async_publish = AsyncMock()
+    for _ in range(4):
+        house.second()
+    assert house.sent()[0]["kind"] == "discharge" and house.c.last_command is not None
+    assert "Battery controller publish works again" in caplog.text
+
+
+def test_a_step_that_raises_hands_the_inverter_back_and_is_logged_once(monkeypatch, caplog):
+    caplog.set_level("INFO")
+    house = House(monkeypatch)
+    house.second()
+    house.c._read_policy = MagicMock(side_effect=ValueError("bad template"))
+    for _ in range(5):
+        house.second()
+    assert house.released() and house.c.status == "released"
+    assert len(errors(caplog, "step failed")) == 1
+    del house.c._read_policy
+    house.second()
+    assert house.c.status == "regulating" and "Battery controller step works again" in caplog.text
+
+
+def enable_switch(c, last_state=None):
+    switch = W.EnableSwitch(MagicMock(entry_id="entry", runtime_data=c))
+    switch.async_get_last_state = AsyncMock(return_value=None if last_state is None else MagicMock(state=last_state))
+    switch.async_write_ha_state = MagicMock()
+    asyncio.run(switch.async_added_to_hass())
+    return switch
+
+
+@pytest.mark.parametrize("last_state, on", [(None, False), ("on", True), ("off", False), ("unavailable", False)])
+def test_the_enabled_switch_restores_on_only_from_on(last_state, on):
+    c = C.Controller(MagicMock(), {}, "entry")
+    assert enable_switch(c, last_state).is_on is on and c.enabled is on
+
+
+def test_turning_the_controller_off_hands_the_inverter_back_at_once(monkeypatch):
+    house = House(monkeypatch)
+    house.c.enabled = False
+    switch = enable_switch(house.c)
+    asyncio.run(switch.async_turn_on())
+    house.second()
+    assert house.sent()[-1]["kind"] == "discharge"
+    asyncio.run(switch.async_turn_off())
+    assert switch.is_on is False and house.sent()[-1]["kind"] == "normal"
+    switch.async_write_ha_state.assert_called()
+    count = len(house.sent())
+    house.second()
+    assert len(house.sent()) == count and house.c.status == "disabled"
+
+
+def test_the_controller_turns_off_even_when_the_release_cannot_be_published(monkeypatch):
+    # The lease then hands the inverter back within duration_s.
+    house = House(monkeypatch)
+    house.second()
+    house.mqtt.async_publish = AsyncMock(side_effect=OSError("broker down"))
+    switch = enable_switch(house.c)
+    asyncio.run(switch.async_turn_off())
+    assert switch.is_on is False and house.mqtt.async_publish.call_args.args[1].endswith("/normal")
+    count = house.mqtt.async_publish.call_count
+    for _ in range(5):
+        house.second()
+    assert house.mqtt.async_publish.call_count == count

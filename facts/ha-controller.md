@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock and exact success statuses, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 317 passed.
+Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses and safety path tests, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 325 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -320,6 +320,9 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_failed_write_of_the_newest_command_is_retried` | refusal of newest calls fail, older does not |
 | `test_a_command_with_no_response_is_sent_again_in_full`, `test_a_command_with_a_response_is_not_timed_out` | 10 s ack timeout only after seq echo, once |
 | `test_a_command_superseded_before_its_publish_is_dropped` | superseded publish dropped |
+| `test_a_failed_publish_is_sent_again_in_full_and_logged_once` | publish exception: nothing recorded as sent, resent after the gap, one error, "works again" on recovery |
+| `test_a_step_that_raises_hands_the_inverter_back_and_is_logged_once` | step exception: release published, status `released`, one error, regulating again after |
+| `test_the_enabled_switch_restores_on_only_from_on`, `test_turning_the_controller_off_hands_the_inverter_back_at_once`, `test_the_controller_turns_off_even_when_the_release_cannot_be_published` | Enabled switch restore, normal published on off, off holds when the publish fails |
 | `test_a_reload_never_reuses_a_seq_of_the_run_before`, `test_a_seq_stays_what_the_firmware_echoes` | seq seeded from the clock, a late pre-reload response does not ack, 1..`SEQ_MAX` wrap, payload under 90 bytes |
 | `test_power_only_commands_carry_the_flag_and_others_do_not` | `powerOnly` payload |
 | `test_state_topic_defaults_to_the_fast_state_and_keeps_an_explicit_one` | default state topic |
