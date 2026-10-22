@@ -114,14 +114,14 @@ def test_iterations_split_on_code_and_cfg_changes():
     assert its[0]["t1"] == 10.0
 
 
-def test_the_loss_is_a_share_plus_a_fixed_term_while_the_battery_reads():
+def test_the_loss_is_a_share_plus_a_fixed_term_at_every_reading():
     loss = logs.Loss()
     assert (loss.share, loss.fixed_w) == (0.15, 10.0)
     assert loss(-1000) == loss(1000) == 160.0
-    assert loss(0) == 0.0  # an idle battery reading 0 has no loss
+    assert loss(0) == 10.0  # the correction template adds the fixed term whatever the battery reads
     recs = [step(1.0, 1, grid_w=100, battery=1000), step(2.0, 2, grid_w=100, battery=0)]
     assert [r["demand"] for r in logs.samples(recs, loss=logs.Loss(0, 0))] == [1100, 100]
-    assert [r["demand"] for r in logs.samples(recs)] == [940, 100]
+    assert [r["demand"] for r in logs.samples(recs)] == [940, 90]
 
 
 def test_the_loss_is_a_cli_parameter():

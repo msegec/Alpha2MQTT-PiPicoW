@@ -54,11 +54,11 @@ in force), `--discharge-soc` (default 10), `--ack-s`, `--fail-every`, `--timeout
   force), `deadband_w` (the same, None without one), `cmds` (every dispatch request on the bus after this
   step record and before the next step record, signed W or None for normal), `wait_s` (`wait_ms / 1000`, 0
   unlogged), `demand = grid_w + battery - loss(battery)`, `sent` (signed W, or None), `solar`, `load_w`.
-- Battery loss, `logs.Loss`: `share * |battery| + fixed_w`, and 0 at a battery of exactly 0. The term is not
+- Battery loss, `logs.Loss`: `share * |battery| + fixed_w` at every reading, 0 W included. The term is not
   the controller's: `estimate_grid` adds none. It comes from the correction source. The development site's
   correction template charges 15 % of |battery| plus 10 W as inverter loss in the demand it reports, so the
-  defaults are 0.15 and 10 W. A correction without a loss term wants `--loss-share 0 --loss-w 0`. That the
-  10 W stops at a battery of exactly 0 is the bench's assumption; how the template gates it is not in this repo.
+  defaults are 0.15 and 10 W. A correction without a loss term wants `--loss-share 0 --loss-w 0`. The
+  template adds the fixed 10 W ungated, at an idle battery too (read on the site's host, 2026-10-22).
 - Solar: the step's `solar_w` when logged. Older logs: west `pv * -10` when at least 95 W, else 0, plus the
   last numeric state of the entity ending in `--solar-entity` (a non-numeric state counts 0). That entity is
   installation specific, so there is no default: without one, older logs see west solar only.
@@ -226,7 +226,5 @@ Overlapping windows count twice there. One plant serves all variants: `--plant`,
 
 - Whether a noise model taken from `model_error` residuals would bring replay costs near live: unknown.
 - The policy caps and floor in force per sample: not logged, unknown.
-- How the correction source gates its fixed 10 W loss at a near idle battery: unknown; the bench takes it as
-  any non-zero reading.
 - What starts the inverter's slow ramp, and its refusal SOC: unknown, so `ramp_w_s` starts only from idle
   and `refuse_soc` is set by hand.

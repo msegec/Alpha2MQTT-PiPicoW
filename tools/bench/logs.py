@@ -18,7 +18,7 @@ import sys
 from dataclasses import dataclass
 
 # Battery loss in the logged grid estimate: a correction source that models inverter loss charges this share of
-# |battery| plus a fixed term while the battery reads non-zero. demand takes it off; a replay adds it back. A source
+# |battery| plus a fixed term at every reading, 0 W included. demand takes it off; a replay adds it back. A source
 # without a loss term wants --loss-share 0 --loss-w 0. See facts/bench.md.
 LOSS_SHARE = 0.15
 LOSS_W = 10.0
@@ -31,12 +31,12 @@ CAPPED_W = 30.0  # request this far from output: a limit holds the output
 
 @dataclass(frozen=True)
 class Loss:
-    """Battery loss in W at a battery reading: share x |battery| plus fixed_w, 0 at a battery of exactly 0."""
+    """Battery loss in W at a battery reading: share x |battery| plus fixed_w, also at 0 W."""
     share: float = LOSS_SHARE
     fixed_w: float = LOSS_W
 
     def __call__(self, battery_w: float) -> float:
-        return self.share * abs(battery_w) + (self.fixed_w if battery_w else 0.0)
+        return self.share * abs(battery_w) + self.fixed_w
 
 
 def loss_from_args(a) -> Loss:
@@ -128,7 +128,7 @@ def add_window_args(p: argparse.ArgumentParser) -> None:
 
 def add_loss_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--loss-share", type=float, default=LOSS_SHARE, help="loss in the grid estimate, share of |battery|")
-    p.add_argument("--loss-w", type=float, default=LOSS_W, help="loss in the grid estimate, fixed W while non-zero")
+    p.add_argument("--loss-w", type=float, default=LOSS_W, help="loss in the grid estimate, fixed W at every reading")
 
 
 def is_set_topic(topic: str) -> str | None:
