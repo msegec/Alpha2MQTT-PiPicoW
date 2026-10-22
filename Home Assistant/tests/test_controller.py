@@ -954,6 +954,63 @@ def test_the_limit_shows_the_caps_the_direction_and_the_refusal_clock(monkeypatc
     assert (limit["refused_soc"], limit["refusal_since"], limit["hi"]) == (22.0, None, 0)
 
 
+def gated_sensor(monkeypatch, power, attributes=None):
+    """A sensor on a value the test sets, its writes counted, on a clock the test sets."""
+    clock, value = [0.0], [None]
+    monkeypatch.setattr(S.time, "monotonic", lambda: clock[0])
+    sensor = S.ControllerSensor(MagicMock(runtime_data=C.Controller(MagicMock(), {}, "entry")), "x", "X", power,
+                                lambda c: value[0], attributes)
+    sensor.async_write_ha_state = MagicMock()
+
+    def write(v, at):
+        clock[0], value[0] = at, v
+        sensor._update()
+        return sensor.async_write_ha_state.call_count
+    return write
+
+
+def test_a_power_sensor_writes_on_a_25_w_move_or_after_10_s(monkeypatch):
+    write = gated_sensor(monkeypatch, power=True)
+    assert write(100, 0) == 1
+    assert write(100 + S.MOVE_W - 1, 1) == 1  # a small move soon after: no write
+    assert write(100 + S.MOVE_W, 2) == 2
+    assert write(126, 2 + S.EVERY_S - 0.1) == 2
+    assert write(126, 2 + S.EVERY_S) == 3  # the same value once EVERY_S is up
+    assert write(None, 13) == 4  # unknown always writes
+
+
+def test_a_sensor_without_attributes_writes_on_change_and_one_with_them_on_every_update(monkeypatch):
+    write = gated_sensor(monkeypatch, power=False)
+    assert [write("regulating", t) for t in (0, 20, 40)] == [1, 1, 1]
+    assert write("stale", 41) == 2
+    write = gated_sensor(monkeypatch, power=False, attributes=lambda c: {"a": 1})
+    assert [write("regulating", t) for t in (0, 1)] == [1, 2]  # Home Assistant drops an unchanged write
+
+
+def test_commands_in_the_last_hour_counts_publishes_in_a_sliding_hour(monkeypatch):
+    t = [0.0]
+    monkeypatch.setattr(C.time, "monotonic", lambda: t[0])
+    c = C.Controller(MagicMock(), {}, "entry")
+    for t[0] in (0.0, 1000.0, 3000.0):
+        seqs_published(c, 1)
+    assert c.commands_last_hour == 3
+    t[0] = 3600.5
+    assert c.commands_last_hour == 2
+    t[0] = 6600.5
+    assert c.commands_last_hour == 0
+
+
+def test_the_ack_says_how_long_the_firmware_took_to_answer(monkeypatch):
+    t = [10.0]
+    monkeypatch.setattr(C.time, "monotonic", lambda: t[0])
+    c = sent_controller()
+    t[0] = 10.25
+    respond(c, c.last_seq, "setDishargeSuccess")
+    assert c.ack["ack_after_ms"] == 250 and c.ack["ack_seq"] == c.last_seq
+    respond(c, 0, "setDishargeSuccess")  # a seq this controller did not just send
+    assert c.ack["ack_after_ms"] is None
+
+
 # Edge cases.
 
 def caps_house(monkeypatch):

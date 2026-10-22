@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set, policy, clamp and setup tests and the grid scale bound, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 343 passed.
+Last verified: d80bfb1 plus seqs seeded from the clock, exact success statuses, safety path tests, a failure set, policy, clamp, setup and sensor tests and the grid scale bound, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 347 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -357,6 +357,9 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_turn_through_0_w_*`, `test_a_refusal_near_the_floor_*` | `cross`, `refused`, `rearmed` records |
 | `test_a_fast_step_response_*`, `test_a_9_w_per_s_step_response_is_counted_slow` | response timing and slow count |
 | `test_the_status_says_*`, `test_the_output_shows_*`, `test_the_limit_shows_*` | diagnosis attributes, wall times worked out once |
+| `test_a_power_sensor_writes_on_a_25_w_move_or_after_10_s`, `test_a_sensor_without_attributes_writes_on_change_and_one_with_them_on_every_update` | sensor write gate `MOVE_W`, `EVERY_S`, change only, attributes always |
+| `test_commands_in_the_last_hour_counts_publishes_in_a_sliding_hour` | `commands_last_hour` prunes past 3600 s |
+| `test_the_ack_says_how_long_the_firmware_took_to_answer` | `ack_after_ms` from the newest publish, None for another seq |
 
 ## Gotchas
 
