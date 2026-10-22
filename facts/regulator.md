@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d80bfb1 plus the authority clip, the `load_trim` slope check, the learning gate tests and correction-only updates, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 319 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the regulator fixes up to the send gap comments, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 319 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -108,7 +108,7 @@ former constants are `Settings` fields since this round.
 | `smoothing_s` | 0.0 s | Low pass on the request. 0 is off. |
 | `slew_w_per_s` | 2000 W/s | Max move from the last sent command, times the time since it was sent. |
 | `write_threshold_w` | 50 W | Minimum move to send, outside the other send reasons. |
-| `min_interval_s` | 3.0 s | Minimum gap between commands, unless an early send applies. |
+| `min_interval_s` | 3.0 s | Minimum gap between commands, unless an early send applies. Sized for five-write blocks (about 1.8 s); one frame takes about 50 ms, but the five-write fallback still runs on a failed or latched frame (`firmware-dispatch.md`). |
 | `keepalive_s` | 40 s | Resend at least this often. |
 | `duration_s` | 120 s | Dispatch lease in every command. |
 | `flip_hysteresis_w` | 150 W | Margin to turn charge/discharge round. |
@@ -130,7 +130,7 @@ former constants are `Settings` fields since this round.
 | `trim_band_w` | 50 W | Raw grid error (before the deadband) within this to learn. |
 | `trim_min_w` | 50 W | Setpoints under this teach nothing. |
 | `trim_max_soc` | 97 % | SOC at or over this teaches nothing (BMS taper). |
-| `min_send_gap_s` | 2.0 s | Earliest early send after a block write ack. |
+| `min_send_gap_s` | 2.0 s | Earliest early send after a block write ack. Sized for the five-write block, which is still the fallback path. |
 | `max_integrate_s` | 10.0 s | Cap on `dt` per integration, so a sample gap does not wind the integral. |
 | `floor_margin_soc` | 1.5 % | Discharge cap is 0 W when SOC <= `discharge_soc + 1.5`. The inverter cuts about 1 % above its floor. |
 | `lag_w` | 100 W | Battery this far short of the last setpoint has not arrived: integral waits. |
@@ -268,12 +268,10 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 - `error_w` in HOLD/FIXED is `grid_w - target_w`, without the offset.
 - `fresh=False` samples still update `grid_w`, `battery_w`, `_t_measure` and the integral, but not the solar step or the spike flag.
 - Bumpless start does not reset `_t_direction`, so on a new regulator the dwell has already passed.
-- The comment in `test_a_refused_discharge_is_held_at_zero` says "over 200 W"; the code uses `refused_ask_w = 100` since 75e08a8.
-- `min_send_gap_s` comment cites the five-write firmware (about 1.8 s). The one-frame write (9452d4a) is about 50 ms; the default was not changed.
 
 ## Open questions
 
 - Whether the turn round hold leaving the integral running is intended: unknown.
 - Whether `_t_refused` surviving `_restart` is intended: unknown.
 - The deployed `Settings` values: unknown from this component. `LIVE` in the tests is the only record read.
-- Whether `min_send_gap_s` should drop with one-frame block writes: unknown.
+- Whether `min_send_gap_s` and `min_interval_s` should drop with one-frame block writes: unknown. They still guard the five-write fallback.

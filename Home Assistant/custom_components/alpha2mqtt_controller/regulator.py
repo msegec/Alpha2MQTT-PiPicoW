@@ -74,7 +74,9 @@ class Settings:
     smoothing_s: float = 0.0  # low pass on the request, 0 chases every load step
     slew_w_per_s: float = 2000.0
     write_threshold_w: float = 50.0
-    min_interval_s: float = 3.0  # sized for five-write firmware (about 2 s a command); an acked import cut goes sooner
+    # Minimum gap between commands; an acked import cut goes sooner. Sized when every block took five writes, about
+    # 1.8 s. A block is now one frame of about 50 ms, but a failed or latched frame still falls back to the five.
+    min_interval_s: float = 3.0
     keepalive_s: float = 40.0
     duration_s: int = 120  # dispatch lease, the inverter returns to normal after it
     flip_hysteresis_w: float = 150.0
@@ -139,8 +141,9 @@ class Settings:
     # refusal (on 19 Oct, 2 h of it at 12.8 %). It holds until the SOC rises rearm_soc or the policy SOC changes.
     refused_near_soc: float = 3.0
     rearm_soc: float = 1.0
-    # Firmware before the one frame block write (about 50 ms) takes about 1.8 s per dispatch, five writes. Closer
-    # than this, a command queues behind the last one's writes, so even an acked command waits this long.
+    # Even an acked block write waits this long before an early send. Sized for five single writes, about 1.8 s a
+    # block: closer, a command queues behind the last one's writes. The one frame write takes about 50 ms, but the
+    # firmware falls back to the five on any frame failure, and for good once a refused frame latches.
     min_send_gap_s: float = 2.0
     # Samples come every second, or every 10 s from older firmware. A longer gap would wind the integral on
     # an error nobody measured.
