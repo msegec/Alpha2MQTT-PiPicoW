@@ -1316,6 +1316,16 @@ def test_the_response_timeout_is_a_setting(monkeypatch):
     c.regulator.fail.assert_called_once()
 
 
+def test_the_command_reply_timeout_is_not_named_like_the_step_response_timeout():
+    # A rename changes the shown name only: the unique id, and with it the entity id and its history, stays.
+    entry = MagicMock(entry_id="entry", runtime_data=C.Controller(MagicMock(), {}, "entry"))
+    names = {n[0]: N.TuningNumber(entry, *n) for n in N.NUMBERS}
+    assert names["ack_timeout_s"]._attr_name == "Command reply timeout"
+    assert names["ack_timeout_s"]._attr_unique_id == "entry_ack_timeout_s"
+    assert names["response_timeout_s"]._attr_name == "Step response timeout"
+    assert len({n._attr_name.lower() for n in names.values()}) == len(names)
+
+
 def test_the_correction_match_wait_is_a_setting(monkeypatch):
     house = House(monkeypatch)
     house.c.set_setting("match_wait_s", 1.5)

@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 356 passed.
+Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 357 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -249,11 +249,16 @@ entity's only attribute, `group`, so a dashboard can build its sections from the
 | default_max_w | Default cap | 0..5000 W, 50 | Safety | controller only |
 | max_plausible_w | Plausible limit | 1000..30000 W, 500 | Safety | controller only |
 | correction_max_age_s | Correction max age | 5..300 s, 5 | Safety | controller only |
-| ack_timeout_s | Response timeout | 2..60 s, 1 | Safety | controller only |
+| ack_timeout_s | Command reply timeout | 2..60 s, 1 | Safety | controller only; named "Response timeout" before fix/controller |
 | match_wait_s | Correction match wait | 0..2 s, 0.1 | Advanced | controller only |
 | response_step_w | Step response minimum | 100..3000 W, 50 | Advanced | response monitor only |
 | response_slow_s | Step response target | 1..30 s, 0.5 | Advanced | response monitor only |
 | response_timeout_s | Step response timeout | 5..120 s, 1 | Advanced | response monitor only |
+
+Display names change without touching entities: the unique id is `{entry_id}_{key}`, so an existing install keeps
+its entity id and history, and only a new install takes an entity id from the new name. "Trim" in `small_trim_*` and
+`import_trim_gap_s` means a small command move, and in `trim_*` the learned offset table; only the keys clash, which
+cannot change without new unique ids, and the learned table's display names say "offset" instead.
 
 The last eight are `Settings` fields the regulator never reads: the controller and `ResponseMonitor` read them from
 `regulator.settings`, so every limit has one owner and goes in the `cfg` record.
@@ -362,6 +367,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_response_that_is_json_but_not_an_object_is_ignored` | response shape |
 | `test_west_from_the_10_s_fallback_gives_no_solar_step` | `west_fallback` |
 | `test_a_whole_number_setting_stays_a_whole_number` | int settings stay int, duration published without a `.` |
+| `test_the_command_reply_timeout_is_not_named_like_the_step_response_timeout` | `ack_timeout_s` display name, same unique id; number names unique |
 | `test_the_controller_limits_are_settings_*`, `test_the_default_cap_*`, `test_the_plausible_limit_*`, `test_the_correction_max_age_*`, `test_the_response_timeout_*`, `test_the_correction_match_wait_*` | controller limits as settings |
 | `test_a_setting_change_updates_the_sensors_at_once` | `set_setting` notifies |
 | `test_a_tuning_change_logs_every_setting`, `test_the_ready_floor_can_be_set_down_to_10_w`, `test_every_number_names_its_section_as_an_attribute`, `test_every_setting_has_one_entity_whose_range_holds_its_default` | numbers and their group; every `Settings` field has exactly one number or switch, and each default is inside its range |
