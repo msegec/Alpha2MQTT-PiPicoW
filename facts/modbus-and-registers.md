@@ -1,6 +1,6 @@
 Modbus RTU transport, frame checks and the AlphaESS register map as the firmware reads and writes them.
 
-Last verified: 2026-10-22 on fix/firmware, date format in `Registers.h`. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. `tests/firmware/run` passed all eight suites (`test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer` each print `OK`, exit 0).
+Last verified: 2026-10-22 on fix/firmware, date format in `Registers.h`, slave id resync capped. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. `tests/firmware/run` passed all eight suites (`test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer` each print `OK`, exit 0).
 
 ## Files
 
@@ -61,7 +61,7 @@ Vendor spec (PDF in `Pics/`, section 2.2): response time under 300 ms, command i
 | `slaveError` | Good CRC, code not 0x03/0x06/0x10, matches request |
 | `noResponse` | Nothing arrived within 400 ms |
 | `responseTooShort` | Fewer than 5 bytes |
-| `invalidFrame` | Bad CRC, or byte count would overrun the 63 byte buffer |
+| `invalidFrame` | Bad CRC, byte count would overrun the 63 byte buffer, or `RS485_RESYNC_MAX_BYTES` (64) bytes came without the slave id |
 | `unexpectedResponse` | Good CRC but reply answers another request (twice in a row) |
 | `notHandledRegister` | `findRegister` has no descriptor for the address; nothing is sent |
 | `unconfirmedZero` | PV meter returned 0 right after a reading 10 W or more from 0 |
@@ -163,6 +163,7 @@ Supporting registers (ten second, one minute or on request; not in the fast loop
 - The PV meter (0x00A1) now and then returns a CRC valid frame of exactly 0 for one read while generating. A 0 right after a reading 10 W or more from 0 fails as `unconfirmedZero` (672066a, `PvMeter.h`).
 - Late replies: a grid reply landed after the next read's flush and passed as the battery reading. Fixed by `replyMatchesRequest`, the second listen and the quiet drain (9268ba4).
 - A corrupt byte count could overrun the 63 byte buffers; now `invalidFrame` (95f3733).
+- Before 2026-10-22, `listenResponse` skipped bytes that were not the slave id with no limit, so a line that never went quiet held the loop until the watchdog. It now gives up after `RS485_RESYNC_MAX_BYTES` as `invalidFrame`.
 - A standard 5 byte exception used to time out and fail CRC as `invalidFrame` (f5de99e).
 - Spec scales the firmware overrides, from author readings: grid voltage x 0.1 not 1 V, cell voltage x 0.01 not 0.001, inverter temperature x 0.01 not 0.1, total energy x 0.01 not 0.1 kWh (`Definitions.h` multiplier comments).
 - PV string powers were wrongly scaled by 0.1 before 48591d3 (2022).

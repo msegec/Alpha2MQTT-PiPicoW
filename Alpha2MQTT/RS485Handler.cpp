@@ -210,6 +210,7 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 	bool timedOut = false;
 	bool tooLong = false;
 	bool breakOut = false;
+	uint8_t skipped = 0;
 
 	modbusRequestAndResponseStatusValues result = modbusRequestAndResponseStatusValues::preProcessing;
 
@@ -243,10 +244,17 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 			snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Slave ID: %d", inFrame[FRAME_POSITION_SLAVE_ID]);
 			Serial.println(_debugOutput);
 #endif
-			// First byte is Slave ID.  If not a match (unlikely) try again on the next byte.
-			if (inFrame[FRAME_POSITION_SLAVE_ID] != ALPHA_SLAVE_ID)   
+			// First byte is Slave ID.  If not a match (unlikely) try again on the next byte, up to a frame's worth,
+			// so a line of noise that never goes quiet cannot hold the loop until the watchdog fires.
+			if (inFrame[FRAME_POSITION_SLAVE_ID] != ALPHA_SLAVE_ID)
 			{
 				gotSlaveID = false;
+				if (++skipped >= RS485_RESYNC_MAX_BYTES)
+				{
+					tooLong = true;
+					breakOut = true;
+					break;
+				}
 				inByteNumZeroIndexed--;
 			}
 			break;

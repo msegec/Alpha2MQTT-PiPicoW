@@ -28,6 +28,7 @@ Handles Modbus requests and responses in a tidy class separate from main program
 #define DEFAULT_BAUD_RATE 9600				// Just a default, Alpha2MQTT will cycle baud rates until one is found
 #define RS485_QUIET_MS 10					// A gap this long after a failed exchange means the line is clear
 #define RS485_DRAIN_MAX_MS 150				// About one 63 byte frame at 4800 baud
+#define RS485_RESYNC_MAX_BYTES 64			// Bytes skipped looking for the slave id before the reply counts as an invalid frame
 
 #define SERIAL_COMMUNICATION_CONTROL_PIN 2	// GP2, transmission set pin
 #define RX_PIN 1							// GP1, UART0 RX
