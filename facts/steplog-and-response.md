@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 357 passed.
+Last verified: master 7a4a5cc, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 381 passed.
 
 ## Files
 
@@ -150,7 +150,7 @@ Sensors: `step_response` state is `last_response["t80_s"]` (null after a timeout
 - Controller: a fast plant leaves `slow_responses_today == 0`; a 9 W/s plant counts 1.
 - The three limits are settings with the old values, and the monitor reads them (`test_the_monitor_*`).
 
-Test run, from the repo root: `python3 -m pytest "Home Assistant/tests/test_steplog.py" "Home Assistant/tests/test_response.py" -q` gave 20 passed. `test_controller.py -k "log or resp or slow"` gave 26 passed.
+Test run, from the repo root: `python3 -m pytest "Home Assistant/tests/test_steplog.py" "Home Assistant/tests/test_response.py" -q` gave 20 passed. `test_controller.py -k "log or resp or slow"` gave 28 passed.
 
 ## Gotchas
 

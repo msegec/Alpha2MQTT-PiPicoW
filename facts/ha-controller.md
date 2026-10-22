@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 357 passed.
+Last verified: master 7a4a5cc, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 381 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -268,8 +268,8 @@ regulator never reads: the controller and `ResponseMonitor` read them from
 `regulator.settings`, so every limit has one owner and goes in the `cfg` record.
 
 `set_setting` keeps a field whose current value is an int (`duration_s`, `full_register`, `command_step_w`) an int,
-rounding what Home Assistant gives, and a bool a bool: the firmware strips a `.` from a value, so a lease of `120.0`
-would arrive as 1200 s. A change of `trim_limit_w` reloads the learned table through `load_trim`, which clips it
+rounding what Home Assistant gives, and a bool a bool, so a lease shows and logs as 120, not 120.0. The publish casts
+to int as well (line above on charge/discharge). A change of `trim_limit_w` reloads the learned table through `load_trim`, which clips it
 to the new limit. Every call logs `cfg` and notifies the sensors, so a change shows at once, not on the next tick
 up to 1 s later.
 
@@ -339,6 +339,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_failed_write_of_the_newest_command_is_retried` | refusal of newest calls fail, older does not |
 | `test_a_command_with_no_response_is_sent_again_in_full`, `test_a_command_with_a_response_is_not_timed_out` | 10 s ack timeout only after seq echo, once |
 | `test_a_command_superseded_before_its_publish_is_dropped` | superseded publish dropped |
+| `test_every_command_number_goes_out_whole` | watts, socPercent and duration publish as int, never `120.0` |
 | `test_a_failed_publish_is_sent_again_in_full_and_logged_once` | publish exception: nothing recorded as sent, resent after the gap, one error, "works again" on recovery |
 | `test_a_step_and_a_publish_failing_together_are_each_logged_once` | `_failing` holds each kind apart |
 | `test_a_step_that_raises_hands_the_inverter_back_and_is_logged_once` | step exception: release published, status `released`, one error, regulating again after |

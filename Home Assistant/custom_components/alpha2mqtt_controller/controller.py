@@ -306,8 +306,8 @@ class Controller:
         self._notify()
 
     def set_setting(self, key: str, value: float) -> None:
-        """Home Assistant gives a number as a float. A whole number setting stays an int: the firmware strips a "."
-        from a value, so a duration of 120.0 would be 1200."""
+        """Home Assistant gives a number as a float. A whole number setting stays an int, so a duration shows and
+        logs as 120, not 120.0. The publish casts to int as well: the firmware refuses a value with a point."""
         current = getattr(self.regulator.settings, key)
         if isinstance(current, bool):
             value = bool(value)
