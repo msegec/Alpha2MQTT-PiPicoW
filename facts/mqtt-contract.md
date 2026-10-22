@@ -112,8 +112,9 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 - Inverter Power maps 32768..65535 to negative: the inverter fills only the low word of 0x0406 with a
   signed 16-bit value (62511 read while charging 3025 W; inferred from values, not seen on the wire).
 - Battery SOH reads 0 on the SMILE-B3 always, so 0 becomes unknown.
-- PV Meter Power and PV Meter Power Fast keep `this.state` when the key is missing,
-  for at most 60 s and 10 s. Reason in the comment and in 70fe0e2: an unavailable PV meter takes the net demand,
+- PV Meter Power, PV Meter Power Fast and Solar Power keep `this.state` when the key is missing,
+  for at most 60 s, 10 s and 60 s. Solar Power (`REG_CUSTOM_TOTAL_SOLAR_POWER`) includes the PV meter and fails
+  with it on `unconfirmedZero`. Reason in the comment and in 70fe0e2: an unavailable PV meter takes the net demand,
   and with it the controller, down. The window counts from the gap's first message, kept in the `held_since`
   attribute by a `json_attributes_template` on the same topic; a message with the key sets it to null. Until
   2026-10-22 it counted from `this.last_changed`, so a value steady for longer than the window got no hold.

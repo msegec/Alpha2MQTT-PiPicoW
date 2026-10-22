@@ -249,7 +249,19 @@ mqtt:
     - name: "Solar Power"
       unique_id: alpha2mqtt_custom_total_solar_power
       state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_CUSTOM_TOTAL_SOLAR_POWER | default(None) }}"
+      # Includes the PV meter, so it drops out with the PV meter's lone 0: the same hold as PV Meter Power.
+      value_template: >-
+        {%- set k = 'REG_CUSTOM_TOTAL_SOLAR_POWER' -%}
+        {%- set since = this.attributes.held_since | default(None) -%}
+        {%- if value_json is mapping and k in value_json -%}{{ value_json[k] }}
+        {%- elif this.state not in ('unknown', 'unavailable') and (since is none or now() - as_datetime(since) < timedelta(seconds=60)) -%}{{ this.state }}
+        {%- else -%}None{%- endif -%}
+      json_attributes_topic: "Alpha2MQTT/state/second/ten"
+      json_attributes_template: >-
+        {%- set k = 'REG_CUSTOM_TOTAL_SOLAR_POWER' -%}
+        {%- if value_json is mapping and k in value_json -%}{{ {'held_since': none} | tojson }}
+        {%- else -%}{{ {'held_since': this.attributes.held_since | default(none) or now().isoformat()} | tojson }}
+        {%- endif -%}
       unit_of_measurement: "W"
       device_class: power
       state_class: measurement
