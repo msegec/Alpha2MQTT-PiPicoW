@@ -295,6 +295,16 @@ def test_an_import_from_yaml_updates_the_entry_for_its_base_topic():
     flow._abort_if_unique_id_configured.assert_called_once_with(updates=data)
 
 
+@pytest.mark.parametrize("key, attributes", [
+    ("policy_entity", ["charge", "discharge", "hold", "normal", "soc_target", "grid_offset", "fixed", "watts", "both",
+                       "other_soc"]),
+    ("correction_entity", ["seq", "west", "east", "age_s", "west_fallback"])])
+def test_the_form_names_every_state_and_attribute_the_controller_reads(key, attributes):
+    strings = json.loads((Path(C.__file__).parent / "translations" / "en.json").read_text())
+    for label in (strings["config"]["step"]["user"]["data"][key], strings["options"]["step"]["init"]["data"][key]):
+        assert [a for a in attributes if a not in label] == [], label
+
+
 def test_yaml_starts_an_import_and_no_yaml_starts_nothing():
     hass = MagicMock()
     assert asyncio.run(I.async_setup(hass, {})) is True
