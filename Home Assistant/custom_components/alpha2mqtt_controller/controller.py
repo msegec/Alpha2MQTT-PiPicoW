@@ -286,12 +286,15 @@ class Controller:
         return {"points": self.regulator.trim_points()}
 
     def _trim_moved(self) -> None:
-        """Saves the table TRIM_SAVE_S after learning moved it, and logs it at most that often."""
+        """Saves the table TRIM_SAVE_S after learning moved it, and logs it at most that often. Home Assistant
+        moves a pending delayed save later on each call, so a move with a save pending leaves it alone: the
+        write reads the table then, newest moves included."""
         if self.regulator.trim_moves == self._trim_moves:
             return
         self._trim_moves = self.regulator.trim_moves
-        self._trim_unsaved = True
-        self._store.async_delay_save(self._trim_data, TRIM_SAVE_S)
+        if not self._trim_unsaved:
+            self._trim_unsaved = True
+            self._store.async_delay_save(self._trim_data, TRIM_SAVE_S)
         now = time.monotonic()
         if now - self._t_trim_log >= TRIM_SAVE_S:
             self._t_trim_log = now

@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: master 7a4a5cc, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 381 passed.
+Last verified: master 5cff46a plus the trim save fix, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 382 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -186,7 +186,9 @@ Button `Forget learned offsets` (`ForgetTrimButton`, `{entry_id}_forget_trim`, a
 zeroes the regulator's learned table, saves it at once and logs `trim` with `forgot: true`.
 
 Learned table persistence: after each `update_grid` in `_measure`, `_trim_moved` compares `regulator.trim_moves` with the
-last seen count. On a move it schedules `Store.async_delay_save` `TRIM_SAVE_S` (60 s) later and logs `trim` at most once
+last seen count. On a move with no save pending it schedules `Store.async_delay_save` `TRIM_SAVE_S` (60 s) later; Home Assistant
+moves a pending delayed save later on every call, so a call per move never saved while learning ran (until
+2026-10-22). The write reads the table then, newest moves included. It logs `trim` at most once
 per `TRIM_SAVE_S`, so the log can trail the table by up to 60 s. Saved data: `{"points": regulator.trim_points()}`.
 
 Switch `Enabled` (`{entry_id}_enabled`): off by default. Restores `on` after restart via `RestoreEntity`.
@@ -339,6 +341,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_failed_write_of_the_newest_command_is_retried` | refusal of newest calls fail, older does not |
 | `test_a_command_with_no_response_is_sent_again_in_full`, `test_a_command_with_a_response_is_not_timed_out` | 10 s ack timeout only after seq echo, once |
 | `test_a_command_superseded_before_its_publish_is_dropped` | superseded publish dropped |
+| `test_learning_every_second_still_saves_once_a_minute` | a move with a save pending schedules no new one |
 | `test_every_command_number_goes_out_whole` | watts, socPercent and duration publish as int, never `120.0` |
 | `test_a_failed_publish_is_sent_again_in_full_and_logged_once` | publish exception: nothing recorded as sent, resent after the gap, one error, "works again" on recovery |
 | `test_a_step_and_a_publish_failing_together_are_each_logged_once` | `_failing` holds each kind apart |

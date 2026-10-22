@@ -851,6 +851,22 @@ def test_a_moved_table_is_saved_later_and_logged_at_most_once_a_minute(monkeypat
     assert len(house.log.kind("trim")) == 2 and house.log.kind("trim")[-1]["points"] == learned(house.c)
 
 
+def test_learning_every_second_still_saves_once_a_minute(monkeypatch):
+    # Home Assistant moves a pending delayed save later on each call, so a call per move would never save
+    # while learning goes on. A move with a save pending must leave it alone.
+    house = logged_house(monkeypatch)
+    calls = []
+    house.c._store.async_delay_save = lambda func, delay: calls.append(func)
+    for _ in range(30):
+        house.c.regulator.trim_moves += 1
+        house.second()
+    assert len(calls) == 1
+    calls[0]()  # the write runs
+    house.c.regulator.trim_moves += 1
+    house.second()
+    assert len(calls) == 2
+
+
 def test_a_stop_saves_a_table_still_waiting_to_be_saved(monkeypatch):
     house = logged_house(monkeypatch)
     house.c.regulator.trim = [y for _, y in learned(house.c)]
