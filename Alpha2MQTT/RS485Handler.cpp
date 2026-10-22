@@ -23,9 +23,6 @@ RS485Handler::RS485Handler()
 	// Configure the pin for controlling TX/RX (if using MAX485 with DE/RE pins)
 	pinMode(SERIAL_COMMUNICATION_CONTROL_PIN, OUTPUT);
 
-	// Set pin 'LOW' for 'Receive' mode
-	//digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_RX);
-
 	_RS485Serial = &Serial1; // UART0 is a core-owned global, so it is borrowed, not allocated
 	_RS485Serial->setRX(RX_PIN);
 	_RS485Serial->setTX(TX_PIN);
@@ -78,9 +75,6 @@ void RS485Handler::flushRS485()
 {
 	_RS485Serial->flush();
 	
-	// Not sure the delay needed.
-	//delay(50);
-
 	while (_RS485Serial->available())
 	{
 		_RS485Serial->read();
@@ -297,9 +291,6 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 				// If a write success, we know expected bytes 
 				if (resp->functionCode == MODBUS_FN_WRITEDATAREGISTER || resp->functionCode == MODBUS_FN_WRITESINGLEREGISTER)
 				{
-#ifdef DEBUG_LEVEL2
-					//Serial.println("Write Success");
-#endif
 					// In case of single register, high byte address (1), low byte address (1), high byte of data (1), low byte of data (1), (2)*crc
 					// In case of data register, high byte address (1), low byte address (1), high byte of reg count (1), low byte of reg count (1), (2)*crc
 					inExpectedTotalBytesZeroIndexed = MAX_FRAME_SIZE_RESPONSE_WRITE_SUCCESS_ZERO_INDEXED;
@@ -307,9 +298,6 @@ modbusRequestAndResponseStatusValues RS485Handler::listenResponse(const uint8_t 
 				}
 				else
 				{
-#ifdef DEBUG_LEVEL2
-					//Serial.println("Read Success");
-#endif
 					// Success Read
 					// Get the next byte here so we know expected length
 					timedOut = !checkForData();

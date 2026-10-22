@@ -86,9 +86,6 @@ inline void feedWatchdog()
 }
 
 
-//#if (!defined INVERTER_SMILE_B3) && (!defined INVERTER_SMILE5) && (!defined INVERTER_SMILE_T10) && (!defined INVERTER_STORION_T30)
-//#error You must specify the inverter type.
-//#endif
 
 
 
@@ -933,7 +930,6 @@ enum modbusRequestAndResponseStatusValues
 // appropriately, for example typecasting and cleansing.
 struct modbusRequestAndResponse
 {
-	//uint8_t errorLevel;
 	uint8_t data[MAX_FRAME_SIZE_ZERO_INDEXED] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 	uint8_t dataSize = 0;
 	uint8_t functionCode = 0;

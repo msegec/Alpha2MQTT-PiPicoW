@@ -44,7 +44,6 @@ int _maxPayloadSize;
 
 
 // I want to declare this once at a modular level, keep the heap somewhere in check.
-//char _mqttPayload[MAX_MQTT_PAYLOAD_SIZE] = "";
 char* _mqttPayload;
 
 // Incoming commands are handled between the reads of a schedule, while _mqttPayload holds
