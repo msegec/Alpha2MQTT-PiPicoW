@@ -164,6 +164,34 @@ def test_correction_updates_do_not_count_as_fresh():
     assert reg.status == "stale"
 
 
+def test_a_correction_update_neither_confirms_nor_starts_a_spike():
+    reg = make(spike_confirm_w=500, min_interval_s=0)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(1, 1220, 500)  # a 1200 W jump: held for the next sample
+    assert reg.step(1, DISCHARGE) is None and reg.limit == "spike"
+    reg.update_grid(1.5, 1220, 500, fresh=False)  # the same sample with a new correction is not the next sample
+    assert reg.step(1.5, DISCHARGE) is None and reg.limit == "spike"
+    reg = make(spike_confirm_w=500, min_interval_s=0)
+    reg.update_grid(0, 20, 500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(0.5, 1220, 500, fresh=False)
+    reg.step(0.5, DISCHARGE)
+    assert reg.limit != "spike"
+
+
+def test_a_correction_update_keeps_the_samples_solar_step():
+    reg = make(kff=1.0, ki=0, min_interval_s=0)
+    reg.update_grid(0, 20, 500, solar_w=500)
+    reg.step(0, DISCHARGE)
+    reg.update_grid(0.5, 20, 500, fresh=False, solar_w=800)
+    reg.step(0.5, DISCHARGE)
+    assert reg.ff_w == 0  # no new sample, no new solar step
+    reg.update_grid(1, 20, 500, solar_w=800)
+    reg.step(1, DISCHARGE)
+    assert reg.ff_w == -300  # the change between samples
+
+
 def test_a_gap_in_samples_integrates_a_few_seconds_at_most():
     # The error before a gap is not the error through it.
     reg = make(ki=0.05, deadband_w=0, target_w=0)

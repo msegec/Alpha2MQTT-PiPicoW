@@ -394,17 +394,20 @@ class Regulator:
         if solar_w is not None and not math.isfinite(solar_w):
             solar_w = None
         s = self.settings
-        recent = self._t_measure is not None and t - self._t_measure <= s.solar_max_gap_s
-        change = solar_w - self.solar_w if recent and solar_w is not None and self.solar_w is not None else 0.0
-        floor_w = s.solar_ff_min_w
-        if floor_w > 0 and (solar_w is None or self.solar_w is None or min(solar_w, self.solar_w) < floor_w):
-            change = 0.0
-        self._solar_step = change if abs(change) > s.solar_deadband_w else 0.0
-        self.solar_w = solar_w
-        demand = grid_w + battery_w
-        self._spike = (s.spike_confirm_w > 0 and not self._spike and self._demand is not None
-                       and abs(demand - self._demand) > s.spike_confirm_w)
-        self._demand = demand
+        if fresh:
+            # Solar step and spike compare samples. A correction update is the same sample: it keeps both, so it
+            # cannot start, confirm or end a spike, nor feed forward a solar change twice.
+            recent = self._t_fresh is not None and t - self._t_fresh <= s.solar_max_gap_s
+            change = solar_w - self.solar_w if recent and solar_w is not None and self.solar_w is not None else 0.0
+            floor_w = s.solar_ff_min_w
+            if floor_w > 0 and (solar_w is None or self.solar_w is None or min(solar_w, self.solar_w) < floor_w):
+                change = 0.0
+            self._solar_step = change if abs(change) > s.solar_deadband_w else 0.0
+            self.solar_w = solar_w
+            demand = grid_w + battery_w
+            self._spike = (s.spike_confirm_w > 0 and not self._spike and self._demand is not None
+                           and abs(demand - self._demand) > s.spike_confirm_w)
+            self._demand = demand
         e = self._error(grid_w)
         if s.arrive_restart_w > 0 and _sign(self._sent_w) * (battery_w - self._arrive_w) >= s.arrive_restart_w:
             self._t_arrive, self._arrive_w = t, battery_w  # still closing: lag, not an offset

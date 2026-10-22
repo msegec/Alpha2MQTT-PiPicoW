@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d80bfb1 plus the authority clip, the `load_trim` slope check and the learning gate tests, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 317 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the authority clip, the `load_trim` slope check, the learning gate tests and correction-only updates, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 319 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -24,7 +24,7 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 | `Policy` (frozen) | `mode`, `max_charge_w`, `max_discharge_w`, `charge_soc` (100), `discharge_soc` (10), `fixed_w`, `target_offset_w`, `reason` | What is allowed. The regulator only clamps to it. |
 | `Settings` (mutable) | tuning, table below | The controller changes fields live with `setattr`. |
 | `Command` (frozen) | `kind` ("charge", "discharge", "normal"), `watts`, `soc`, `duration`, `power_only` | What to publish. |
-| `Regulator.update_grid(t, grid_w, battery_w, fresh=True, soc=None, solar_w=None)` | one sample | Runs the integral, stores the sample. Ignores the call if grid or battery is not finite. Keeps the last SOC when `soc` is None. Stores the solar change since the last call as the feed forward step: 0 unless both are known and finite, the last call is at most `solar_max_gap_s` old and the change is over `solar_deadband_w`, and, with `solar_ff_min_w` above 0, both readings are at least that. `fresh=False` (only a correction changed) does not refresh the stale clock. |
+| `Regulator.update_grid(t, grid_w, battery_w, fresh=True, soc=None, solar_w=None)` | one sample | Runs the integral, stores the sample. Ignores the call if grid or battery is not finite. Keeps the last SOC when `soc` is None. Stores the solar change since the last fresh sample as the feed forward step: 0 unless both are known and finite, that sample is at most `solar_max_gap_s` old and the change is over `solar_deadband_w`, and, with `solar_ff_min_w` above 0, both readings are at least that. `fresh=False` (only a correction changed) does not refresh the stale clock, and keeps the solar step, `solar_w`, the spike flag and the demand it compares: it is the same sample, so it cannot start, confirm or end a spike, nor feed forward a solar change. |
 | `Regulator.step(t, policy)` | policy | Returns a `Command` to publish now, or None. |
 | `Regulator.ack(t, power_write=False)` | | The firmware wrote the last command. |
 | `Regulator.fail()` | | The last command was not published or not written. |
@@ -249,7 +249,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_the_former_constants_are_settings_*`, `test_the_floor_margin_is_a_setting`, `test_the_command_rounding_is_a_setting`, `test_the_refusal_time_is_a_setting` | The former constants are settings with their old values, and the code reads them. |
 | `test_solar_feed_forward_*` | Feed forward on a 1 s solar change only; 0 for small or unknown changes, after a gap, back from stale and on the first step after a start. |
 | `test_the_slew_never_holds_the_output_past_a_cap` | After an early send, a cut to the floor or to a 0 W discharge cap goes out whole. |
-| `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. |
+| `test_spike_confirm_*`, `test_a_jump_*`, `test_a_spike_gone_*`, `test_a_correction_update_*` | Off by default; a jump over the setting waits one sample, a lasting one goes out then, a gone one moves nothing and winds no integral. A correction update neither confirms nor starts a spike and keeps the sample's solar step. |
 | `test_with_the_ready_floor_at_zero_*` | Golden hash `GOLDEN_FLOOR_OFF = (265, "fba5a193a8a348a0")` of the full command list with `warm_w=0` against `RampingInverter`. Any behaviour change with the floor off breaks it. |
 
 ## Gotchas
@@ -266,7 +266,7 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 - `_restart` clears `refused_soc` and `_t_low` but not `_t_refused`. A timed refusal hold survives a short HOLD, FIXED or stale spell. Any HOLD/FIXED step ends a latched near-floor refusal.
 - A mode string other than the four constants takes the regulating branch with `_regulating` False: no integral, bumpless start every step. The controller maps unknown states to `RELEASE` first.
 - `error_w` in HOLD/FIXED is `grid_w - target_w`, without the offset.
-- `fresh=False` samples still update `grid_w`, `battery_w` and the integral.
+- `fresh=False` samples still update `grid_w`, `battery_w`, `_t_measure` and the integral, but not the solar step or the spike flag.
 - Bumpless start does not reset `_t_direction`, so on a new regulator the dwell has already passed.
 - The comment in `test_a_refused_discharge_is_held_at_zero` says "over 200 W"; the code uses `refused_ask_w = 100` since 75e08a8.
 - `min_send_gap_s` comment cites the five-write firmware (about 1.8 s). The one-frame write (9452d4a) is about 50 ms; the default was not changed.
