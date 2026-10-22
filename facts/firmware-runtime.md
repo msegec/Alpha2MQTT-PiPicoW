@@ -2,7 +2,7 @@
 
 One single threaded Arduino loop on the Pico W. It polls the inverter on fixed schedules, publishes JSON state over MQTT and runs commands inline, between bus reads.
 
-Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed, buffer floor tried, fallback gap named, constants renamed, power offset named, example OTA password refused. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
+Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed, buffer floor tried, fallback gap named, constants renamed, power offset named, example OTA password refused, `emptyPayload` one byte. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
 
 ## Boot sequence (`setup`)
 
@@ -155,6 +155,7 @@ There are 8 under `DEVICE_NAME` (`MQTT_SUB_REQUEST_*`: read handled, read raw, s
 
 ## Gotchas
 
+- `emptyPayload` clears only the first byte; before 2026-10-22 it zeroed all `_maxPayloadSize` bytes, 4096 by default, on every call.
 - Renamed on 2026-10-22: `MQTT_REPLY_TIMEOUT` to `MQTT_REPLY_TIMEOUT_S` (it is seconds among millisecond defines), `TOTAL_ENERGY_MUTLIPLIER` to `TOTAL_ENERGY_MULTIPLIER`, and the published `MQTT_SUB_RESPONSE_*` topics to `MQTT_MES_RESPONSE_*`. The topic strings are unchanged.
 - `addStateInfo` sizes its member buffer from `MAX_MQTT_NAME_LENGTH` and `MAX_FORMATTED_DATA_VALUE_LENGTH`, 224 bytes; a quoted 80 character name with a 128 character value needs 222. It was 128 before 2026-10-22. Every `stateAddition` write is `snprintf`.
 - Fixed in the cleanup: a failed last read no longer leaves invalid JSON. `addStateInfo` puts `jsonMemberSeparator` before each member and the object ends with `jsonObjectEnd` (`JsonMembers.h`, `test_json_members.cpp`).

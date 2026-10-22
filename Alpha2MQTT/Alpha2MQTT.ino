@@ -1857,12 +1857,9 @@ void sendMqtt(char *topic)
 /*
 emptyPayload
 
-Clears every char so end of string can be easily found
+Starts the payload again. addToPayload finds the end with strlen, so only the first byte needs clearing.
 */
 void emptyPayload()
 {
-	for (int i = 0; i < _maxPayloadSize; i++)
-	{
-		_mqttPayload[i] = '\0';
-	}
+	_mqttPayload[0] = '\0';
 }
