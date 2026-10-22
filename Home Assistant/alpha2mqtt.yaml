@@ -951,7 +951,7 @@ mqtt:
         name: "Alpha2MQTT"
         manufacturer: "AlphaESS"
         model: "Alpha2MQTT"
-    # 0x011E decoded to the text of its lowest set bit. Battery Fault 1 to 6 are other registers, raw.
+    # 0x011E decoded to the text of every set bit, comma joined, Bit N when unnamed. Battery Fault 1 to 6 are other registers, raw.
     - name: "Battery Fault Text"
       unique_id: alpha2mqtt_battery_home_r_battery_fault_1
       state_topic: "Alpha2MQTT/state/minute/one"

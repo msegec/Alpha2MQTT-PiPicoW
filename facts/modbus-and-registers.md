@@ -149,7 +149,7 @@ Supporting registers (ten second, one minute or on request; not in the fast loop
 | 0x0100 | `REG_BATTERY_HOME_R_VOLTAGE` | U16 | 0.1 V | | R |
 | 0x0101 | `REG_BATTERY_HOME_R_CURRENT` | S16 | 0.1 A | Always zero on the upstream author's unit, per a comment removed in the cleanup (still in 75e08a8 `RegisterHandler.cpp`). A SMILE-B3 read nonzero values on 2026-10-21, so it is not zero on every unit | R |
 | 0x0111 / 0x0112 | `REG_BATTERY_HOME_R_MAX_CHARGE_CURRENT` / `MAX_DISCHARGE_CURRENT` | U16 | 0.1 A | Limits; not read by the controller | R |
-| 0x012C / 0x012D | `REG_BATTERY_HOME_R_BATTERY_MAX_CHARGE_POWER` / `MAX_DISCHARGE_POWER` | U16 | 1 W | Limits; only in `_mqttAllHandledRegisters`; discharge read 5350 on a B3, per a comment removed in the cleanup (still in 75e08a8) | R |
+| 0x012C / 0x012D | `REG_BATTERY_HOME_R_BATTERY_MAX_CHARGE_POWER` / `MAX_DISCHARGE_POWER` | U16 | 1 W | Limits; in the one minute list, with package sensors; discharge read 5350 on a B3, per a comment removed in the cleanup (still in 75e08a8) | R |
 | 0x0805 | `REG_SYSTEM_CONFIG_RW_SYSTEM_MODE` | U16 | lookup | 1 AC, 2 DC, 3 Hybrid; only in `_mqttAllHandledRegisters` | RW |
 | 0x0807 | `REG_SYSTEM_CONFIG_RW_BATTERY_READY` | U16 | lookup | 0 Off, 1 On | RW |
 | 0x084F | `REG_TIMING_RW_TIME_PERIOD_CONTROL_FLAG` | U16 | lookup | 0 off, 1 charge, 2 discharge, 3 both | RW |
@@ -170,16 +170,16 @@ Supporting registers (ten second, one minute or on request; not in the fast loop
 - `checkCRC` used `=` instead of `==` and so always passed before 7bb3666 (2023).
 - 80 ms pre-send gap fixed sporadic no responses for one user at 115200 baud (`REQUIRE_DELAY_DUE_TO_INCONSISTENT_RETRIEVAL` comment). Off by default.
 - 9102d0c: reply polling went from 50 ms steps to 1 ms. A 9600 baud write exchange measured about 63 ms then.
-- 9452d4a: the 9 register dispatch write is one frame of about 50 ms instead of five frames 400 ms apart. If the inverter refuses it, `Alpha2MQTT.ino` falls back to five writes, with `delay(RS485_TRIES * 50)` between them.
+- 9452d4a: the 9 register dispatch write is one frame of about 50 ms instead of five frames 400 ms apart. Now `writeFullDispatchBlock` falls back to five single writes after any failed block write, `DISPATCH_FALLBACK_GAP_MS` (400) apart. Only a block exception followed by five single writes that all land latches `_blockFrameRefused`, which skips the block from then on.
 
 ## Gotchas
 
 - Before 2026-10-22 the `RegisterHandler.h` and `RegisterHandler.cpp` headers said Write Data Register is 0x0A; the code uses 0x10 (`MODBUS_FN_WRITEDATAREGISTER`), and the headers now say so.
 - Min and max cell temperature (0x010D, 0x0110) use `tenths`, 0.1 deg C, as the vendor table says. Their define comments said 0.001D/bit until 2026-10-22. The pack and cell ID defines beside them, 0x0105 to 0x010F, carried voltage or temperature scales; they are IDs with no scale.
-- The 400 ms timeout restarts for each byte. A line that keeps sending non 0x55 bytes keeps `listenResponse` reading; only the hardware watchdog bounds it.
+- The 400 ms timeout restarts for each byte. A line that keeps sending non 0x55 bytes keeps `listenResponse` reading until `RS485_RESYNC_MAX_BYTES` (64) of them, then the reply fails as `invalidFrame`.
 - `slaveError` does not mark the line dirty; `noResponse`, `invalidFrame`, `responseTooShort` and `unexpectedResponse` do, so the next send can wait up to 150 ms more.
 - `_lastPvMeterPower` is one value shared by the fast schedule, the ten second schedule, `REG_CUSTOM_TOTAL_SOLAR_POWER` and `REG_CUSTOM_LOAD`. An `unconfirmedZero` also fails both custom registers for that read.
-- `REG_DISPATCH_RW_ACTIVE_POWER_1` is published as the raw offset value, not watts. Subtract 32000; negative is charge.
+- `REG_DISPATCH_RW_ACTIVE_POWER_1` is published as the raw offset value, not watts. Subtract 32000; negative is charge. The package's Dispatch Power sensor does that subtraction.
 - `REG_DISPATCH_RW_DISPATCH_START` arrives as a string, not 0 or 1.
 - SOC from 0x0102 is a percent with two decimals; dispatch SOC from 0x0886 is a whole percent. Different scales on the wire (0.1 % vs 0.4 %).
 - Frame register count is one byte (`0, rs->registerCount`), so `registerCount` is a `uint8_t`.

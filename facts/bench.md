@@ -3,8 +3,10 @@
 Tools in `tools/bench/` that score live step logs and replay their demand through any regulator version against
 a fitted inverter model, so versions and settings can be compared on the same weeks.
 
-Last verified: branch fix/bench on d80bfb1, 2026-10-22. `python3 -m pytest tools/bench/tests -q`: 57
-passed; `python3 -m pytest "Home Assistant/tests" -q`: 306 passed. Not rerun on private logs since a362446.
+Last verified: master 90a9799, 2026-10-22. `python3 -m pytest tools/bench/tests -q`: 57 passed;
+`python3 -m pytest "Home Assistant/tests" -q`: 379 passed. Not rerun on private logs since a362446. The 2026-10-22
+model changes (loss at every reading, 1 s tick, caps from `default_max_w`) move scores, so replay and score
+results from before 90a9799 do not compare with later ones.
 
 Plain Python 3.12+, stdlib only. Each script puts its own directory on `sys.path`, so `python3 -I` works. The
 log record contract is in `steplog-and-response.md`; the regulator in `regulator.md`.

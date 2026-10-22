@@ -30,7 +30,7 @@ Boot takes at least about 4.1 s plus the WiFi join. During setup only WiFi and O
 | 5 | `holdIdleWhileHaGone` | every pass; writes only when `idleHoldDue` says so | 0, or one dispatch write |
 | 6 | `sendFastState` | `STATUS_INTERVAL_FAST` 1000 ms | 5 |
 | 7 | `flashLed` | `RUNSTATE_INTERVAL` 5000 ms; a 4 ms LED pulse | 0 |
-| 8 | `sendData` | runs each slow schedule that is due, in order: 10 s, 1 min, 5 min, 1 h, 1 day | see schedules |
+| 8 | `sendData` | runs each slow schedule that is due, in order: 10 s, 1 min, 5 min, 1 h | see schedules |
 | 9 | `FORCE_RESTART` reboot (`rp2040.reboot`) | `FORCE_RESTART_HOURS`, only if `FORCE_RESTART` is defined (off by default) | 0 |
 
 `serviceBetweenReads` runs between consecutive registers of a slow schedule. It is not called after the last one. It calls `feedWatchdog`, `ArduinoOTA.handle`, `_mqtt.loop()` and `sendFastState`. The fast state and commands therefore cut into slow schedules (4fb5457, 1d2e5fc).
