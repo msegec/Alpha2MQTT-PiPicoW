@@ -176,6 +176,18 @@ def test_power_only_commands_carry_the_flag_and_others_do_not():
     assert "powerOnly" not in published(R.Command("discharge", 800, 20, 120))
 
 
+def test_every_command_number_goes_out_whole():
+    # The firmware refuses 120.0 as a value; a float from a number entity must not reach the wire.
+    mqtt = sys.modules["homeassistant.components"].mqtt
+    mqtt.async_publish = AsyncMock()
+    c = C.Controller(MagicMock(), {}, "entry")
+    c.regulator.settings.full_register = 252.0
+    asyncio.run(c._publish(R.Command("charge", 800.0, 100.0, 120.0)))
+    p = mqtt.async_publish.call_args.args[2]
+    assert ".0" not in p and json.loads(p)["socPercent"] == 102
+    assert ".0" not in json.dumps(published(R.Command("discharge", 150.0, 20.0, 120.0)))
+
+
 def test_a_charge_to_100_sends_the_full_register():
     assert published(R.Command("charge", 800, 100, 120))["socPercent"] == 102  # register 252
     assert published(R.Command("charge", 800, 105, 120))["socPercent"] == 105  # balance stays 255

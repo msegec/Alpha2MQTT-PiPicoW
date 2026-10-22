@@ -632,7 +632,8 @@ class Controller:
             soc = cmd.soc
             if cmd.kind == "charge" and soc == 100:
                 soc = int(self.regulator.settings.full_register) - 150  # the firmware sends 101 to 105 as 251 to 255
-            payload = {"watts": cmd.watts, "socPercent": soc, "duration": cmd.duration, "seq": seq}
+            # Whole numbers only: the firmware refuses 120.0 rather than read it as another number.
+            payload = {"watts": int(cmd.watts), "socPercent": int(soc), "duration": int(cmd.duration), "seq": seq}
             if cmd.power_only:
                 payload["powerOnly"] = 1  # older firmware ignores it and writes the whole block
         # The Pico reads at most 127 bytes of payload; these stay under 90.

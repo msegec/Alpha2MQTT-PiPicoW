@@ -102,7 +102,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 | `hold` | `Policy(HOLD)` |
 | `normal` | `Policy(RELEASE)` |
 | other than charge/discharge | `Policy(RELEASE, reason="unknown policy state '<first 40 chars>'")` (8259b36) |
-| charge/discharge, `soc_target` not a number, or outside 0..`SOC_MAX` (105) | unreadable: the firmware refuses socPercent over 105 (`dispatchRequestValid`) and a negative one wraps through `strtoul` to the same refusal |
+| charge/discharge, `soc_target` not a number, or outside 0..`SOC_MAX` (105) | unreadable: the firmware refuses socPercent over 105 (`dispatchRequestValid`) and a negative one is refused as not a whole number (`parseWhole`, `failureDetail` `value`) |
 | `fixed` == "true" | `Policy(FIXED)`; `watts` attribute, must be plausible, else unreadable. Charge: `fixed_w=-watts, charge_soc`; discharge: `fixed_w=watts, discharge_soc` (50850bf) |
 | `charge` | `REGULATE`, `max_charge_w=cap`, `charge_soc=soc_target`, `target_offset_w=grid_offset` (0 if bad or implausible, 8feffdc) |
 | `discharge` | `REGULATE`, `max_discharge_w=cap`, `discharge_soc=soc_target` |
@@ -125,7 +125,7 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 - Topic: `{base}/request/set/{kind}`, kind `charge`, `discharge` or `normal`.
 - Payload, compact JSON (`separators=(",", ":")`):
   - normal: `{"void":0,"seq":N}`
-  - charge/discharge: `{"watts":W,"socPercent":S,"duration":D,"seq":N}`, plus `"powerOnly":1` when `cmd.power_only` (a3a20a7).
+  - charge/discharge: `{"watts":W,"socPercent":S,"duration":D,"seq":N}`, plus `"powerOnly":1` when `cmd.power_only` (a3a20a7). W, S and D are cast to int: the firmware refuses a value with a point (`parseWhole`).
   - Comment: the Pico reads at most 127 bytes of payload; these stay under 90.
 - Publish exception: `regulator.fail()` if this is still the sent command, error logged once; regulator resends in full after the minimum gap.
 - `_fail` and `_recover` keep a set `_failing` of what is failing now (`step`, `publish`), so each kind logs one error
