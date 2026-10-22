@@ -195,7 +195,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     recs, bad = logs.load(a.logs, a.t0, a.t1, a.solar_entity)
-    rows = logs.samples(recs, a.t0, a.t1, a.exclude, a.solar_entity)
+    rows = logs.samples(recs, a.t0, a.t1, a.exclude, a.solar_entity, logs.loss_from_args(a))
     if not rows:
         raise SystemExit("no regulating samples in the window")
     sc = score(rows)

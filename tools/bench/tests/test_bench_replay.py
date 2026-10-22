@@ -88,7 +88,9 @@ def test_a_trivial_regulator_settles_the_grid_on_target(tmp_path):
     # logged target -50 under a cfg target of -20 is an offset of -30, replayed over the new target_w of 0
     assert {r["target"] for r in out} == {-30.0}
     assert abs(out[-1]["error_w"]) < 1.0
-    assert out[-1]["battery"] == pytest.approx((500 + 30) / 0.85, abs=1)  # demand plus the 15 % loss term
+    assert out[-1]["battery"] == pytest.approx((500 + 30 + 10) / 0.85, abs=1)  # demand plus 15 % and 10 W loss
+    out, _ = replay.replay(mod, rows(), FAST, {"target_w": "0"}, loss=logs.Loss(0, 0))
+    assert out[-1]["battery"] == pytest.approx(500 + 30, abs=1)
     steps = [c for c in mod.CALLS if c[0] == "step"]
     assert steps[0][2] == -30.0 and steps[0][3] == 4000.0
 

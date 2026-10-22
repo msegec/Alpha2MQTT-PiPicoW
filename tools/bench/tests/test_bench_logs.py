@@ -1,3 +1,4 @@
+import argparse
 import gzip
 import json
 
@@ -41,7 +42,7 @@ def test_sample_fields_target_demand_and_window():
     r = rows[0]
     assert r["target"] == -50  # grid_w - error_w: the policy offset of -30 is in it
     assert r["cfg_target"] == -20
-    assert r["demand"] == 100 + 1000 - 0.15 * 1000
+    assert r["demand"] == 100 + 1000 - (0.15 * 1000 + 10)  # the default loss: 15 % plus 10 W
     assert r["sent"] == -300 and r["power_only"]
     assert logs.samples(recs, exclude=[(0.5, 2.5)])[0]["t"] == 3.0
 
@@ -77,3 +78,20 @@ def test_iterations_split_on_code_and_cfg_changes():
         (0.0, "start", "aaa", 0.01), (20.0, "cfg", "aaa", 0.03), (30.0, "start", "bbb", 0.03),
         (40.0, "start", None, 0.03)]
     assert its[0]["t1"] == 10.0
+
+
+def test_the_loss_is_a_share_plus_a_fixed_term_while_the_battery_reads():
+    loss = logs.Loss()
+    assert (loss.share, loss.fixed_w) == (0.15, 10.0)
+    assert loss(-1000) == loss(1000) == 160.0
+    assert loss(0) == 0.0  # an idle battery reading 0 has no loss
+    recs = [step(1.0, 1, grid_w=100, battery=1000), step(2.0, 2, grid_w=100, battery=0)]
+    assert [r["demand"] for r in logs.samples(recs, loss=logs.Loss(0, 0))] == [1100, 100]
+    assert [r["demand"] for r in logs.samples(recs)] == [940, 100]
+
+
+def test_the_loss_is_a_cli_parameter():
+    p = argparse.ArgumentParser()
+    logs.add_window_args(p)
+    assert logs.loss_from_args(p.parse_args(["x"])) == logs.Loss()
+    assert logs.loss_from_args(p.parse_args(["x", "--loss-share", "0", "--loss-w", "0"])) == logs.Loss(0, 0)

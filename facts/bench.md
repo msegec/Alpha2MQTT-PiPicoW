@@ -35,8 +35,8 @@ python3 -I tools/bench/compare.py 'LOGDIR/alpha2mqtt.jsonl*' --window 'A..B' --w
     --variant 'now:ref=HEAD' --variant 'ki3:ref=HEAD,ki=0.03' --variant 'wip:path=/some/regulator.py'
 ```
 
-Shared options: `--solar-entity SUFFIX` (default `solar_east_meter_fast`), `--max-charge-w` and
-`--max-discharge-w` (default 4000), `--discharge-soc` (default 10).
+Shared options: `--solar-entity SUFFIX` (default `solar_east_meter_fast`), `--loss-share` (default 0.15) and
+`--loss-w` (default 10), `--max-charge-w` and `--max-discharge-w` (default 4000), `--discharge-soc` (default 10).
 
 ## Loading (`logs.py`)
 
@@ -50,7 +50,12 @@ Shared options: `--solar-entity SUFFIX` (default `solar_east_meter_fast`), `--ma
   `request_w`, `output_w`. A row has `brk` True when its `seq` is not the last row's + 1 or more than 5 s
   passed. `seq` restarts at a firmware reboot, so nothing keys on `seq` across rows that are not consecutive.
 - Row fields: `target = grid_w - error_w` (it holds the policy offset), `cfg_target` (logged `target_w` in
-  force), `demand = grid_w + battery - 0.15 * |battery|`, `sent` (signed W, or None), `solar`, `load_w`.
+  force), `demand = grid_w + battery - loss(battery)`, `sent` (signed W, or None), `solar`, `load_w`.
+- Battery loss, `logs.Loss`: `share * |battery| + fixed_w`, and 0 at a battery of exactly 0. The term is not
+  the controller's: `estimate_grid` adds none. It comes from the correction source. The development site's
+  correction template charges 15 % of |battery| plus 10 W as inverter loss in the demand it reports, so the
+  defaults are 0.15 and 10 W. A correction without a loss term wants `--loss-share 0 --loss-w 0`. That the
+  10 W stops at a battery of exactly 0 is the bench's assumption; how the template gates it is not in this repo.
 - Solar: the step's `solar_w` when logged. Older logs: west `pv * -10` when at least 95 W, else 0, plus the
   last numeric state of the entity ending in the solar suffix (a non-numeric state counts 0).
 - `commands`: `cmd` records on `.../request/set/{charge,discharge,normal}` only. `read/register/raw`, raw
@@ -102,7 +107,7 @@ the new logs too: a growing error is drift.
   versions) gets the logged `load_w` when there is one. `ack` gets `power_write=` if it takes it; a regulator
   without `ack` gets none.
 - Per sample: advance the model to `t`; ack the last command at its send time + 0.1 s with
-  `power_write = cmd.power_only`; grid = `demand + 0.15 * |battery| - battery`; `update_grid`; then
+  `power_write = cmd.power_only`; grid = `demand + loss(battery) - battery`; `update_grid`; then
   `step` with `Policy(REGULATE, max_charge_w, max_discharge_w, charge_soc=100, discharge_soc,
   target_offset_w = target - cfg_target)`. The replayed target is the variant's `target_w` plus that offset.
   Without a logged cfg, `cfg_target` is the variant's `target_w`.

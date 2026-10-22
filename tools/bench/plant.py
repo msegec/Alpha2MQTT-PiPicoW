@@ -266,7 +266,7 @@ def fit_from_args(a) -> tuple[Plant, dict, list[dict], list]:
     recs, bad = logs.load(a.logs, a.t0, a.t1, a.solar_entity)
     if bad:
         print(f"{bad} bad lines skipped", file=sys.stderr)
-    rows = logs.samples(recs, a.t0, a.t1, a.exclude, a.solar_entity)
+    rows = logs.samples(recs, a.t0, a.t1, a.exclude, a.solar_entity, logs.loss_from_args(a))
     cmds = logs.commands(recs)
     plant, info = fit(rows, cmds)
     return plant, info, rows, cmds

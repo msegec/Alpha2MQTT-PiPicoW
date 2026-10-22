@@ -95,6 +95,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--window", type=logs.parse_span, action="append", default=[], help="'A..B', repeatable")
     p.add_argument("--exclude", type=logs.parse_span, action="append", default=[])
     p.add_argument("--solar-entity", default=logs.EAST_SUFFIX)
+    logs.add_loss_args(p)
     p.add_argument("--set", action="append", default=[], help="Settings for every variant, key=value")
     p.add_argument("--variant", action="append", default=[], help="'NAME:ref=GITREF,key=value,...'")
     replay.add_variant_args(p)
@@ -107,8 +108,10 @@ def main(argv: list[str] | None = None) -> None:
     recs, bad = logs.load(a.logs, t0, t1, a.solar_entity)
     if bad:
         print(f"{bad} bad lines skipped", file=sys.stderr)
+    loss = logs.loss_from_args(a)
     label = lambda w: f"{logs.fmt_time(w[0])}..{logs.fmt_time(w[1])}"
-    rows_by_window = {label(w): logs.samples(recs, w[0], w[1], a.exclude, a.solar_entity) for w in a.window}
+    rows_by_window = {label(w): logs.samples(recs, w[0], w[1], a.exclude, a.solar_entity, loss)
+                      for w in a.window}
     empty = [w for w, rows in rows_by_window.items() if not rows]
     if empty:
         raise SystemExit(f"no regulating samples in {', '.join(empty)}")
@@ -118,7 +121,8 @@ def main(argv: list[str] | None = None) -> None:
         allrows = [r for rows in rows_by_window.values() for r in rows]
         pl = plantmod.fit(allrows, logs.commands(recs))[0]
     cfgs = logs.CfgTimeline(recs) if a.settings_from_log else None
-    limits = {"max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w, "discharge_soc": a.discharge_soc}
+    limits = {"max_charge_w": a.max_charge_w, "max_discharge_w": a.max_discharge_w, "discharge_soc": a.discharge_soc,
+              "loss": loss}
     res = run(rows_by_window, variants, pl, replay.parse_sets(a.set), cfgs, limits)
     if a.json:
         print(json.dumps({"plant": dataclasses.asdict(pl), "variants": variants, "results": res}, indent=1))

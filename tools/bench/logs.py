@@ -15,13 +15,32 @@ import gzip
 import json
 import math
 import sys
+from dataclasses import dataclass
 
-LOSS = 0.15  # the grid estimate charges this share of |battery| as loss, so demand from the log carries it
+# Battery loss in the logged grid estimate: a correction source that models inverter loss charges this share of
+# |battery| plus a fixed term while the battery reads non-zero. demand takes it off; a replay adds it back. A source
+# without a loss term wants --loss-share 0 --loss-w 0. See facts/bench.md.
+LOSS_SHARE = 0.15
+LOSS_W = 10.0
 GAP_S = 5.0  # consecutive samples are at most this far apart, and their seq differs by 1
 EAST_SUFFIX = "solar_east_meter_fast"
 WEST_MIN_W = 95.0  # older logs: pv * -10 under this is meter noise, not sun
 SETTLE_S = 8.0  # a command unchanged this long has settled
 CAPPED_W = 30.0  # request this far from output: a limit holds the output
+
+
+@dataclass(frozen=True)
+class Loss:
+    """Battery loss in W at a battery reading: share x |battery| plus fixed_w, 0 at a battery of exactly 0."""
+    share: float = LOSS_SHARE
+    fixed_w: float = LOSS_W
+
+    def __call__(self, battery_w: float) -> float:
+        return self.share * abs(battery_w) + (self.fixed_w if battery_w else 0.0)
+
+
+def loss_from_args(a) -> Loss:
+    return Loss(a.loss_share, a.loss_w)
 
 
 def expand(patterns: list[str]) -> list[str]:
@@ -102,6 +121,12 @@ def add_window_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--to", dest="t1", type=parse_time, default=math.inf)
     p.add_argument("--exclude", type=parse_span, action="append", default=[], help="'A..B', repeatable")
     p.add_argument("--solar-entity", default=EAST_SUFFIX, help="entity id suffix of the east solar meter")
+    add_loss_args(p)
+
+
+def add_loss_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--loss-share", type=float, default=LOSS_SHARE, help="loss in the grid estimate, share of |battery|")
+    p.add_argument("--loss-w", type=float, default=LOSS_W, help="loss in the grid estimate, fixed W while non-zero")
 
 
 def is_set_topic(topic: str) -> str | None:
@@ -186,10 +211,10 @@ def _num(x) -> float | None:
 
 
 def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
-            exclude: list[tuple[float, float]] = (), solar_suffix: str = EAST_SUFFIX) -> list[dict]:
+            exclude: list[tuple[float, float]] = (), solar_suffix: str = EAST_SUFFIX, loss: Loss = Loss()) -> list[dict]:
     """Regulating step records in [t0, t1) outside the excluded spans, as flat rows:
     t, seq, grid_w, battery, soc, error_w, target, request_w, output_w, sent (signed W or None),
-    power_only, solar, demand (grid_w + battery, loss term removed), limit (None if unlogged), cfg_target,
+    power_only, solar, demand (grid_w + battery - loss(battery)), limit (None if unlogged), cfg_target,
     and brk: True when the row does not follow the previous one (seq not +1, over GAP_S, or the first row).
     Solar: the step's solar_w when logged, else west = pv * -10 when >= 95 W plus the last east meter state."""
     cfgs = CfgTimeline(recs)
@@ -228,7 +253,7 @@ def samples(recs: list[dict], t0: float = -math.inf, t1: float = math.inf,
                "error_w": error_w, "target": grid_w - error_w, "request_w": request_w, "output_w": output_w,
                "sent": signed, "sent_normal": isinstance(sent, dict) and sent.get("kind") == "normal",
                "power_only": bool(isinstance(sent, dict) and sent.get("power_only")), "solar": solar,
-               "demand": grid_w + battery - LOSS * abs(battery), "limit": r.get("limit"),
+               "demand": grid_w + battery - loss(battery), "limit": r.get("limit"),
                "load_w": _num(r.get("load_w")),
                "cfg_target": _num(cfg.get("target_w")), "brk": brk}
         out.append(row)

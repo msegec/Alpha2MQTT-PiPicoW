@@ -4,8 +4,8 @@
         [--regulator PATH | --ref GITREF] [--set key=value ...] [--settings-from-log]
         [--plant plant.json] [--max-charge-w 4000] [--max-discharge-w 4000] [--json]
 
-Each regulating sample of the log gives the house demand (grid_w + battery, less the 15 % loss term), the
-target (grid_w - error_w) and the SOC. The simulated grid is demand + 0.15 * |simulated battery| - simulated
+Each regulating sample of the log gives the house demand (grid_w + battery less the battery loss, logs.Loss), the
+target (grid_w - error_w) and the SOC. The simulated grid is demand + loss(simulated battery) - simulated
 battery. The policy is REGULATE with the CLI limits and the logged target offset. Each command is acked 0.1 s
 later as written the way it asked (power only or block). A regulator whose update_grid takes solar_w (or soc) gets the
 sample's solar (or SOC); one with update_load gets the logged load_w when there is one. See facts/bench.md.
@@ -81,9 +81,10 @@ def parse_sets(items: list[str]) -> dict:
 
 def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None = None,
            cfgs: logs.CfgTimeline | None = None, max_charge_w: float = 4000.0, max_discharge_w: float = 4000.0,
-           discharge_soc: int = 10, charge_soc: int = 100) -> tuple[list[dict], list[str]]:
+           discharge_soc: int = 10, charge_soc: int = 100,
+           loss: logs.Loss = logs.Loss()) -> tuple[list[dict], list[str]]:
     """Simulated rows in the shape score.score reads, and warnings. overrides apply over the cfg in force
-    (cfgs, when given) or the module's defaults."""
+    (cfgs, when given) or the module's defaults. loss must be the one the rows' demand was taken with."""
     overrides = overrides or {}
     warnings: list[str] = []
     base = {}
@@ -119,7 +120,7 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
         if ack_due is not None and ack_due[0] <= t and has_ack:
             reg.ack(ack_due[0], power_write=ack_due[1]) if ack_power else reg.ack(ack_due[0])
             ack_due = None
-        grid = r["demand"] + logs.LOSS * abs(b) - b
+        grid = r["demand"] + loss(b) - b
         kw = {"soc": r["soc"]} if takes_soc else {}
         if takes_solar:
             kw["solar_w"] = r["solar"]
@@ -167,13 +168,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--set", action="append", default=[], help="Settings field=value, repeatable")
     a = p.parse_args(argv)
     recs, bad = logs.load(a.logs, a.t0, a.t1, a.solar_entity)
-    rows = logs.samples(recs, a.t0, a.t1, a.exclude, a.solar_entity)
+    rows = logs.samples(recs, a.t0, a.t1, a.exclude, a.solar_entity, logs.loss_from_args(a))
     if not rows:
         raise SystemExit("no regulating samples in the window")
     pl = plantmod.Plant.load(a.plant) if a.plant else plantmod.fit(rows, logs.commands(recs))[0]
     mod = load_regulator(a.regulator, a.ref)
     sim, warnings = replay(mod, rows, pl, parse_sets(a.set), logs.CfgTimeline(recs) if a.settings_from_log else None,
-                           a.max_charge_w, a.max_discharge_w, a.discharge_soc)
+                           a.max_charge_w, a.max_discharge_w, a.discharge_soc, loss=logs.loss_from_args(a))
     for w in warnings:
         print(w, file=sys.stderr)
     sc = score.score(sim)
