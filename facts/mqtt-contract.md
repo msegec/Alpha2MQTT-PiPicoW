@@ -112,6 +112,8 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 - PV Meter Power and PV Meter Power Fast keep `this.state` when the key is missing,
   for at most 60 s and 10 s. Reason in the comment and in 70fe0e2: an unavailable PV meter takes the net demand,
   and with it the controller, down.
+- Dispatch Power shows `REG_DISPATCH_RW_ACTIVE_POWER_1 - 32000` in W, + discharge, - charge, like Battery Power.
+  Its long term statistics before this change hold the raw offset value, about 32000.
 - Pico VSYS: `vsys_mv / 1000`, rounded to 2 places, in V. Pico USB Power: `ON` when `usb_power` is true.
 - Scripts `alpha2mqtt_set_charge` and `alpha2mqtt_set_discharge`: fields `watts` (default 3000),
   `soc_percent` (100 charge, 10 discharge), `duration` (default 600 s), `controller_switch`. No `seq`, no
@@ -179,7 +181,6 @@ so the next charge or discharge writes the full block.
 - README set/charge example omits `frames`, which the firmware sends on every block write.
 - `setDishargeSuccess` typo is in the firmware and the README alike.
 - Response topic defines are named `MQTT_SUB_RESPONSE_SET_*` though the firmware publishes them, not subscribes.
-- Package "Dispatch Power" has unit W but shows the raw 32000 offset value.
 
 ## History of the package (`git log -- "Home Assistant/alpha2mqtt.yaml"`)
 

@@ -197,7 +197,10 @@ mqtt:
     - name: "Dispatch Power"
       unique_id: alpha2mqtt_dispatch_rw_active_power_1
       state_topic: "Alpha2MQTT/state/second/ten"
-      value_template: "{{ value_json.REG_DISPATCH_RW_ACTIVE_POWER_1 | default(None) }}"
+      # The register holds 32000 + W discharge or 32000 - W charge. Show watts, + discharge like Battery Power.
+      value_template: >-
+        {%- set v = value_json.REG_DISPATCH_RW_ACTIVE_POWER_1 | default(None) | int(None) -%}
+        {%- if v is none -%}None{%- else -%}{{ v - 32000 }}{%- endif -%}
       unit_of_measurement: "W"
       device_class: power
       state_class: measurement
