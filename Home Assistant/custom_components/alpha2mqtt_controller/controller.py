@@ -45,6 +45,12 @@ DEFAULT_BASE_TOPIC = "Alpha2MQTT"
 DEFAULT_POLICY_ENTITY = "sensor.battery_auto_action"
 # The firmware refuses a socPercent over 105 (dispatchRequestValid), and a negative one wraps to the same refusal.
 SOC_MAX = 105
+# The firmware reads a request's seq with strtoul into a 32-bit unsigned long and echoes it as %lu, so a seq stays in
+# 1..SEQ_MAX; 0 is what it echoes for a request with none.
+SEQ_MAX = 2**32 - 1
+# A controller numbers its commands on from the wall clock in tenths of a second. The regulator sends at most about two
+# a second, so after a reload no seq repeats one a late response from the run before could still carry.
+SEQ_PER_S = 10
 # clamp: scale x grid clamp + correction. estimate: correction - battery, for a clamp that cannot see the house.
 GRID_SOURCES = ["clamp", "estimate"]
 
@@ -111,7 +117,7 @@ class Controller:
         self._sample_seq = None
         self._waiting: tuple[dict, float, float, float] | None = None  # a sample waiting for its correction
         self._cancel_wait: Callable[[], None] | None = None
-        self._cmd_seq = 0
+        self._cmd_seq = int(time.time() * SEQ_PER_S) % SEQ_MAX  # the last seq used, see SEQ_PER_S
         self.last_command: Command | None = None
         self.last_sent: datetime | None = None
         self.last_seq: int | None = None
@@ -598,7 +604,7 @@ class Controller:
         if self.regulator.sent is not None and self.regulator.sent is not cmd:
             # Superseded before its task ran, as by a release from the switch: the newer command owns the inverter.
             return
-        self._cmd_seq += 1
+        self._cmd_seq = self._cmd_seq % SEQ_MAX + 1
         seq = self._cmd_seq
         base = self.config.get(CONF_BASE_TOPIC, DEFAULT_BASE_TOPIC)
         if cmd.kind == "normal":

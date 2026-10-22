@@ -83,7 +83,7 @@ DISCHARGE = R.Policy(R.REGULATE, max_discharge_w=3000, discharge_soc=20)
 
 
 def sent_controller():
-    """A controller that has published one discharge command, seq 1."""
+    """A controller that has published one discharge command, its seq in last_seq."""
     c = C.Controller(MagicMock(), {}, "entry")
     c.regulator.update_grid(0, 20, 500)
     cmd = c.regulator.step(0, DISCHARGE)
@@ -99,14 +99,14 @@ def respond(c, seq, status):
 
 def test_success_for_the_last_seq_acks():
     c = sent_controller()
-    respond(c, 1, "setDishargeSuccess")  # spelled as the firmware spells it
+    respond(c, c.last_seq, "setDishargeSuccess")  # spelled as the firmware spells it
     c.regulator.ack.assert_called_once()
 
 
 def test_old_seq_failure_or_no_seq_does_not_ack():
     c = sent_controller()
     respond(c, 0, "setDishargeSuccess")
-    respond(c, 1, "noResponse")
+    respond(c, c.last_seq, "noResponse")
     respond(c, None, "setDishargeSuccess")
     c.regulator.ack.assert_not_called()
 
@@ -116,7 +116,7 @@ def test_no_ack_once_a_newer_command_is_pending():
     c = sent_controller()
     c.regulator.update_grid(3, 1020, 500)
     assert c.regulator.step(3, DISCHARGE) is not None
-    respond(c, 1, "setDishargeSuccess")
+    respond(c, c.last_seq, "setDishargeSuccess")
     c.regulator.ack.assert_not_called()
 
 
@@ -160,8 +160,44 @@ def test_a_charge_to_100_sends_the_full_register():
     assert published(R.Command("discharge", 800, 100, 120))["socPercent"] == 100
 
 
+def seqs_published(c, n):
+    mqtt = sys.modules["homeassistant.components"].mqtt
+    mqtt.async_publish = AsyncMock()
+    for _ in range(n):
+        asyncio.run(c._publish(R.Command("discharge", 800, 20, 120)))
+    return [json.loads(call.args[2])["seq"] for call in mqtt.async_publish.call_args_list]
+
+
+def test_a_reload_never_reuses_a_seq_of_the_run_before(monkeypatch):
+    # A response from before a reload can arrive after it. Its seq must not be one the new controller has sent.
+    clock = [1_790_000_000.0]
+    monkeypatch.setattr(C.time, "time", lambda: clock[0])
+    old = seqs_published(C.Controller(MagicMock(), {}, "entry"), 120)  # two a second for a minute
+    clock[0] += 60
+    c = C.Controller(MagicMock(), {}, "entry")
+    new = seqs_published(c, 3)
+    assert min(new) > max(old)
+    c.regulator.ack = MagicMock()
+    c.regulator.sent = c.last_command
+    respond(c, old[0], "setDishargeSuccess")
+    c.regulator.ack.assert_not_called()
+
+
+def test_a_seq_stays_what_the_firmware_echoes():
+    # The firmware keeps only 0-9a-fx- of a value, reads seq with strtoul into a 32-bit unsigned long and echoes it
+    # as %lu. A seq is a whole number in 1..SEQ_MAX, so it comes back unchanged and 0 (no seq) is never sent.
+    c = C.Controller(MagicMock(), {}, "entry")
+    assert 1 <= c._cmd_seq + 1 <= C.SEQ_MAX == 2**32 - 1
+    c._cmd_seq = C.SEQ_MAX - 1
+    assert seqs_published(c, 2) == [C.SEQ_MAX, 1]
+    c._cmd_seq = C.SEQ_MAX - 1
+    mqtt = sys.modules["homeassistant.components"].mqtt
+    asyncio.run(c._publish(R.Command("discharge", 20000, 105, 600, power_only=True)))
+    assert len(mqtt.async_publish.call_args.args[2]) < 90  # the Pico reads at most 127 bytes
+
+
 def respond_write(c, write):
-    payload = {"responseStatus": "setDishargeSuccess", "seq": 1}
+    payload = {"responseStatus": "setDishargeSuccess", "seq": c.last_seq}
     if write is not None:
         payload["write"] = write
     c._on_response(types.SimpleNamespace(topic="Alpha2MQTT/response/set/discharge", payload=json.dumps(payload)))
@@ -180,7 +216,7 @@ def test_a_failed_write_of_the_newest_command_is_retried():
     c.regulator.fail = MagicMock()
     respond(c, 0, "noResponse")  # an older command
     c.regulator.fail.assert_not_called()
-    respond(c, 1, "noResponse")
+    respond(c, c.last_seq, "noResponse")
     c.regulator.fail.assert_called_once()
 
 
@@ -742,7 +778,7 @@ def test_a_command_with_a_response_is_not_timed_out(monkeypatch):
     monkeypatch.setattr(C.time, "monotonic", lambda: t[0])
     c = sent_controller()
     c.regulator.fail = MagicMock()
-    respond(c, 1, "setDishargeSuccess")
+    respond(c, c.last_seq, "setDishargeSuccess")
     t[0] = 20
     c._check_ack()
     c.regulator.fail.assert_not_called()

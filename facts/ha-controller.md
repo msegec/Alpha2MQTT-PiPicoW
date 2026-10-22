@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: 714d8e4 plus a test that every setting has one entity, 2026-10-22. `python3 -m pytest "Home Assistant/tests" tools/bench -q`: 331 passed; `tests/firmware/run` OK; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus seqs seeded from the clock, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 308 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -112,7 +112,10 @@ Default entity `sensor.battery_auto_action`. State and attributes:
 
 - Dropped if `regulator.sent` is set and is not this command: superseded before the task ran, as by the switch going
   off (cff2ebf).
-- `_cmd_seq` += 1 (starts at 0 per controller instance, so first seq after every start or reload is 1).
+- `_cmd_seq` steps by 1 within 1..`SEQ_MAX` (2^32 - 1), wrapping to 1. Each controller seeds it from the wall clock in
+  tenths of a second (`SEQ_PER_S` 10), so a reload numbers on past every seq the run before used: the regulator sends
+  at most about two commands a second. The firmware keeps only `0-9a-fx-` of a value, reads seq with `strtoul` into a
+  32-bit unsigned long and echoes it as `%lu`, so a seq comes back unchanged; 0 is its echo for a request with none.
 - Topic: `{base}/request/set/{kind}`, kind `charge`, `discharge` or `normal`.
 - Payload, compact JSON (`separators=(",", ":")`):
   - normal: `{"void":0,"seq":N}`
@@ -295,7 +298,7 @@ Non-power sensors without attributes write only on change.
 | Firmware refuses newest command | `regulator.fail()` |
 | No response 10 s, firmware echoes seq | `regulator.fail()` once |
 | Disable | normal published if regulator returns one; lease ends dispatch otherwise |
-| HA restart or reload | new `Regulator` and seq counter; switch restores; numbers restore. Per a regulator comment, the first release with nothing sent yet sends normal in case a lease is running |
+| HA restart or reload | new `Regulator`; seq numbering goes on from the clock, past the last run's; switch restores; numbers restore. Per a regulator comment, the first release with nothing sent yet sends normal in case a lease is running |
 | MQTT not up at setup | `ConfigEntryNotReady`, retried |
 | Firmware silent | no samples; regulator goes stale and releases (stale logic is the regulator's) |
 
@@ -314,6 +317,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_a_failed_write_of_the_newest_command_is_retried` | refusal of newest calls fail, older does not |
 | `test_a_command_with_no_response_is_sent_again_in_full`, `test_a_command_with_a_response_is_not_timed_out` | 10 s ack timeout only after seq echo, once |
 | `test_a_command_superseded_before_its_publish_is_dropped` | superseded publish dropped |
+| `test_a_reload_never_reuses_a_seq_of_the_run_before`, `test_a_seq_stays_what_the_firmware_echoes` | seq seeded from the clock, a late pre-reload response does not ack, 1..`SEQ_MAX` wrap, payload under 90 bytes |
 | `test_power_only_commands_carry_the_flag_and_others_do_not` | `powerOnly` payload |
 | `test_state_topic_defaults_to_the_fast_state_and_keeps_an_explicit_one` | default state topic |
 | `test_min_interval_restores_in_half_seconds_from_2_s` | restore clamps into range |
@@ -350,5 +354,4 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 
 ## Open questions
 
-- Seq restarts at 1 after every start or reload. A late response from before the restart carrying the same seq could ack the new command: unknown if this happens.
 - Behaviour when the firmware sends `seq` as a string versus an int in responses: unknown; `_on_response` compares with `==` while `_correction_behind` compares strings.
