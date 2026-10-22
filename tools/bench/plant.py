@@ -43,6 +43,12 @@ class Plant:
     tau_charge_s: float = 1.0
     offset: list[list[float]] = field(default_factory=list)  # [setpoint W, battery minus setpoint W], ascending
     ramp_w_s: float = 0.0  # 0 is off: a discharge from idle follows the lag like any other
+    # Set by hand, not fitted. capacity_wh above 0 integrates the SOC from the battery power; 0 leaves it to the
+    # caller (a replay sets the logged one). A discharge at or under refuse_soc, or a charge at or over full_soc,
+    # delivers 0 W; None is off.
+    capacity_wh: float = 0.0
+    refuse_soc: float | None = None
+    full_soc: float | None = None
 
     def offset_at(self, w: float) -> float:
         pts = self.offset
@@ -76,6 +82,7 @@ class Sim:
         self.pending: list[tuple[float, float]] = []
         self.ramping = False
         self.t: float | None = None
+        self.soc: float | None = None  # %, None unknown: no refusal or full hold
 
     def aim_for(self, w: float | None) -> float:
         return 0.0 if not w else w + self.p.offset_at(w)
@@ -96,13 +103,20 @@ class Sim:
                 if self.p.ramp_w_s > 0 and w > IDLE_W and abs(self.b) <= IDLE_W:
                     self.ramping = True
             p = self.p
-            tau = p.tau_discharge_s if self.aim > 0 or (self.aim == 0 and self.b > 0) else p.tau_charge_s
-            nb = self.b + (self.aim - self.b) * (1 - math.exp(-h / max(tau, 1e-3)))
+            aim = self.aim
+            if self.soc is not None and (
+                    (aim > 0 and p.refuse_soc is not None and self.soc <= p.refuse_soc)
+                    or (aim < 0 and p.full_soc is not None and self.soc >= p.full_soc)):
+                aim = 0.0
+            tau = p.tau_discharge_s if aim > 0 or (aim == 0 and self.b > 0) else p.tau_charge_s
+            nb = self.b + (aim - self.b) * (1 - math.exp(-h / max(tau, 1e-3)))
             if self.ramping:
-                if self.aim <= 0 or nb >= self.aim - 1:
+                if aim <= 0 or nb >= aim - 1:
                     self.ramping = False
                 else:
                     nb = min(nb, self.b + p.ramp_w_s * h)
+            if p.capacity_wh > 0 and self.soc is not None:
+                self.soc = min(max(self.soc - (self.b + nb) / 2 * h / 3600 / p.capacity_wh * 100, 0.0), 100.0)
             self.b = nb
         return self.b
 

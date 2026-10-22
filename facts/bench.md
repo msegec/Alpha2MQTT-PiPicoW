@@ -83,6 +83,10 @@ in force), `--discharge-soc` (default 10), `--ack-s`, `--fail-every`, `--timeout
   `tests/test_bench_offsets.py` holds all three to this.
 - `ramp_w_s` above 0: a discharge that takes effect while `|battery| <= 15 W` rises no faster than this
   until it reaches its aim. 0 is off.
+- SOC and holds, set by hand, not fitted: `capacity_wh` above 0 integrates the SOC from the battery power
+  (0 leaves it to the caller). A discharge while the SOC is at or under `refuse_soc`, or a charge at or over
+  `full_soc`, delivers 0 W; None is off, and so is an unknown SOC. Replay and compare take `--capacity-wh`,
+  `--refuse-soc` and `--full-soc` over the plant.
 - `Sim` steps 0.1 s at most.
 
 Fit, from samples and bus commands:
@@ -141,7 +145,9 @@ the new logs too: a growing error is drift.
   that the variant learns only if its `trim_learn` is on.
 - At a `brk` the model restarts from the logged battery, keeping its last aim; the regulator runs on and goes
   stale on its own after `stale_after_s`.
-- SOC is the logged one, not simulated.
+- SOC: the logged one, unless the plant has `capacity_wh`; then it starts from the logged one at the first
+  sample and each `brk` and follows the simulated battery. Either one feeds the regulator and the model's
+  refusal and full hold.
 
 ## Scorecard (`score.py`)
 
@@ -193,15 +199,21 @@ Overlapping windows count twice there. One plant serves all variants: `--plant`,
 
 - The model has no reading noise or quantisation, so a replay scores better than live for the same code.
   On the development logs the same regulator at live settings replayed at about two thirds of the live cost.
-  Compare variants with each other; use the live row only for the trend.
+  Compare variants with each other; use the live row only for the trend. Noise is left out on purpose: the
+  `model_error` residuals are not known to be white, a guessed noise model would rank variants by the guess,
+  and a seeded one makes each run depend on its seed. A fitted residual model is the open question below.
 - Policy caps and floor are not in the log. A replay uses the CLI caps, else `default_max_w` (what the
   controller uses for a cap it cannot read), and the CLI floor. A step's `limit` says when a cap held but not
   its value: `output_w` is after the slew. So a live day capped by a policy limit replays without that cap.
   Exclude such spans, or set the caps. A `refused` record's `floor` is the policy floor at that moment only.
 - The slow ramp starts only from an idle battery. Logs show it lasting across later commands; whether it
   can start from a running discharge, and when the inverter enters that mode, is unknown.
-- A balance hold or full battery delivers less than asked; the model does not. Exclude holds with `--exclude`.
-  SOC is not simulated, so floor and full holds follow the logged SOC.
+- A balance hold delivers less than asked; the model does not. Exclude holds with `--exclude`. Refusal and
+  full holds are a hard 0 W at a hand set SOC, off by default; the real refusal SOC is not fitted. Without
+  `capacity_wh` they follow the logged SOC, so a variant that drains faster than live does not reach the
+  floor sooner.
+- `normal` is modelled as 0 W. The inverter's own mode is not 0 W, but replay only sends `normal` when the
+  regulator hands back (stale or released), and what the inverter then does is not in the log.
 - The fit's discharge group mixes rises, cuts to 0 W and turns from charge, which lag differently; fractions
   above 1 (overshoot) are fitted as a plain lag.
 - Older logs: a `pv` of -10 at night reads as 100 W west solar, so a night can show minutes of `clear`.

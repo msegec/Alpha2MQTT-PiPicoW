@@ -165,6 +165,17 @@ def test_the_battery_is_read_before_the_match_wait(tmp_path):
     assert 0 < out[1]["battery"] < out0[1]["battery"]  # read half a second earlier, on the rise
 
 
+def test_a_replay_can_simulate_the_soc_and_the_floor_refusal(tmp_path):
+    mod = module(tmp_path, NEW)
+    plant = P.Plant(dead_s=0.0, tau_discharge_s=0.01, tau_charge_s=0.01, capacity_wh=10.0, refuse_soc=50.0)
+    out, _ = replay.replay(mod, rows(40, soc=60.0), plant, tick_s=0, loss=logs.Loss(0, 0))
+    socs = [x["soc"] for x in out]
+    assert socs[0] == 60.0 and socs == sorted(socs, reverse=True)  # from the logged SOC, then down
+    assert [c[4] for c in mod.CALLS if c[0] == "grid"] == socs  # the regulator sees the simulated SOC
+    assert 49.0 < socs[-1] <= 50.0  # the refusal stops the discharge at 50 %
+    assert out[-1]["battery"] == pytest.approx(0, abs=1)
+
+
 def test_outcomes_count_commands_from_one():
     o = replay.every(fail_every=3, timeout_every=2)
     assert [o(n) for n in range(6)] == ["ok", "timeout", "fail", "timeout", "ok", "fail"]

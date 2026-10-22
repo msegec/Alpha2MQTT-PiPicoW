@@ -113,7 +113,8 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
     across a brk; with ticks off the timeout check runs at each sample. trim is a learned table to start from, as
     the controller loads its store at start; None starts from zero. A row's wait_s (the logged match wait) puts
     the battery reading that much before the step, as the controller reads the sample, then waits for its
-    correction."""
+    correction. With plant.capacity_wh the SOC is simulated from the logged one at the first sample and each brk;
+    otherwise it is the logged one. Either feeds the regulator and the plant's refusal and full hold."""
     outcome = outcome or (lambda n: OK)
     overrides = overrides or {}
     warnings: list[str] = []
@@ -202,12 +203,16 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
         if sim is None or r["brk"]:
             sim = plantmod.Sim(plant, r["battery"], None if sim is None else sim.aim)
             sim.t = seen
+            sim.soc = r["soc"]
+        if plant.capacity_wh <= 0:
+            sim.soc = r["soc"]  # not simulated: the logged SOC, for the model's refusal and full hold
         b = sim.advance(max(seen, sim.t))
+        soc = sim.soc
         respond(t)
         if tick_s <= 0:
             check_ack(t)
         grid = r["demand"] + loss(b) - b
-        kw = {"soc": r["soc"]} if takes_soc else {}
+        kw = {"soc": soc} if takes_soc else {}
         if takes_solar:
             kw["solar_w"] = r["solar"]
         reg.update_grid(t, grid, b, **kw)
@@ -222,7 +227,7 @@ def replay(mod, rows: list[dict], plant: plantmod.Plant, overrides: dict | None 
         policy = mod.Policy(mod.REGULATE, **{k: v for k, v in pk.items() if k in pol_fields})
         cmd = reg.step(t, policy)
         signed = None if cmd is None else publish(t, cmd)
-        out.append({"t": t, "seq": r["seq"], "brk": r["brk"], "grid_w": grid, "battery": b, "soc": r["soc"],
+        out.append({"t": t, "seq": r["seq"], "brk": r["brk"], "grid_w": grid, "battery": b, "soc": soc,
                     "target": s.target_w + offset, "error_w": grid - (s.target_w + offset),
                     "request_w": reg.request_w, "output_w": reg.output_w, "sent": signed,
                     "sent_normal": cmd is not None and cmd.kind == "normal", "solar": r["solar"],
@@ -239,12 +244,21 @@ def add_variant_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--discharge-soc", type=int, default=10)
     p.add_argument("--ack-s", type=float, default=ACK_S, help="seconds from a command to its response")
     p.add_argument("--tick-s", type=float, default=TICK_S, help="controller tick between samples, 0 off")
+    p.add_argument("--capacity-wh", type=float, help="plant: simulate the SOC with this capacity")
+    p.add_argument("--refuse-soc", type=float, help="plant: a discharge at or under this SOC delivers 0 W")
+    p.add_argument("--full-soc", type=float, help="plant: a charge at or over this SOC delivers 0 W")
     t = p.add_mutually_exclusive_group()
     t.add_argument("--trim", help="start from this learned table: the controller's store file, or {\"points\": ...}")
     t.add_argument("--trim-from-log", action="store_true", help="start from the learned table the log has in force")
     p.add_argument("--fail-every", type=int, default=0, help="refuse every Nth command (0 never)")
     p.add_argument("--timeout-every", type=int, default=0, help="leave every Nth command unanswered (0 never)")
     p.add_argument("--json", action="store_true")
+
+
+def plant_from_args(a, pl: plantmod.Plant) -> plantmod.Plant:
+    """The plant with --capacity-wh, --refuse-soc and --full-soc applied over it."""
+    over = {k: getattr(a, k) for k in ("capacity_wh", "refuse_soc", "full_soc") if getattr(a, k) is not None}
+    return dataclasses.replace(pl, **over)
 
 
 def variant_kwargs(a, recs: list[dict] | None = None, t: float | None = None) -> dict:
@@ -273,6 +287,7 @@ def main(argv: list[str] | None = None) -> None:
     if not rows:
         raise SystemExit("no regulating samples in the window")
     pl = plantmod.Plant.load(a.plant) if a.plant else plantmod.fit(rows, logs.commands(recs))[0]
+    pl = plant_from_args(a, pl)
     mod = load_regulator(a.regulator, a.ref)
     sim, warnings = replay(mod, rows, pl, parse_sets(a.set), logs.CfgTimeline(recs) if a.settings_from_log else None,
                            **variant_kwargs(a, recs, rows[0]["t"]))

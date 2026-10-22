@@ -61,6 +61,38 @@ def test_dead_time_then_lag():
     assert sim.advance(2.0) == pytest.approx(1000 * (1 - 2.718281828 ** -1), rel=0.02)
 
 
+def test_soc_integrates_the_battery_power():
+    sim = P.Sim(P.Plant(dead_s=0.0, tau_discharge_s=0.01, capacity_wh=1000.0), 1000.0, 1000.0)
+    sim.t, sim.soc = 0.0, 50.0
+    sim.advance(360.0)  # 1000 W for 0.1 h is 100 Wh, 10 % of 1000 Wh
+    assert sim.soc == pytest.approx(40.0, abs=0.01)
+    sim.command(360.0, -500.0)
+    sim.advance(1080.0)  # 500 W for 0.2 h back in
+    assert sim.soc == pytest.approx(50.0, abs=0.05)
+
+
+def test_the_soc_is_left_alone_without_a_capacity():
+    sim = P.Sim(P.Plant(), 1000.0, 1000.0)
+    sim.t, sim.soc = 0.0, 50.0
+    sim.advance(360.0)
+    assert sim.soc == 50.0
+
+
+def test_a_discharge_at_the_refusal_soc_and_a_charge_when_full_deliver_nothing():
+    plant = P.Plant(dead_s=0.0, tau_discharge_s=0.01, tau_charge_s=0.01, refuse_soc=10.0, full_soc=100.0)
+    sim = P.Sim(plant, 0.0)
+    sim.t, sim.soc = 0.0, 10.0
+    sim.command(0.0, 800.0)
+    assert sim.advance(5.0) == pytest.approx(0.0)
+    sim.soc = 10.5
+    assert sim.advance(10.0) == pytest.approx(800.0, abs=1)
+    sim.soc = 100.0
+    sim.command(10.0, -800.0)
+    assert sim.advance(15.0) == pytest.approx(0.0, abs=1)
+    sim.soc = None  # unknown: no hold
+    assert sim.advance(20.0) == pytest.approx(-800.0, abs=1)
+
+
 def test_save_and_load(tmp_path):
     f = tmp_path / "p.json"
     TRUE.save(str(f))
