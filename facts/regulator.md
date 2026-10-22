@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d80bfb1 plus the authority clip and the `load_trim` slope check, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 312 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the authority clip, the `load_trim` slope check and the learning gate tests, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 317 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -240,6 +240,8 @@ Early send (`_may_send_early`) needs: last not normal, acked, and a fresh sample
 | `test_the_integral_winds_faster_on_import_than_on_export`, `test_the_integral_import_factor_is_1_by_default` | Import factor on the integral gain, symmetric by default. |
 | `test_a_small_import_cut_goes_out_after_the_import_trim_gap`, `test_a_small_export_cut_still_waits_the_trim_gap`, `test_the_import_trim_wait_is_the_trim_gap_by_default` | Import trim wait for moves up only, equal to the trim gap by default. |
 | `test_learning_*`, `test_a_learned_table_*`, `test_a_table_steeper_than_the_trim_slope_*`, `test_a_table_learned_against_the_trim_slope_*`, `test_nothing_is_learned_*`, `test_forgetting_the_table_zeroes_it`, `test_the_integral_and_the_trim_together_*`, `test_a_trim_past_the_integral_limit_*` | Learning moves the integral into the table and keeps the command, off by default (and at rate 0), a loaded table applies with learning off, bad tables (and ones steeper than `TRIM_SLOPE`) do not load, a table learned to the slope loads back, nodes stay in bounds, nothing is learned at a cap or under a policy offset, the integral minus the trim stays within `integral_limit_w` and a trim past it forces no integral. |
+| `test_each_learning_gate_is_a_setting_*`, `test_the_learning_band_is_on_the_raw_grid_error` | `trim_settle_s`, `trim_min_w`, `trim_max_soc` and `trim_band_w` each stop learning at one value and allow it at another. Each fails under a mutation that drops its gate. |
+| `test_smoothing_moves_the_request_*` | `smoothing_s` 10 moves a 980 W step 100 W after 1 s; 0 sends it whole. |
 | `test_a_negative_cap_never_pushes_*` | A negative cap is 0 W. |
 | `test_discharge_waits_for_a_known_soc_*`, `test_discharge_without_a_known_soc_*` | `discharge_needs_soc`, off by default. |
 | `test_feed_forward_can_ignore_west_crossing_*`, `test_the_feed_forward_minimum_solar_*` | `solar_ff_min_w`, off by default. |

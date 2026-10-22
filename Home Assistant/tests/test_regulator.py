@@ -1511,6 +1511,38 @@ def test_a_trim_past_the_integral_limit_does_not_force_an_integral(limit):
     assert reg.integral_w == 0
 
 
+def _learns(**kw):
+    """Whether a settled 500 W discharge, battery 40 W short, at SOC 50 teaches the table anything."""
+    reg = _settle(make(**{**dict(trim_learn=True, trim_rate=0.05, ki=0.05, deadband_w=0, target_w=0,
+                                  min_interval_s=0, write_threshold_w=10), **kw}), short_w=40)
+    return any(reg.trim)
+
+
+@pytest.mark.parametrize("key, blocks, learns", [
+    ("trim_settle_s", 1000, 20),  # the command never stays unchanged 1000 s in 200 s
+    ("trim_min_w", 1000, 50),  # a 540 W setpoint is under 1000 W
+    ("trim_max_soc", 50, 97),  # SOC 50 is at the cap
+])
+def test_each_learning_gate_is_a_setting_that_stops_learning(key, blocks, learns):
+    assert not _learns(**{key: blocks})
+    assert _learns(**{key: learns})
+
+
+def test_the_learning_band_is_on_the_raw_grid_error():
+    # A 30 W deadband leaves 30 W of raw error the integral never trims: inside a 50 W band, outside a 20 W one.
+    assert not _learns(deadband_w=30, trim_band_w=20)
+    assert _learns(deadband_w=30, trim_band_w=50)
+
+
+def test_smoothing_moves_the_request_a_share_of_the_way_per_second():
+    for smoothing_s, watts in ((0, 980), (10, 100)):
+        reg = make(smoothing_s=smoothing_s, ki=0, min_interval_s=0)
+        reg.update_grid(0, 20, 0, soc=50)
+        reg.step(0, DISCHARGE)
+        reg.update_grid(1, 1020, 0, soc=50)  # 980 W more after the deadband
+        assert reg.step(1, DISCHARGE).watts == watts  # a tenth of it after 1 s of a 10 s filter, rounded
+
+
 def test_forgetting_the_table_zeroes_it():
     reg = _settle(make(trim_learn=True, trim_rate=0.05, ki=0.05, deadband_w=0, target_w=0, min_interval_s=0,
                        write_threshold_w=10), short_w=40)
