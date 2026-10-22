@@ -222,14 +222,7 @@ def estimate_grid(correction_w: float, battery_w: float, clamp_w: float | None =
 
 def inverter_offset(w: float) -> float:
     """The battery reading minus the setpoint expected at setpoint w, from INVERTER_OFFSET."""
-    (x0, y0), *rest = INVERTER_OFFSET
-    if w <= x0:
-        return y0
-    for x1, y1 in rest:
-        if w <= x1:
-            return y0 + (y1 - y0) * (w - x0) / (x1 - x0)
-        x0, y0 = x1, y1
-    return y0
+    return _interp(*zip(*INVERTER_OFFSET), w)
 
 
 def _interp(xs, ys, w: float) -> float:

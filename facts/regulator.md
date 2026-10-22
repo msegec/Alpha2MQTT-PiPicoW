@@ -2,7 +2,7 @@
 
 The regulator turns each grid sample into a dispatch command (charge, discharge or normal) that holds the grid near a target, inside limits set by a policy.
 
-Last verified: d80bfb1 plus the regulator fixes up to `LEARN_SOC_MARGIN`, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 320 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
+Last verified: d80bfb1 plus the regulator fixes up to one interpolator, 2026-10-22. `python3 -m pytest "Home Assistant/tests"`: 320 passed; `tools/bench/tests`: 28 passed; `GOLDEN_FLOOR_OFF` unchanged.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pure Python, no Home Assistant imports) and `Home Assistant/tests/test_regulator.py` (loads the module by path). The only caller is `controller.py`, which passes `time.monotonic()` seconds as `t`.
 
@@ -19,7 +19,7 @@ Files: `Home Assistant/custom_components/alpha2mqtt_controller/regulator.py` (pu
 
 | Symbol | Inputs | Output / effect |
 |---|---|---|
-| `inverter_offset(w)` | signed setpoint W | Expected battery reading minus setpoint, linear between the `INVERTER_OFFSET` points, flat past the ends. |
+| `inverter_offset(w)` | signed setpoint W | Expected battery reading minus setpoint, linear between the `INVERTER_OFFSET` points, flat past the ends: `_interp` over its columns, the helper the learned table uses. `_setpoint` merges both tables' nodes; today every `INVERTER_OFFSET` point is a `TRIM_NODES` node, and the merge keeps the solve right if that changes. |
 | `estimate_grid(correction_w, battery_w, clamp_w=None, scale=None)` | watts | Grid estimate. Without `scale`: `correction_w - battery_w`, where correction is house demand net of solar. With `scale`: `scale * clamp_w + correction_w`. |
 | `Policy` (frozen) | `mode`, `max_charge_w`, `max_discharge_w`, `charge_soc` (100), `discharge_soc` (10), `fixed_w`, `target_offset_w`, `reason` | What is allowed. The regulator only clamps to it. |
 | `Settings` (mutable) | tuning, table below | The controller changes fields live with `setattr`. |
