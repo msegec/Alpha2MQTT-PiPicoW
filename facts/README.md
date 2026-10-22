@@ -4,9 +4,9 @@ The control system in one page, and which facts file to read for a task.
 Each file states what its author read or ran, anchors code by symbol, and
 marks the rest "unknown".
 
-Last verified: working tree on 75e08a8 plus the 2026-10-21 cleanup; the Pico W build
-compiles and `tests/firmware/run` 7 suites OK. On 5689ec1 plus the
-`_target_offset_w` rename, 2026-10-22: `python3 -m pytest "Home Assistant/tests"` 243 passed.
+Last verified: 2026-10-22 on master after the fix branches: the Pico W build
+compiles, `tests/firmware/run` 8 suites OK, `python3 -m pytest "Home Assistant/tests"`
+379 passed and `python3 -m pytest tools/bench/tests` 57 passed.
 
 ## Keeping it true
 
@@ -44,7 +44,7 @@ from idle ramps at about 10 W/s. See `design-history.md`.
 | Grid power 0x0021 | import | wire, controller, regulator |
 | Battery power 0x0126 | discharge | wire, controller, regulator |
 | Request `watts` | always positive; the topic sets direction | MQTT |
-| Dispatch power 0x0881 | 32000 + W discharge, 32000 - W charge | register, and the raw value HA shows |
+| Dispatch power 0x0881 | 32000 + W discharge, 32000 - W charge | register; HA's Dispatch Power shows it as signed W, + discharge |
 | Dispatch SOC 0x0886 | 0.4 % per bit, firmware rounds up | register |
 | Battery SOC 0x0102 | 0.1 % per bit | register |
 
@@ -65,7 +65,8 @@ from idle ramps at about 10 W/s. See `design-history.md`.
 
 - Only the controller should drive dispatch. Four writers exist: the
   controller, package scripts `alpha2mqtt_set_*`, the firmware idle hold and
-  raw register writes. Nothing arbitrates; the last write wins.
+  raw register writes. The scripts turn the controller's Enabled switch off
+  before they write; nothing else arbitrates, and the last write wins.
   `mqtt-contract.md`.
 - Nothing is retained and the firmware sets no MQTT will. Freshness comes
   from `seq` and age checks. `firmware-runtime.md`.
@@ -75,8 +76,9 @@ from idle ramps at about 10 W/s. See `design-history.md`.
   `set/normal` when HA returns. `firmware-dispatch.md` "IdleHold".
 - A discharge that delivers under 30 W for 20 s counts as refused. Near the
   floor the refusal holds until SOC rises 1 %. `regulator.md`.
-- `powerOnly` must be exactly `1`; a `.` in any value is stripped
-  (`150.5` becomes `1505`). `firmware-dispatch.md`.
+- Request numbers must be whole: `150.5`, `-1` or `1e3` is refused with
+  `failureDetail` `value`, never read as another number. `powerOnly` takes
+  `1` or `true`; `duration` 1 to 86400. `Request.h`, `firmware-dispatch.md`.
 - Two entities the controller needs live outside this repo: the policy
   entity and the correction entity. `mqtt-contract.md`.
 - The SMILE-B3 ignores function 0x06, and settings in 0x0850..0x0859 need
@@ -97,8 +99,9 @@ flows and the legacy HA txt files were removed on 2026-10-21.
 
 ## Known defects (verified in code)
 
-- The AL system fault lookup tests bit 12 twice, so faults on bits 13 to 15
-  show the next bit's text and `SYSTEM_ERROR_AL_BIT_13` never shows. Kept
-  as upstream had it; see `systemFaultAlEntries` in `Registers.h`.
+None open. Fixed on 2026-10-22: the AL system fault lookup gave bits 13 to
+15 the next bit's text, and battery fault bits 0, 1 and 30 had no text and
+hid higher bits. Fault sensors now list every set bit; a bit with no text
+shows as `Bit N`. `Registers.h`, `modbus-and-registers.md`.
 
 Each file ends with its own open questions.

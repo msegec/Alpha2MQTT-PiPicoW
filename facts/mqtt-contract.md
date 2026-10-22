@@ -34,7 +34,6 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 | `Alpha2MQTT/state/minute/one` | FW->HA | `sendData` | pkg 35 sensors | JSON, 35 keys: 3 voltages, 8 energy totals, 24 battery health keys | every 60 s |
 | `Alpha2MQTT/state/minute/five` | FW->HA | `sendData` | pkg 24 sensors | JSON, 24 slow battery keys | every 300 s |
 | `Alpha2MQTT/state/hour/one` | FW->HA | `sendData` | pkg 4 sensors | JSON: 3 frequencies, `REG_SYSTEM_OP_R_SYSTEM_FAULT_1` | every 3600 s |
-| `Alpha2MQTT/state/day/one` | FW->HA | never in practice | none | none | array empty |
 | `Alpha2MQTT/state/device` | FW->HA | `sendDeviceState` | pkg Pico VSYS, Pico USB Power | `{"vsys_mv": int, "usb_power": bool}` | every 60 s, with minute/one |
 | `Alpha2MQTT/request/set/charge` | HA->FW | ctl `_publish`; pkg script `alpha2mqtt_set_charge` | FW `mqttCallback` | `watts`, `socPercent`, `duration` required; `seq`, `powerOnly` optional | ctl: each regulator step that emits a command; others on demand |
 | `Alpha2MQTT/request/set/discharge` | HA->FW | ctl; pkg script `alpha2mqtt_set_discharge` | FW | same keys as charge | same |
@@ -57,8 +56,8 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 
 ## Request parsing (firmware `mqttCallback`)
 
-- Hand-rolled parser. Names keep only `[A-Za-z0-9]`. Values keep only `-`, `x`, `0-9`, `a-f`, `A-F`.
-  A `.` is stripped, so `"watts": 1500.0` would parse as `15000`. The controller and package scripts send integers.
+- Hand-rolled parser, `Request.h` (host tested). Names keep only `[A-Za-z0-9]`. Values keep their text, less white space and one pair of quotes; each key's typed parse (`parseWhole`, `parseHex16`, `parseFlag`) refuses anything else.
+  A number with a point, sign or exponent (`1500.0`, `-1`, `1e3`) is refused with `failureDetail` `value`. The controller casts to int and the package scripts render `| int`.
 - A name or value over 31 chars fails the request as `invalidMQTTPayload`.
 - `powerOnly` is honoured only when its cleaned value is exactly `1`. `true` cleans to `e` and is ignored.
 - `watts` over 32000 or `socPercent` over 105 is refused with `failureDetail: "range"` (`dispatchRequestValid`).
@@ -88,7 +87,7 @@ Direction: FW->HA is published by the Pico. HA->FW is subscribed by the Pico. "p
 | `REG_DISPATCH_RW_ACTIVE_POWER_1` | raw | 32000 offset kept: charge reads 32000 - W, discharge 32000 + W |
 | `REG_DISPATCH_RW_DISPATCH_SOC` | % | converted back from 0.4 %/bit |
 | `REG_CUSTOM_LOAD` | W | firmware computes pv + grid + battery (signed sum, `RegisterHandler::readHandledRegister`) |
-| `REG_CUSTOM_GRID_CURRENT_A_PHASE` | A, integer | phase A power / phase A voltage. `Definitions.h` comment says 0.1 A; the code divides by volts |
+| `REG_CUSTOM_GRID_CURRENT_A_PHASE` | A, two decimals | phase A power / phase A voltage, published in tenths of an amp (152533a) |
 | `REG_CUSTOM_TOTAL_SOLAR_POWER` | W | sum from `readTotalSolarPower` |
 | Request `watts` | W | always positive; the topic picks the direction. Firmware writes 32000 - W for charge, 32000 + W for discharge |
 | Request `socPercent` | % | integer; firmware rounds up to the 0.4 % register; 101 to 105 are register steps past full (251 to 255) |
@@ -194,13 +193,13 @@ so the next charge or discharge writes the full block.
 - Published, no consumer in repo: `response/read/register/*`, `response/write/register/*`.
 - Firmware subscribes to `request/read/register/handled`, `request/read/register/raw`, `request/write/register/raw/single`,
   `request/write/register/raw/data` and `request/read/register/handled/all`; nothing in repo publishes them. README documents all five.
-- `state/day/one` has an empty array since 99a1bdf, so it is never published. `state/minute/five` carries battery keys since c2e334d.
+- `state/day/one` and its empty schedule were removed (9b49f9b). `state/minute/five` carries battery keys since c2e334d.
 - `haIdle` in the fast state: the package's Idle Hold shows it; the controller does not read it.
 - Fast `REG_DISPATCH_RW_DISPATCH_START`: the controller logs it in the step log but never acts on it.
 - Response `frames` and `ms`: the controller ignores both; it times acks with its own monotonic clock.
 - README set/charge example omits `frames`, which the firmware sends on every block write.
 - `setDishargeSuccess` typo is in the firmware and the README alike.
-- Response topic defines are named `MQTT_SUB_RESPONSE_SET_*` though the firmware publishes them, not subscribes.
+- Response topic defines are `MQTT_MES_RESPONSE_SET_*` (renamed from `MQTT_SUB_` in 3ff0ccc).
 
 ## History of the package (`git log -- "Home Assistant/alpha2mqtt.yaml"`)
 
