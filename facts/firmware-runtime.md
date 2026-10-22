@@ -2,7 +2,7 @@
 
 One single threaded Arduino loop on the Pico W. It polls the inverter on fixed schedules, publishes JSON state over MQTT and runs commands inline, between bus reads.
 
-Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
+Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug line bounded, `payloadAppend`, `stateAddition` sized and bounded, day schedule removed, buffer floor tried. Earlier: working tree on 75e08a8 plus the 2026-10-21 cleanup. Sources: `Alpha2MQTT/Alpha2MQTT.ino`, `Alpha2MQTT/Timer.h`, `Alpha2MQTT/IdleHold.h`, `Alpha2MQTT/JsonMembers.h`, `Alpha2MQTT/Definitions.h`, `Alpha2MQTT/RS485Handler.cpp`, git history. `tests/firmware/run` passed: `test_dispatch`, `test_idle_hold`, `test_json_members`, `test_modbus_frame`, `test_pv_meter`, `test_registers`, `test_request`, `test_timer`, all `OK`, exit 0.
 
 ## Boot sequence (`setup`)
 
@@ -11,7 +11,7 @@ Last verified: 2026-10-22 on fix/firmware, request parser in `Request.h`, debug 
 3. `WiFi.setTimeout(WIFI_JOIN_TIMEOUT)` (3000 ms), then `setupWifi`. `WiFi.begin` blocks for up to about 3 s.
 4. OTA: `ArduinoOTA` with hostname `DEVICE_NAME` and password `OTA_PASSWORD`. `onProgress` feeds the watchdog. It starts before any inverter work, so a bad build can always be replaced.
 5. MQTT client setup: `setServer`, `_wifi.setTimeout(MQTT_CLIENT_TIMEOUT)` (2500 ms), `setSocketTimeout(MQTT_REPLY_TIMEOUT)` (2 s).
-6. Buffer allocation. It tries `MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE` and steps down 1024 bytes at a time. Then it allocates three payload buffers of `_maxPayloadSize`: `_mqttPayload`, `_commandPayload` and `_fastPayload`.
+6. Buffer allocation. It tries `MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE` and steps down 1024 bytes at a time with `nextBufferSize` (`JsonMembers.h`, host tested), ending on the floor `MIN_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE` (1024): 4608, 3584, 2560, 1536, 1024. Before 2026-10-22 the floor was never tried and 1536 was the last. Then it allocates three payload buffers of `_maxPayloadSize`: `_mqttPayload`, `_commandPayload` and `_fastPayload`. If every size fails, setup stops there and only services OTA, WiFi and the watchdog (`waitServicingOta`) instead of running the loop on a null payload.
 7. `setCallback(mqttCallback)`. Creates `RS485Handler` and `RegisterHandler`.
 8. Baud scan: it reads `REG_SAFETY_TEST_RW_GRID_REGULATION` at 9600, 115200, 19200, 57600, 38400, 14400 and 4800, cycling until one answers. It waits `waitServicingOta(1000)` after each failure. This loop never gives up.
 9. `getSerialNumber` reads `REG_SYSTEM_INFO_R_EMS_SN_BYTE_1_2`, sets the serial prefix, then `waitServicingOta(4000)`.
@@ -161,7 +161,7 @@ There are 8 under `DEVICE_NAME` (`MQTT_SUB_REQUEST_*`: read handled, read raw, s
 - With `MQTT_SERVER` as a hostname, a broker attempt can take 7 s against an 8 s watchdog. Use a dotted address (65f3526).
 - Nothing is retained, and there is no LWT. A new subscriber waits up to one period for state. A dead Pico shows only as the fast state stopping and `seq` gaps.
 - `DEBUG` is on, and `checkForData` prints a timeout line on every RS485 timeout whatever the setting.
-- If every buffer allocation fails, `_mqttPayload` stays unset. There is no guard.
+- If every buffer allocation fails, nothing is published; the Pico waits in setup for an OTA upload. Before 2026-10-22 there was no guard and the loop used a null `_mqttPayload`.
 
 ## Open questions
 

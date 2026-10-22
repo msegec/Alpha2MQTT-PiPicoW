@@ -59,8 +59,10 @@ Customise these options as per README.txt.  Please read README.txt before contin
 
 // 4096 works well given the RAM requirements of Alpha2MQTT.
 // At 4096 (4095 usable) you can request up to around 70 to 80 registers on a schedule or by request.
-// Alpha2MQTT on boot will request a buffer size of (MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE) for MQTT, and
-// MAX_MQTT_PAYLOAD_SIZE for building payloads.  If these fail and your device doesn't boot, you can assume you've set this too high.
+// On boot Alpha2MQTT asks PubSubClient for a buffer of (MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE), stepping down
+// 1024 bytes at a time to (MIN_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE). Whatever payload size that leaves, it then
+// allocates three payload buffers of it: schedules, incoming commands and the fast state. If even the smallest
+// fails, nothing is published and the Pico only waits for an OTA upload with a smaller size.
 #define MAX_MQTT_PAYLOAD_SIZE 4096
 #define MIN_MQTT_PAYLOAD_SIZE 512
 #define MQTT_HEADER_SIZE 512

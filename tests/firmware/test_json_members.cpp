@@ -88,6 +88,18 @@ int main()
 	char aliased[8] = "ab";
 	expect(payloadAppend(aliased, sizeof(aliased), aliased + 1, length) && strcmp(aliased, "abb") == 0, "an addition from inside the payload is copied before it is overwritten");
 
+	// nextBufferSize: the boot allocation's sizes, 4608 down to the 1024 floor
+	int tried[8] = { 0 };
+	int tries = 0;
+	for (int size = 4608; size != 0 && tries < 8; size = nextBufferSize(size, 1024, 1024))
+	{
+		tried[tries++] = size;
+	}
+	expect(tries == 5 && tried[0] == 4608 && tried[3] == 1536 && tried[4] == 1024, "the floor is tried after 1536");
+	expect(nextBufferSize(1100, 1024, 1024) == 1024, "a step past the floor lands on it");
+	expect(nextBufferSize(1024, 1024, 1024) == 0, "after the floor there is nothing left");
+	expect(nextBufferSize(900, 1024, 1024) == 0, "a start under the floor stops");
+
 	if (failures == 0)
 	{
 		printf("OK\n");

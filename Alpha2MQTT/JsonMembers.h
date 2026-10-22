@@ -1,4 +1,4 @@
-// Pure helpers for the JSON state payloads. No Arduino types, so tests/firmware builds them on the host.
+// Pure helpers for the JSON state payloads and their buffers. No Arduino types, so tests/firmware builds them on the host.
 #ifndef _JsonMembers_h
 #define _JsonMembers_h
 
@@ -39,6 +39,16 @@ inline bool payloadAppend(char* payload, size_t size, const char* addition, size
 	}
 	memmove(payload + used, addition, adding + 1);
 	return true;
+}
+
+// The next PubSubClient buffer size to try at boot: step down, then the floor itself, then 0 for none left.
+inline int nextBufferSize(int size, int smallest, int step)
+{
+	if (size <= smallest)
+	{
+		return 0;
+	}
+	return size - step > smallest ? size - step : smallest;
 }
 
 #endif

@@ -515,7 +515,8 @@ void setup()
 	snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "About to request buffer");
 	Serial.println(_debugOutput);
 #endif
-	for (_bufferSize = (MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE); _bufferSize >= MIN_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE; _bufferSize = _bufferSize - 1024)
+	for (_bufferSize = (MAX_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE); _bufferSize != 0;
+		_bufferSize = nextBufferSize(_bufferSize, MIN_MQTT_PAYLOAD_SIZE + MQTT_HEADER_SIZE, 1024))
 	{
 #ifdef DEBUG
 		snprintf(_debugOutput, DEBUG_OUTPUT_SIZE, "Requesting a buffer of : %d bytes", _bufferSize);
@@ -548,6 +549,18 @@ void setup()
 		}
 	}
 	
+	// With no payload buffer nothing can be published, and loop would use a null pointer.
+	// Stay reachable for an OTA upload built with a smaller MAX_MQTT_PAYLOAD_SIZE.
+	if (_mqttPayload == NULL)
+	{
+#ifdef DEBUG
+		Serial.println("No MQTT buffer, waiting for OTA");
+#endif
+		for (;;)
+		{
+			waitServicingOta(1000);
+		}
+	}
 
 	// And any messages we are subscribed to will be pushed to the mqttCallback function for processing
 	_mqtt.setCallback(mqttCallback);
