@@ -562,6 +562,18 @@ def test_solar_comes_from_the_net_demand_attributes_and_feeds_forward_its_change
         (500.5, 0), (800.5, -300), (None, 0), (None, 0), (None, 0)]
 
 
+def test_a_dropped_sample_is_logged_with_why(monkeypatch):
+    house = logged_house(monkeypatch)
+    for payload in ("not json", "[]", json.dumps({C.BATTERY_KEY: 500}), json.dumps({C.GRID_KEY: "x", C.BATTERY_KEY: 1}),
+                    json.dumps({C.GRID_KEY: 0, C.BATTERY_KEY: 50000, "seq": 4})):
+        house.c._on_state(types.SimpleNamespace(payload=payload))
+    assert house.log.kind("step") == []
+    assert [(d["why"], d["p"]) for d in house.log.kind("drop")] == [
+        ("unreadable", "not json"), ("unreadable", "[]"), ("unreadable", json.dumps({C.BATTERY_KEY: 500})),
+        ("unreadable", json.dumps({C.GRID_KEY: "x", C.BATTERY_KEY: 1})),
+        ("implausible", json.dumps({C.GRID_KEY: 0, C.BATTERY_KEY: 50000, "seq": 4}))]
+
+
 def test_a_step_that_waited_for_its_net_demand_says_how_long(monkeypatch):
     house = logged_house(monkeypatch)
     house.set("sensor.net_demand", "1000", seq=0)

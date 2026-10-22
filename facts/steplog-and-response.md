@@ -2,7 +2,7 @@
 
 The controller writes every input, decision and bus message to a daily JSONL file, and times each large setpoint step to 80 % of its rise.
 
-Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 350 passed.
+Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 352 passed.
 
 ## Files
 
@@ -37,6 +37,7 @@ Every record: `k` (kind, str) and `t` (Unix wall time in seconds, float, 3 decim
 | `start` | `async_start`, log open | `code`: first 12 hex of a sha256 over `regulator.py` and `controller.py`, also the Loop version sensor |
 | `cfg` | after `start`, and on every `set_setting` | every `Settings` field: `target_w`, `kp`, `ki`, `ki_import_x`, `integral_band_w`, `integral_limit_w`, `kff`, `ff_guard`, `solar_ff_min_w`, `deadband_w`, `smoothing_s`, `slew_w_per_s`, `write_threshold_w`, `min_interval_s`, `keepalive_s`, `duration_s`, `flip_hysteresis_w`, `flip_dwell_s`, `stale_after_s`, `power_write_gap_s`, `warm_w`, `offset_comp`, `spike_confirm_w`, `integral_reset_w`, `import_trim_gap_s`, `trim_learn`, `trim_rate`, `trim_limit_w`, `trim_settle_s`, `trim_band_w`, `trim_min_w`, `trim_max_soc`, `full_register`, `discharge_needs_soc`, `arrive_restart_w`, `floor_margin_soc`, `refused_w`, `refused_after_s`, `refused_hold_s`, `refused_ask_w`, `refused_near_soc`, `rearm_soc`, `min_send_gap_s`, `max_integrate_s`, `lag_w`, `arrive_s`, `small_trim_w`, `small_trim_gap_s`, `warm_band_w`, `solar_deadband_w`, `solar_max_gap_s`, `command_step_w`, `default_max_w`, `max_plausible_w`, `correction_max_age_s`, `ack_timeout_s`, `match_wait_s`, `response_step_w`, `response_slow_s`, `response_timeout_s` |
 | `step` | each new fast message (`_take`), enabled or not | see below |
+| `drop` | a fast message not taken: unparsable, a missing or non-numeric grid or battery key, or a value not finite or over `max_plausible_w` | `why` (`"unreadable"` or `"implausible"`), `p` (raw payload) |
 | `cmd` | every message on `<base>/request/#` | `topic` (str), `p` (raw payload) |
 | `ack` | every message on `<base>/response/set/+` | `topic`, `p` (raw payload) |
 | `ack_timeout` | seq echoed but no response in `ack_timeout_s` (10 s) | `seq` |
@@ -116,7 +117,7 @@ Sensors: `step_response` state is `last_response["t80_s"]` (null after a timeout
 | Did the inverter accept it? | `ack.p` `responseStatus`, `failureDetail`, `write`; `ack_timeout` |
 | Did the battery follow? | `step.battery` over following steps against the signed setpoint; `resp.result` |
 | How long did it take? | `resp.t80_s`, `elapsed_s`, `slope_w_s` (about 9 W/s is the slow ramp; hundreds is healthy); `ack.p.ms` minus the matching `step.ms` window; `t` gap between `cmd` and `ack` |
-| Was the sample late or stale? | `step.wait_ms`, `read_ms`, `seq` gaps, `ms` resets (reboot) |
+| Was the sample late or stale? | `step.wait_ms`, `read_ms`, `seq` gaps, `ms` resets (reboot); `drop` for a sample not taken |
 | Which code ran? | `start.code`, the Loop version sensor |
 | Why did the regulator do X? | `step.status`, `limit`, `error_w`, `integral_w`, `ff_w`, `offset_w`, `request_w`, `output_w`, `grid_w`, `solar_w`; `cfg` in force; `gap`, `refused`, `rearmed`, `cross`; `e` for policy or input entities |
 | Who wrote the inverter? | `cmd` records with no matching `step.sent` came from a tick, an entity change, a person or a script |
@@ -129,6 +130,7 @@ Sensors: `step_response` state is `last_response["t80_s"]` (null after a timeout
 - 9684b66: added `cross` with the ready floor (`warm_w`).
 - 7a07eab: `response.py`, `resp` records and the two sensors. Reason: the inverter can answer a discharge step with a slow ramp, and nothing showed it.
 - 75e08a8: added `refused` and `rearmed`.
+- 2026-10-22, fix/controller: added `drop`, so a dropped sample leaves a trace instead of only a missing `step`.
 - 2026-10-22: `step` lost `load_w` and gained `solar_w`, `offset_w` and `limit`; `start` gained `code`.
 
 ## Invariants pinned by tests

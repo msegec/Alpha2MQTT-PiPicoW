@@ -1,6 +1,6 @@
 The Home Assistant glue that feeds `Regulator` from MQTT and entities and publishes its commands to Alpha2MQTT.
 
-Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 351 passed.
+Last verified: d80bfb1 plus the controller fixes on branch fix/controller, 2026-10-22. `python3 -m pytest "Home Assistant/tests" -q`: 352 passed.
 
 Files: `Home Assistant/custom_components/alpha2mqtt_controller/` `controller.py`, `__init__.py`,
 `config_flow.py`, `number.py`, `switch.py`, `button.py`, `sensor.py`, `manifest.json`, `translations/en.json`.
@@ -59,7 +59,8 @@ Tests: `Home Assistant/tests/test_controller.py` (Home Assistant stubbed with `M
 ## One step, data flow
 
 1. `_on_state`: `json.loads(msg.payload)`. Reads `REG_GRID_METER_R_TOTAL_ACTIVE_POWER_1` (raw grid) and
-   `REG_BATTERY_HOME_R_BATTERY_POWER` as float. Parse error, missing key or implausible value: message dropped silently.
+   `REG_BATTERY_HOME_R_BATTERY_POWER` as float. Parse error, missing key or implausible value: message dropped, logged as `drop` with `why` (`unreadable` or
+   `implausible`) and the raw payload `p`; no step.
 2. `_plausible`: finite and `abs(x) <= max_plausible_w` (20000 W). Guards a kW value read as W, and NaN (e0e291d).
 3. Same `seq` as the last sample: ignored as a repeat. No `seq`: never deduped.
 4. A sample still waiting is stepped first. Then, if `_correction_behind(seq)` (correction entity has a `seq`
@@ -294,7 +295,7 @@ Non-power sensors without attributes write only on change.
 
 | Situation | Behaviour |
 |---|---|
-| Implausible or unparsable sample | ignored; no step |
+| Implausible or unparsable sample | ignored, no step; a `drop` record says why |
 | Grid estimate input missing or stale | no `update_grid`; regulator holds last command until `stale_after_s`, then releases |
 | Policy unreadable, including an SOC outside 0..105 | last good policy until `stale_after_s`, then release |
 | Unknown policy state | release at once, status says why, warning once per value |
@@ -309,7 +310,8 @@ Non-power sensors without attributes write only on change.
 
 ## Step log records written by controller.py
 
-`start`, `stop`, `cfg` (all settings), `step` (every fast message, enabled or not, 19c820f), `cmd` (every
+`start`, `stop`, `cfg` (all settings), `step` (every fast message, enabled or not, 19c820f), `drop` (a fast message
+not taken), `cmd` (every
 `{base}/request/#`), `ack`, `ack_timeout`, `gap`, `refused`, `rearmed`, `cross`, `resp`, `trim_load`, `trim`, `e`. Each record
 has `k` and `t`. File format and rotation belong to `steplog.py`.
 
@@ -339,6 +341,7 @@ has `k` and `t`. File format and rotation belong to `steplog.py`.
 | `test_at_the_policy_soc_the_battery_is_held_at_zero_not_asked_to_discharge` | SOC passed through; one charge 0 W |
 | `test_solar_comes_from_*` | solar from `west` + `east`, None when either is missing or not a number; `ff_w` in the step |
 | `test_net_demand_*`, `test_a_sample_waits_*`, `test_without_*seq*`, `test_a_new_sample_steps_on_one_still_waiting_first` | seq matching and 0.5 s wait |
+| `test_a_dropped_sample_is_logged_with_why` | `drop` record for an unreadable or implausible sample |
 | `test_every_fast_message_logs_a_step_enabled_or_not`, `test_a_step_that_waited_*`, `test_requests_and_responses_are_logged_raw`, `test_gaps_are_logged_*`, `test_log_entities_*`, `test_start_and_stop_*`, `test_the_start_record_and_the_loop_version_*`, `test_the_log_directory_can_be_set` | step log contents and paths |
 | `test_a_setting_switch_*` | switch restore, default, cfg log, group |
 | `test_a_saved_table_*`, `test_a_bad_saved_table_*`, `test_a_moved_table_*`, `test_a_stop_saves_*`, `test_the_forget_button_*`, `test_the_integral_sensor_carries_*` | learned table load, save, log cadence, forget, chart attribute |

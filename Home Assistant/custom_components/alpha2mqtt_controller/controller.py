@@ -428,8 +428,10 @@ class Controller:
             data = json.loads(msg.payload)
             raw_grid, battery = float(data[GRID_KEY]), float(data[BATTERY_KEY])
         except (ValueError, KeyError, TypeError):
+            self._log("drop", why="unreadable", p=msg.payload)
             return
         if not (_plausible(raw_grid, self._limit) and _plausible(battery, self._limit)):
+            self._log("drop", why="implausible", p=msg.payload)
             return
         seq = data.get("seq")
         if seq is not None and seq == self._sample_seq:
