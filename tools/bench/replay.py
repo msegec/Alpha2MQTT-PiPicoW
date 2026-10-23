@@ -10,7 +10,6 @@ battery. The policy is REGULATE with the CLI caps (default_max_w without them) a
 command is acked 0.1 s later as written the way it asked (power only or block), unless --fail-every or
 --timeout-every say otherwise; the controller's 1 s tick runs between samples. A regulator whose update_grid takes
 solar_w (or soc) gets the sample's solar (or SOC); one with update_load gets the logged load_w when there is one.
-See facts/bench.md.
 """
 
 from __future__ import annotations

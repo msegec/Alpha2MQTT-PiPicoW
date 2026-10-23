@@ -3,7 +3,7 @@ split by night, clear day and cloudy day.
 
     python3 -I tools/bench/score.py LOGS... [--from A --to B --exclude A..B] [--json]
 
-Definitions are in facts/bench.md; the constants below own the numbers.
+The constants below own the numbers.
 """
 
 from __future__ import annotations

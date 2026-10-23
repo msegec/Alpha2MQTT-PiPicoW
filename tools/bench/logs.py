@@ -1,6 +1,6 @@
 """Load controller step logs (alpha2mqtt.jsonl and its daily .gz files) into time-ordered records.
 
-Record contract: facts/steplog-and-response.md. Usage, to list the iterations in some logs:
+Usage, to list the iterations in some logs:
 
     python3 -I tools/bench/logs.py 'LOGDIR/alpha2mqtt.jsonl*'
 """
@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 # Battery loss in the logged grid estimate: a correction source that models inverter loss charges this share of
 # |battery| plus a fixed term at every reading, 0 W included. demand takes it off; a replay adds it back. A source
-# without a loss term wants --loss-share 0 --loss-w 0. See facts/bench.md.
+# without a loss term wants --loss-share 0 --loss-w 0.
 LOSS_SHARE = 0.15
 LOSS_W = 10.0
 GAP_S = 5.0  # consecutive samples are at most this far apart, and their seq differs by 1
